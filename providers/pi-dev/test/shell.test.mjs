@@ -50,6 +50,67 @@ test('relative cwd selects a directory below workspace', async () => {
   assert.match(result.output, /REPO/);
 });
 
+test('user Bash defaults to stable cwd and accepts relative or absolute cwd', async () => {
+  const defaultCwd = await tempDir('pi-user-bash-');
+  await fs.mkdir(path.join(defaultCwd, 'repo'));
+  const stateDir = await tempDir('pi-user-bash-state-');
+
+  const base = await runBash({
+    pathMode: 'user',
+    defaultCwd,
+    command: 'pwd',
+    maxOutputBytes: 1024 * 1024,
+    stateDir
+  });
+  assert.equal(base.cwd, await fs.realpath(defaultCwd));
+  assert.equal(base.output.trim(), await fs.realpath(defaultCwd));
+
+  const relative = await runBash({
+    pathMode: 'user',
+    defaultCwd,
+    cwd: 'repo',
+    command: 'pwd',
+    maxOutputBytes: 1024 * 1024,
+    stateDir
+  });
+  assert.equal(relative.cwd, await fs.realpath(path.join(defaultCwd, 'repo')));
+
+  const absolute = await runBash({
+    pathMode: 'user',
+    defaultCwd,
+    cwd: '/tmp',
+    command: 'pwd',
+    maxOutputBytes: 1024 * 1024,
+    stateDir
+  });
+  assert.equal(absolute.cwd, await fs.realpath('/tmp'));
+});
+
+test('user Bash does not persist cd state across one-shot calls', async () => {
+  const defaultCwd = await tempDir('pi-user-bash-immutable-');
+  await fs.mkdir(path.join(defaultCwd, 'repo'));
+  const stateDir = await tempDir('pi-user-bash-immutable-state-');
+
+  const changedInsideCall = await runBash({
+    pathMode: 'user',
+    defaultCwd,
+    command: 'cd repo && pwd',
+    maxOutputBytes: 1024 * 1024,
+    stateDir
+  });
+  assert.equal(changedInsideCall.output.trim(), await fs.realpath(path.join(defaultCwd, 'repo')));
+
+  const nextCall = await runBash({
+    pathMode: 'user',
+    defaultCwd,
+    command: 'pwd',
+    maxOutputBytes: 1024 * 1024,
+    stateDir
+  });
+  assert.equal(nextCall.cwd, await fs.realpath(defaultCwd));
+  assert.equal(nextCall.output.trim(), await fs.realpath(defaultCwd));
+});
+
 test('normal non-zero exit is returned as data', async () => {
   const workspaceRoot = await tempDir('pi-bash-exit-');
   const result = await runBash({

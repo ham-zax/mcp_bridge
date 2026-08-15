@@ -8,7 +8,7 @@ import {
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createLocalBashOperations } from '@earendil-works/pi-coding-agent';
-import { resolveWorkspaceCwd } from './boundary.mjs';
+import { resolveUserCwd, resolveWorkspaceCwd } from './boundary.mjs';
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
 const MAX_TIMEOUT_SECONDS = 300;
@@ -41,6 +41,8 @@ function decodeBoundedUtf8Tail(buffer, limit) {
 }
 
 export async function runBash({
+  pathMode = 'workspace',
+  defaultCwd,
   workspaceRoot,
   command,
   cwd,
@@ -57,7 +59,10 @@ export async function runBash({
     throw new Error('MCP_DEV_STATE_DIR must be an absolute path');
   }
 
-  const resolvedCwd = await resolveWorkspaceCwd(workspaceRoot, cwd);
+  let resolvedCwd;
+  if (pathMode === 'workspace') resolvedCwd = await resolveWorkspaceCwd(workspaceRoot, cwd);
+  else if (pathMode === 'user') resolvedCwd = await resolveUserCwd(defaultCwd, cwd);
+  else throw new Error('MCP_DEV_PATH_MODE must be workspace or user');
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   const spool = path.join(stateDir, `bash-${Date.now()}-${randomUUID()}.log`);
   const fd = openSync(spool, 'wx', 0o600);

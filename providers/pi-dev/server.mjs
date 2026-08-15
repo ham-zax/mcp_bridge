@@ -2,7 +2,7 @@ import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { canonicalWorkspaceRoot } from './boundary.mjs';
+import { canonicalDefaultCwd, canonicalWorkspaceRoot } from './boundary.mjs';
 import { runRead, runEdit, runWrite } from './files.mjs';
 import { runBash } from './shell.mjs';
 import { renderBashText, renderEditText, renderWriteText } from './render.mjs';
@@ -13,7 +13,22 @@ if (!['allowlist', 'unrestricted'].includes(mode)) {
   process.exit(2);
 }
 
-const workspaceRoot = await canonicalWorkspaceRoot(process.env.MCP_DEV_WORKSPACE_ROOT);
+const pathMode = process.env.MCP_DEV_PATH_MODE ?? 'workspace';
+if (!['workspace', 'user'].includes(pathMode)) {
+  console.error('MCP_DEV_PATH_MODE must be workspace or user');
+  process.exit(2);
+}
+
+let workspaceRoot = null;
+let defaultCwd = null;
+try {
+  if (pathMode === 'workspace') workspaceRoot = await canonicalWorkspaceRoot(process.env.MCP_DEV_WORKSPACE_ROOT);
+  else defaultCwd = await canonicalDefaultCwd(process.env.MCP_DEV_DEFAULT_CWD);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(2);
+}
+
 const stateDir = process.env.MCP_DEV_STATE_DIR;
 if (typeof stateDir !== 'string' || !path.isAbsolute(stateDir)) {
   console.error('MCP_DEV_STATE_DIR must be an absolute path');
@@ -27,7 +42,13 @@ if (!Number.isInteger(maxOutputBytes) || maxOutputBytes <= 0 || maxOutputBytes >
 }
 
 const server = new McpServer({ name: 'pi-dev', version: '0.1.0' });
-const relativePath = z.string().min(1).describe('Path relative to the configured workspace root');
+const modelPath = pathMode === 'user'
+  ? z.string().min(1).describe('Path; relative paths resolve from the configured default cwd and absolute paths are accepted')
+  : z.string().min(1).describe('Path relative to the configured workspace root');
+const cwdPath = pathMode === 'user'
+  ? z.string().min(1).describe('Optional cwd; relative paths resolve from the configured default cwd and absolute paths are accepted')
+  : z.string().min(1).describe('Optional cwd relative to the configured workspace root');
+const pathPolicy = { pathMode, workspaceRoot, defaultCwd };
 
 async function invoke(fn) {
   try {
@@ -41,14 +62,16 @@ async function invoke(fn) {
 }
 
 server.registerTool('read', {
-  description: 'Read source/text below the configured workspace root',
+  description: pathMode === 'user'
+    ? 'Read source/text available to the WSL user; relative paths use the configured default cwd and absolute paths are accepted'
+    : 'Read source/text below the configured workspace root',
   inputSchema: {
-    path: relativePath,
+    path: modelPath,
     offset: z.number().int().positive().optional(),
     limit: z.number().int().positive().optional()
   }
 }, async (args, extra) => invoke(async () => {
-  const result = await runRead({ workspaceRoot, ...args }, extra.signal);
+  const result = await runRead({ ...pathPolicy, ...args }, extra.signal);
   if (result.content.some(block => block.type !== 'text')) {
     throw new Error('dev.read supports text files only');
   }
@@ -56,35 +79,41 @@ server.registerTool('read', {
 }));
 
 server.registerTool('edit', {
-  description: 'Apply one or more exact, disjoint replacements below the workspace root',
+  description: pathMode === 'user'
+    ? 'Apply exact, disjoint replacements to a WSL-user-accessible text file; relative paths use the configured default cwd and absolute paths are accepted'
+    : 'Apply one or more exact, disjoint replacements below the workspace root',
   inputSchema: {
-    path: relativePath,
+    path: modelPath,
     edits: z.array(z.object({ oldText: z.string().min(1), newText: z.string() })).min(1)
   }
 }, async (args, extra) => invoke(async () => {
-  const result = await runEdit({ workspaceRoot, ...args }, extra.signal);
+  const result = await runEdit({ ...pathPolicy, ...args }, extra.signal);
   return { content: [{ type: 'text', text: renderEditText(args.path, result.details?.diff) }] };
 }));
 
 server.registerTool('write', {
-  description: 'Create a new text file below the workspace root; fails if it already exists',
-  inputSchema: { path: relativePath, content: z.string() }
+  description: pathMode === 'user'
+    ? 'Create a new WSL-user-accessible text file; relative paths use the configured default cwd and absolute paths are accepted; fails if it already exists'
+    : 'Create a new text file below the workspace root; fails if it already exists',
+  inputSchema: { path: modelPath, content: z.string() }
 }, async (args, extra) => invoke(async () => {
-  await runWrite({ workspaceRoot, ...args }, extra.signal);
+  await runWrite({ ...pathPolicy, ...args }, extra.signal);
   return { content: [{ type: 'text', text: renderWriteText(args.path) }] };
 }));
 
 if (mode === 'unrestricted') {
   server.registerTool('bash', {
-    description: 'Run one native Bash command string; cwd is optional and workspace-relative',
+    description: pathMode === 'user'
+      ? 'Run one native Bash command string; cwd defaults to the configured default cwd and may be relative to it or absolute'
+      : 'Run one native Bash command string; cwd is optional and workspace-relative',
     inputSchema: {
       command: z.string().min(1),
-      cwd: z.string().min(1).optional(),
+      cwd: cwdPath.optional(),
       timeout_seconds: z.number().positive().max(300).optional()
     }
   }, async (args, extra) => invoke(async () => {
     const result = await runBash({
-      workspaceRoot,
+      ...pathPolicy,
       ...args,
       maxOutputBytes,
       stateDir

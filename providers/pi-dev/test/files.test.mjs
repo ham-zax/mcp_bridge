@@ -18,6 +18,39 @@ test('read honors Pi offset and limit within workspace', async () => {
   assert.doesNotMatch(text, /four/);
 });
 
+test('user read resolves relative paths from default cwd and accepts harmless absolute paths', async () => {
+  const defaultCwd = await tempDir('pi-user-read-');
+  await fs.writeFile(path.join(defaultCwd, 'relative.txt'), 'relative\n');
+  const relative = await runRead({ pathMode: 'user', defaultCwd, path: 'relative.txt' });
+  const relativeText = relative.content.filter(x => x.type === 'text').map(x => x.text).join('\n');
+  assert.match(relativeText, /relative/);
+
+  const absolute = await runRead({ pathMode: 'user', defaultCwd, path: '/etc/os-release', limit: 2 });
+  const absoluteText = absolute.content.filter(x => x.type === 'text').map(x => x.text).join('\n');
+  assert.match(absoluteText, /(NAME|PRETTY_NAME)=/);
+});
+
+test('user edit and write keep exact-edit and create-only mutation safety', async () => {
+  const defaultCwd = await tempDir('pi-user-mutate-');
+  const existing = path.join(defaultCwd, 'existing.txt');
+  await fs.writeFile(existing, 'alpha\nbeta\n');
+  await runEdit({
+    pathMode: 'user',
+    defaultCwd,
+    path: 'existing.txt',
+    edits: [{ oldText: 'alpha', newText: 'ALPHA' }]
+  });
+  assert.equal(await fs.readFile(existing, 'utf8'), 'ALPHA\nbeta\n');
+
+  const created = path.join(defaultCwd, 'created.txt');
+  await runWrite({ pathMode: 'user', defaultCwd, path: created, content: 'first\n' });
+  await assert.rejects(
+    () => runWrite({ pathMode: 'user', defaultCwd, path: created, content: 'second\n' }),
+    /already exists|use edit/i
+  );
+  assert.equal(await fs.readFile(created, 'utf8'), 'first\n');
+});
+
 test('edit performs multiple exact disjoint replacements and returns a diff', async () => {
   const workspaceRoot = await tempDir('pi-edit-');
   await fs.mkdir(path.join(workspaceRoot, 'repo'));

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -16,11 +17,25 @@ async function fixture(mode = 'unrestricted', maxBytes = '1048576') {
   const stateDir = await tempDir('pi-dev-state-');
   const env = {
     MCP_DEV_SHELL_MODE: mode,
+    MCP_DEV_PATH_MODE: 'workspace',
     MCP_DEV_WORKSPACE_ROOT: workspaceRoot,
     MCP_DEV_STATE_DIR: stateDir,
     MCP_DEV_MAX_OUTPUT_BYTES: maxBytes
   };
   return { workspaceRoot, stateDir, env };
+}
+
+async function userFixture(maxBytes = '1048576') {
+  const defaultCwd = await tempDir('pi-dev-user-cwd-');
+  const stateDir = await tempDir('pi-dev-user-state-');
+  const env = {
+    MCP_DEV_SHELL_MODE: 'unrestricted',
+    MCP_DEV_PATH_MODE: 'user',
+    MCP_DEV_DEFAULT_CWD: defaultCwd,
+    MCP_DEV_STATE_DIR: stateDir,
+    MCP_DEV_MAX_OUTPUT_BYTES: maxBytes
+  };
+  return { defaultCwd, stateDir, env };
 }
 
 async function withClient(env, fn) {
@@ -41,6 +56,50 @@ function textOf(result) {
   assert.ok(result.content.every(block => block.type === 'text'));
   return result.content.map(block => block.text).join('\n');
 }
+
+async function runServerProcess(env) {
+  const child = spawn(process.execPath, [server], {
+    env: { ...process.env, ...env },
+    stdio: ['ignore', 'ignore', 'pipe']
+  });
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  const code = await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', resolve);
+  });
+  return { code, stderr };
+}
+
+test('path mode startup validation requires the matching authority root', async () => {
+  const stateDir = await tempDir('pi-dev-validation-state-');
+  const base = {
+    MCP_DEV_SHELL_MODE: 'unrestricted',
+    MCP_DEV_STATE_DIR: stateDir,
+    MCP_DEV_MAX_OUTPUT_BYTES: '1048576'
+  };
+
+  const invalid = await runServerProcess({ ...base, MCP_DEV_PATH_MODE: 'other' });
+  assert.equal(invalid.code, 2);
+  assert.match(invalid.stderr, /MCP_DEV_PATH_MODE.*workspace or user/i);
+
+  const missingWorkspace = await runServerProcess({
+    ...base,
+    MCP_DEV_PATH_MODE: 'workspace',
+    MCP_DEV_WORKSPACE_ROOT: ''
+  });
+  assert.equal(missingWorkspace.code, 2);
+  assert.match(missingWorkspace.stderr, /MCP_DEV_WORKSPACE_ROOT.*absolute path/i);
+
+  const missingDefault = await runServerProcess({
+    ...base,
+    MCP_DEV_PATH_MODE: 'user',
+    MCP_DEV_DEFAULT_CWD: ''
+  });
+  assert.equal(missingDefault.code, 2);
+  assert.match(missingDefault.stderr, /MCP_DEV_DEFAULT_CWD.*absolute path/i);
+});
 
 test('trusted-dev exposes four tools and minimal schemas', async () => {
   const { env } = await fixture('unrestricted');
@@ -63,6 +122,45 @@ test('restricted omits unrestricted Pi bash', async () => {
   await withClient(env, async client => {
     const listed = await client.listTools();
     assert.deepEqual(listed.tools.map(x => x.name).sort(), ['edit', 'read', 'write']);
+  });
+});
+
+test('personal user mode exposes the same four primitives with user-path descriptions', async () => {
+  const { env } = await userFixture();
+  await withClient(env, async client => {
+    const listed = await client.listTools();
+    assert.deepEqual(listed.tools.map(x => x.name).sort(), ['bash', 'edit', 'read', 'write']);
+    const read = listed.tools.find(x => x.name === 'read');
+    assert.match(read.description, /absolute paths.*accepted/i);
+    assert.match(read.inputSchema.properties.path.description, /relative.*default.*absolute/i);
+    const bash = listed.tools.find(x => x.name === 'bash');
+    assert.match(bash.description, /default cwd/i);
+    assert.match(bash.inputSchema.properties.cwd.description, /relative.*default.*absolute/i);
+  });
+});
+
+test('personal read accepts relative default-cwd paths and harmless absolute paths', async () => {
+  const { defaultCwd, env } = await userFixture();
+  await fs.writeFile(path.join(defaultCwd, 'relative.txt'), 'relative\n');
+  await withClient(env, async client => {
+    const relative = await client.callTool({ name: 'read', arguments: { path: 'relative.txt' } });
+    assert.match(textOf(relative), /relative/);
+    const absolute = await client.callTool({ name: 'read', arguments: { path: '/etc/os-release', limit: 2 } });
+    assert.equal(absolute.isError, undefined);
+    assert.match(textOf(absolute), /(NAME|PRETTY_NAME)=/);
+  });
+});
+
+test('personal bash uses stable default cwd and accepts relative or absolute cwd', async () => {
+  const { defaultCwd, env } = await userFixture();
+  await fs.mkdir(path.join(defaultCwd, 'repo'));
+  await withClient(env, async client => {
+    const base = await client.callTool({ name: 'bash', arguments: { command: 'pwd' } });
+    assert.equal(textOf(base).trim(), await fs.realpath(defaultCwd));
+    const relative = await client.callTool({ name: 'bash', arguments: { command: 'pwd', cwd: 'repo' } });
+    assert.equal(textOf(relative).trim(), await fs.realpath(path.join(defaultCwd, 'repo')));
+    const absolute = await client.callTool({ name: 'bash', arguments: { command: 'pwd', cwd: '/tmp' } });
+    assert.equal(textOf(absolute).trim(), await fs.realpath('/tmp'));
   });
 });
 
