@@ -129,4 +129,23 @@ GCF generic: NOT_MATERIAL
 GCF graph: DEFERRED_NO_GRAPH_PAYLOAD
 ```
 
-Final product composition for this correction phase remains the tracked Pi-backed `dev` design. The temporary generic filesystem/shell A/B providers are evaluation incumbents only and will be removed from the live deployment when Task 8 rerenders current product source.
+Final product composition for this correction phase remains the tracked Pi-backed `dev` design. The temporary generic filesystem/shell A/B providers were evaluation incumbents only.
+
+## Final deployment acceptance
+
+### Observed server/deployment facts
+
+- final source composition commit deployed: `7bf9c20` (`feat: confirm corrected native harness composition`);
+- temporary live A/B provider set before replacement: `dev`, `filesystem`, `shell`;
+- final rendered trusted-dev provider set: `dev` only;
+- final 1MCP direct discovery: 1 connected server, 4 tools (`read`, `edit`, `write`, `bash`), approximately 476 tokens by 1MCP's estimator;
+- local health: ready;
+- public health: ready;
+- bridge status: `issues: 0`;
+- durable inbound OAuth identities: 9 before, 9 after, empty filename-set diff;
+- the temporary `evaluation-ab.json` marker was archived with raw correction evidence and removed from active state;
+- a retained real ChatGPT-path `dev.bash` smoke returned `final-dev-ok` after the final deployment.
+
+### Client catalog acceptance
+
+ChatGPT client acceptance passed after the final deployment: the visible provider group is `Dev1`/`dev`, and the visible actions are exactly `Write`, `Bash`, `Read`, and `Edit`. This matches direct 1MCP discovery of one connected `dev` server with exactly four tools (`write`, `bash`, `read`, `edit`). No legacy filesystem/shell or CodeDB actions remain visible in the refreshed client catalog.
