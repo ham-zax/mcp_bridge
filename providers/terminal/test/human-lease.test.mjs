@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -9,6 +11,9 @@ import {
   startBroker,
   waitFor,
 } from './helpers.mjs';
+
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..');
+const WSL_TERM = path.join(REPO_ROOT, 'bin', 'wsl-term');
 
 function request(id, op, params = {}) {
   return { id, op, params };
@@ -27,11 +32,10 @@ function tmuxClients(socketPath) {
   });
 }
 
-function spawnTmuxAttach(t, sandbox, name) {
-  const command = `exec tmux -N -S '${sandbox.socketPath}' attach-session -t '${name}'`;
+function spawnPseudoTtyCommand(t, command, env) {
   const child = spawn('script', ['-q', '-e', '-c', command, '/dev/null'], {
     detached: true,
-    env: { ...process.env, TERM: process.env.TERM || 'xterm-256color' },
+    env: { ...process.env, ...env, TERM: process.env.TERM || 'xterm-256color' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   t.after(async () => {
@@ -42,6 +46,38 @@ function spawnTmuxAttach(t, sandbox, name) {
   });
   return child;
 }
+
+function spawnTmuxAttach(t, sandbox, name) {
+  const command = `exec tmux -N -S '${sandbox.socketPath}' attach-session -t '${name}'`;
+  return spawnPseudoTtyCommand(t, command, {});
+}
+
+function spawnWslTermAttach(t, sandbox, name) {
+  const command = `exec '${WSL_TERM}' attach '${name}'`;
+  return spawnPseudoTtyCommand(t, command, sandbox.env);
+}
+
+function findWslTermPid(name) {
+  const result = spawnSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const suffix = `providers/terminal/cli.mjs attach ${name}`;
+  const line = result.stdout.split('\n').find((item) => item.includes(suffix));
+  return line ? Number(line.trim().split(/\s+/, 1)[0]) : null;
+}
+
+async function collectStateText(root) {
+  const chunks = [];
+  async function visit(dir) {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) await visit(full);
+      else if (entry.isFile()) chunks.push(await readFile(full));
+    }
+  }
+  await visit(root);
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 
 test('broker enforces human ownership below model write paths while read and list stay available', async (t) => {
   const sandbox = await makeSandbox(t);
@@ -200,4 +236,135 @@ test('bound lease that never becomes a real tmux client expires after attach gra
     name: 'grace-human', text: 'after grace',
   }));
   assert.equal(restored.ok, true, JSON.stringify(restored));
+});
+
+test('wsl-term exact-PTY attach blocks model mutation, keeps reads available, and restores writes after detach', async (t) => {
+  const sandbox = await makeSandbox(t);
+  await startBroker(t, sandbox);
+  const opened = await brokerRequest(sandbox.brokerSocket, request('cli-attach-open', 'session.open', {
+    name: 'cli-attach', command: "printf 'WSL_TERM_READABLE\\n'; exec cat",
+  }));
+  assert.equal(opened.ok, true, JSON.stringify(opened));
+
+  const attach = spawnWslTermAttach(t, sandbox, 'cli-attach');
+  let actualClient;
+  await waitFor(async () => {
+    actualClient = tmuxClients(sandbox.socketPath).find((client) => client.session === 'cli-attach');
+    if (!actualClient) return false;
+    const listed = await brokerRequest(sandbox.brokerSocket, request('cli-attach-list', 'session.list'));
+    return listed.ok && listed.result.sessions.find((session) => session.name === 'cli-attach')?.humanLease === true;
+  }, { description: 'wsl-term human control' });
+
+  for (const [id, op, params] of [
+    ['cli-block-send', 'session.send', { name: 'cli-attach', text: 'blocked' }],
+    ['cli-block-resize', 'session.resize', { name: 'cli-attach', cols: 92, rows: 32 }],
+    ['cli-block-close', 'session.close', { name: 'cli-attach' }],
+  ]) {
+    const response = await brokerRequest(sandbox.brokerSocket, request(id, op, params));
+    assert.equal(response.ok, false, `${op}: ${JSON.stringify(response)}`);
+    assert.equal(response.error.code, 'HUMAN_HAS_CONTROL');
+  }
+
+  let read;
+  await waitFor(async () => {
+    const response = await brokerRequest(sandbox.brokerSocket, request('cli-read-during-human', 'session.read', {
+      name: 'cli-attach', cursor: 0, maxBytes: 65536,
+    }));
+    if (!response.ok || !response.result.text.includes('WSL_TERM_READABLE')) return false;
+    read = response;
+    return true;
+  }, { description: 'model read during wsl-term attach' });
+  assert.equal(read.ok, true);
+
+  const detached = spawnSync('tmux', [
+    '-N', '-S', sandbox.socketPath, 'detach-client', '-t', actualClient.tty,
+  ], { encoding: 'utf8' });
+  assert.equal(detached.status, 0, detached.stderr);
+  await waitFor(() => tmuxClients(sandbox.socketPath).every((client) => client.session !== 'cli-attach'), {
+    description: 'wsl-term tmux client detach',
+  });
+  await onceExit(attach);
+
+  const restored = await brokerRequest(sandbox.brokerSocket, request('cli-restored-send', 'session.send', {
+    name: 'cli-attach', text: 'restored after detach',
+  }));
+  assert.equal(restored.ok, true, JSON.stringify(restored));
+});
+
+test('crashed wsl-term wrapper cannot leave a stale permanent human lock', async (t) => {
+  const sandbox = await makeSandbox(t);
+  await startBroker(t, sandbox);
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('crash-open', 'session.open', {
+    name: 'cli-crash', command: 'cat',
+  }))).ok, true);
+
+  const attach = spawnWslTermAttach(t, sandbox, 'cli-crash');
+  let actualClient;
+  let cliPid;
+  await waitFor(async () => {
+    const listed = await brokerRequest(sandbox.brokerSocket, request('crash-list', 'session.list'));
+    actualClient = tmuxClients(sandbox.socketPath).find((client) => client.session === 'cli-crash');
+    cliPid = findWslTermPid('cli-crash');
+    return listed.ok
+      && listed.result.sessions.find((session) => session.name === 'cli-crash')?.humanLease === true
+      && Boolean(actualClient)
+      && Number.isInteger(cliPid);
+  }, { description: 'wsl-term attached before crash' });
+
+  process.kill(cliPid, 'SIGKILL');
+  try { process.kill(actualClient.pid, 'SIGKILL'); } catch (error) {
+    if (error?.code !== 'ESRCH') throw error;
+  }
+  await onceExit(attach).catch(() => {});
+  await waitFor(() => tmuxClients(sandbox.socketPath).every((client) => client.session !== 'cli-crash'), {
+    description: 'tmux client gone after wrapper crash',
+  });
+
+  const restored = await brokerRequest(sandbox.brokerSocket, request('crash-restored', 'session.send', {
+    name: 'cli-crash', text: 'write after crashed attach',
+  }));
+  assert.equal(restored.ok, true, JSON.stringify(restored));
+});
+
+test('human secret typed through wsl-term is not copied into Terminal state or broker logs', async (t) => {
+  const sandbox = await makeSandbox(t);
+  const broker = await startBroker(t, sandbox);
+  const secret = `SUDO_STYLE_SECRET_${process.pid}_${Date.now()}`;
+  const opened = await brokerRequest(sandbox.brokerSocket, request('secret-open', 'session.open', {
+    name: 'cli-secret',
+    command: "stty -echo; printf 'PASSWORD_PROMPT\\n'; IFS= read -r secret; stty echo; printf '\\nSECRET_ACCEPTED\\n'; exec cat",
+  }));
+  assert.equal(opened.ok, true, JSON.stringify(opened));
+
+  const attach = spawnWslTermAttach(t, sandbox, 'cli-secret');
+  let actualClient;
+  await waitFor(async () => {
+    actualClient = tmuxClients(sandbox.socketPath).find((client) => client.session === 'cli-secret');
+    if (!actualClient) return false;
+    const response = await brokerRequest(sandbox.brokerSocket, request('secret-prompt', 'session.read', {
+      name: 'cli-secret', cursor: 0, maxBytes: 65536,
+    }));
+    return response.ok && response.result.text.includes('PASSWORD_PROMPT');
+  }, { description: 'no-echo password prompt' });
+
+  attach.stdin.write(`${secret}\n`);
+  let finalTranscript;
+  await waitFor(async () => {
+    const response = await brokerRequest(sandbox.brokerSocket, request('secret-result', 'session.read', {
+      name: 'cli-secret', cursor: 0, maxBytes: 65536,
+    }));
+    if (!response.ok || !response.result.text.includes('SECRET_ACCEPTED')) return false;
+    finalTranscript = response.result.text;
+    return true;
+  }, { description: 'secret acceptance marker' });
+
+  assert.doesNotMatch(finalTranscript, new RegExp(secret));
+  assert.doesNotMatch(await collectStateText(sandbox.stateRoot), new RegExp(secret));
+  assert.doesNotMatch(Buffer.concat(broker.testStderr).toString('utf8'), new RegExp(secret));
+
+  const detached = spawnSync('tmux', [
+    '-N', '-S', sandbox.socketPath, 'detach-client', '-t', actualClient.tty,
+  ], { encoding: 'utf8' });
+  assert.equal(detached.status, 0, detached.stderr);
+  await onceExit(attach);
 });

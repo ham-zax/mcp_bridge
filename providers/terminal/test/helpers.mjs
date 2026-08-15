@@ -51,6 +51,7 @@ export async function startBroker(t, sandbox) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const stderr = [];
+  child.testStderr = stderr;
   child.stderr.on('data', (chunk) => stderr.push(chunk));
   await waitFor(async () => {
     try {
@@ -135,9 +136,11 @@ export function processExists(pid) {
 }
 
 export async function onceExit(child) {
-  if (child.exitCode !== null) return child.exitCode;
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return child.exitCode ?? child.signalCode;
+  }
   return new Promise((resolve, reject) => {
-    child.once('exit', (code) => resolve(code));
+    child.once('exit', (code, signal) => resolve(code ?? signal));
     child.once('error', reject);
   });
 }
