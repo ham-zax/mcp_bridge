@@ -88,7 +88,7 @@ For Route B, Cloudflare Tunnel exposes the endpoint over HTTPS:
 
 Route B makes the endpoint **publicly reachable** while the tunnel runs, and the tool inventory includes filesystem write + shell execution. That is a real change of risk posture versus Route A (outbound polling, endpoint never exposed). Mitigations, in order of preference:
 
-1. **1MCP OAuth (`--enable-auth --external-url https://<tunnel>`)** — ChatGPT's Scan Tools flow supports OAuth ("if your server uses OAuth, complete the authorization prompt"), but per the help article the provider must advertise refresh tokens (`offline_access` in discovery metadata) or ChatGPT loses access after token expiry. Verify 1MCP's metadata before relying on it.
+1. **1MCP OAuth (`--enable-auth --external-url https://<tunnel>`)** — ChatGPT's Scan Tools flow supports OAuth ("if your server uses OAuth, complete the authorization prompt"). In `1MCP` v0.34.4, the consent page CSP requires patching `form-action 'self'` to `form-action 'self' https:;` in `@1mcp/agent/build/auth/sdkOAuthServerProvider.js` so browsers permit the `302` redirect back to `chatgpt.com` (handled automatically in `scripts/setup.sh`). Verify 1MCP advertises `refresh_token` in metadata.
 2. **Ephemeral windows + random URL** (Quick Tunnel): tunnel only up while working, down after. This is *not authentication* — treat it as the baseline discipline, not the guarantee.
 3. **Skip tunnel-level SSO** (Cloudflare Access, ngrok OAuth): those protect browser sessions, not server-side MCP clients like ChatGPT's — they cannot complete an interactive login. Don't invest there.
 4. **Route A remains the "never public" option** — same 1MCP stack, `scripts/start.sh`, no exposure at all. Sections 4–7 below.

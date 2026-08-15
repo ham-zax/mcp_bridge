@@ -6,6 +6,13 @@ cd "$DIR"
 echo "== installing 1MCP (aggregator) =="
 npm install -g @1mcp/agent
 
+echo "== applying upstream 1MCP patches =="
+SDK_PROVIDER="$(npm root -g)/@1mcp/agent/build/auth/sdkOAuthServerProvider.js"
+if [ -f "$SDK_PROVIDER" ]; then
+  sed -i "s/form-action 'self'/form-action 'self' https:/g" "$SDK_PROVIDER"
+  echo "  patched OAuth consent CSP (form-action https:) in $SDK_PROVIDER"
+fi
+
 echo "== verifying tool-provider prerequisites =="
 command -v npx >/dev/null || { echo "npx missing"; exit 1; }
 uv --version >/dev/null 2>&1 || { echo "uv missing (mcp-shell-server runs via uvx)"; exit 1; }

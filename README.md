@@ -52,17 +52,23 @@ scripts/stop.sh         # stop both
 
 Admin UIs: 1MCP at `http://127.0.0.1:3050` health endpoints; tunnel-client admin UI at `http://127.0.0.1:8080/ui`, `/healthz`, `/readyz`.
 
-## Known issue: 1MCP `serve --background` (v0.34.4)
+## Known issues: 1MCP (v0.34.4)
 
+### 1. `serve --background` npm shim bug
 `1mcp serve --background` fails on npm-global installs with `Error: background runtime did not become ready (background process exited before becoming ready)` and no log file. Root cause: `resolveSelfInvocation()` keys off `argv[1]` ending in `.js`; the npm bin shim `~/.nvm/.../bin/1mcp` is extensionless, so the supervisor re-spawns `node serve --transport ...` (a nonexistent script) and the child dies instantly.
 
-Workaround (what `scripts/start.sh` does): invoke the real entry explicitly —
-
+Workaround (what `scripts/start.sh` and `scripts/tunnel-up.sh` do): invoke the real entry explicitly —
 ```bash
 node "$(npm root -g)/@1mcp/agent/build/index.js" serve --background --config-dir <scope>
 ```
 
-Everything else (foreground `serve`, `--status`, `--stop`, CLI mode) is unaffected. Revisit when 1MCP releases a fix.
+### 2. OAuth Consent Page CSP redirect block
+In `1MCP` v0.34.4, the OAuth consent page sends `Content-Security-Policy: ... form-action 'self'; ...`. Per W3C CSP Level 3, browsers enforce `form-action` on HTTP `302` redirects following form submissions. Because the redirect target (`https://chatgpt.com/connector/oauth/...`) is on a different domain, browsers block navigation, leaving the user stuck on the consent page after clicking "Approve".
+
+Workaround (applied in `scripts/setup.sh`): patch `form-action 'self'` to `form-action 'self' https:;` in `@1mcp/agent/build/auth/sdkOAuthServerProvider.js`:
+```bash
+sed -i "s/form-action 'self'/form-action 'self' https:/g" "$(npm root -g)/@1mcp/agent/build/auth/sdkOAuthServerProvider.js"
+```
 
 ## Docs
 
