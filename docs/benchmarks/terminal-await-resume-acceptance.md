@@ -2,8 +2,9 @@
 
 Date: 2026-08-16
 Branch: `feat/personal-harness-agent-3-await-implementation`
-Implementation checkpoint entering qualification: `8c4715a8b5dc219ac32787ec860782871a310fd8`
-Scope: focused-plan Task 6 local qualification only. Focused-plan Task 7, live bridge activation, and ChatGPT Actions refresh were **not run**.
+Original implementation checkpoint entering qualification: `8c4715a8b5dc219ac32787ec860782871a310fd8`
+Independent-review blocker fixes: `2fa0e8196ba7a8ad6ef263f89b5a014636eb36d9` (systemd resumability/environment/abort) and `46f62b08c22359d318940b56acd7833c9315c2c6` (crash-safe per-name locking).
+Scope: focused-plan Task 6 local qualification and blocker requalification only. Focused-plan Task 7, live bridge activation, and ChatGPT Actions refresh were **not run**.
 
 ```text
 WAIT_BOUNDARY                 SPLIT_LAYER
@@ -45,12 +46,12 @@ node --test .superpowers/web/2026-08-16-terminal-await-resume/qualify-task6.test
 Result:
 
 ```text
-6 tests
-6 pass
+7 tests
+7 pass
 0 fail
 ```
 
-The six cases exercised the actual stdio personal `wait` tool plus disposable Terminal/local resources, not only direct source methods.
+The seven cases exercised the actual stdio personal `wait` tool plus disposable Terminal/local resources, not only direct source methods.
 
 ## 1. Race-safe Terminal output and independent model cursor
 
@@ -68,7 +69,7 @@ terminal_read -> empty
 Captured evidence:
 
 ```text
-generation                    ab64e6f8-dffd-4954-98e7-bcb1524bc1c8
+generation                    91e76131-51bc-4461-9306-9f2e8fcd3135
 wait cursor at arm            0
 wait cursor after match       22
 model cursor after wait       0
@@ -84,17 +85,17 @@ A named output wait was armed against `task8-broker-restart`, then only the brok
 Captured evidence:
 
 ```text
-broker PID before             3312964
-broker PID after              3313033
+broker PID before             3337209
+broker PID after              3337284
 
-tmux PID before               3312958
-tmux PID after                3312958
+tmux PID before               3337206
+tmux PID after                3337206
 
-pane PID before               3312980
-pane PID after                3312980
+pane PID before               3337225
+pane PID after                3337225
 
-generation before             323589ee-452e-428a-8a48-06b1c7a4032f
-generation after              323589ee-452e-428a-8a48-06b1c7a4032f
+generation before             f78e7013-bd1b-46d1-bb79-cfffb853f19a
+generation after              f78e7013-bd1b-46d1-bb79-cfffb853f19a
 
 wait cursor before            0
 wait cursor after restart     0
@@ -145,7 +146,7 @@ timeout                 -> durable wait becomes timeout
 
 For the aborted Terminal output wait, the same tmux pane PID remained alive after cancellation. For explicit cancel and timeout of `process_exit(pid)`, the observed long-lived process remained alive and was never signaled by the wait implementation.
 
-The earlier Task-2 lock regressions remain part of the full Pi suite and cover cancellation while queued for the same-name lock plus the 250 ms `WAIT_BUSY` contention bound.
+The lock boundary was requalified after independent review with separate Node processes. Ownership is now a per-name Linux abstract Unix socket bind keyed by uid + canonical waits root + wait name. A live owner produces bounded `WAIT_BUSY`; SIGKILL releases ownership through the kernel; five two-contender crash-recovery rounds observed maximum same-name protected-callback concurrency of exactly 1; different names entered concurrently; a canceled process never entered after release; and legacy stale lock metadata naming an unrelated live PID could not block acquisition. PID identity is no longer part of wait-lock ownership.
 
 ## 5. First-phase local condition matrix
 
@@ -160,7 +161,9 @@ All first-phase generic condition kinds passed against disposable fixtures throu
 | `http_ready` | local HTTP server transitions `503 -> 204` | PASS |
 | `systemd_user` | transient user service with `RemainAfterExit=yes` reaches `active` | PASS |
 
-The connector process itself omitted `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS`, although `/run/user/1000/bus` and the user systemd manager were present. The qualification harness supplied the existing user-bus environment explicitly. With that normal user-service environment, both `systemd-run --user` and the provider's `systemctl --user show` check passed. No production system service or privileged service was used.
+The disposable personal Pi provider was deliberately launched with both `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` absent, matching the observed ChatGPT connector environment. `LocalWaitSources` internally derived `/run/user/<uid>` and `unix:path=/run/user/<uid>/bus` only for the `systemctl` subprocess, and the real transient user unit matched `active/exited`. The harness used explicit user-bus values only for its external `systemd-run` setup/cleanup commands; the provider itself did not receive them.
+
+A second real-path regression launched the first provider with an explicitly broken `DBUS_SESSION_BUS_ADDRESS`. The call returned `WAIT_SOURCE_UNAVAILABLE`, while the durable record remained `pending` with its original deadline and baseline. A replacement provider with both user-bus variables absent resumed the same wait name and matched the already-active unit through the internally derived bus environment. `systemctl` probes are bounded to 2 seconds and receive the current request `AbortSignal`; a separate real-child regression proved abort terminates the in-flight subprocess and maps to `WAIT_ABORTED`.
 
 ## 6. Transcript rotation and same-name incarnation safety
 
@@ -184,6 +187,8 @@ model.read new incarnation -> NEW_SESSION_MARKER only
 ```
 
 The replacement generation never satisfied the old wait, and the new model read did not replay `OLD_SESSION_MARKER`.
+
+**Post-Task-8 retention debt:** each same-name Terminal generation currently keeps its prior `sessions/<name>/incarnations/<generation>/` directory. This mission does not delete those directories because immediate recursive cleanup previously raced the retiring tmux `pipe-pane` writer. Old incarnations are isolated from new model/wait cursors and cannot replay into the replacement session, but a later bounded retention/GC design should reclaim them safely after writer quiescence. This is recorded as cleanup debt, not a live-activation blocker for the current Task-8 wait mission.
 
 ## 7. Personal schema measurement
 
@@ -306,12 +311,12 @@ WAIT_SCHEMA_VALUE_GATE = PASS
 
 This verdict is local/offline context evidence, not a claim about hidden ChatGPT billing. Focused-plan Task 7 must still confirm that the product-visible refreshed catalog matches the locally measured schema before live acceptance.
 
-## Task-5/full regression gates carried into local acceptance
+## Final local regression gates after independent-review blockers
 
-Immediately before the Task-5 commit:
+After both blocker fixes and the real no-user-bus requalification:
 
 ```text
-Pi provider               134 / 134 PASS
+Pi provider               142 / 142 PASS
 Terminal                  42 / 42 PASS
 harness                    6 / 6 PASS
 publication               16 / 16 PASS
@@ -321,7 +326,7 @@ Bash syntax                        PASS
 git diff --check                  PASS
 ```
 
-One pre-existing patch concurrency assertion produced an alternate safe conflict diagnostic on the first full Pi run. No patch production or test file was changed by Task 8. The exact focused concurrency case then passed 3/3 reruns and the complete Pi suite passed 134/134 on the required retry, so no unrelated patch change was made.
+The model-facing catalog remained byte-for-byte identical to the Task-5 post-wait capture at 5,293 bytes / 1,213 `o200k_base` tokens. The blocker fixes added no MCP field or tool. The ~30-second schema-value workflow was rerun and again measured 1,947 tokens for manual polling versus 1,357 for named wait, preserving the 590-token local savings and `WAIT_SCHEMA_VALUE_GATE=PASS`.
 
 ## Product gate
 

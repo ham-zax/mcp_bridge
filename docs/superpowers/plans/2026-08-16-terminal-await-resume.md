@@ -196,8 +196,8 @@ Expected: all Terminal tests pass and the public Terminal MCP catalog remains ex
 - Create: `providers/pi-dev/test/wait-engine.test.mjs`
 
 **Interfaces:**
-- `WaitStore({ stateDir })` persists `$stateDir/waits/<name>.json` plus per-name lock files.
-- `WaitStore.withLock(name, fn, { signal, maxWaitMs })` is cross-process, abort-aware, and never lets a canceled queued waiter enter later.
+- `WaitStore({ stateDir })` persists `$stateDir/waits/<name>.json`; cross-process ownership uses a per-name Linux abstract Unix socket bind keyed by uid + canonical waits root + wait name, not a reclaimable lock file.
+- `WaitStore.withLock(name, fn, { signal, maxWaitMs })` is cross-process, abort-aware, kernel-released on process death, and never lets a canceled queued waiter enter later.
 - `WaitEngine({ store, sources, now?, sleep? }).run(args, signal)` -> `{ status, name, text/evidence fields }`.
 - Wait statuses: `pending | matched | timeout | cancelled | failed`.
 - Named create is idempotent only for an identical normalized definition; conflicting redefinition returns `WAIT_CONFLICT`.
@@ -226,7 +226,7 @@ test('wait store writes versioned private state atomically', async (t) => {
 });
 ```
 
-Also test invalid names, corrupt JSON, and two concurrent writers to the same name serialize through a filesystem lock.
+Also test invalid names, corrupt JSON, and two concurrent writers to the same name serialize through the kernel-backed per-name lock. Cross-process regressions must cover owner death, two recovery contenders, different-name concurrency, cancellation, and legacy stale lock metadata whose PID may now belong to an unrelated live process.
 
 Add the cancellation regression analogous to the Files coordinator bug already found in Phase 2:
 
@@ -258,10 +258,11 @@ Requirements:
 root          $MCP_DEV_STATE_DIR/waits, mode 0700
 state file    <name>.json, mode 0600
 write         temp wx -> fsync/close -> rename -> chmod
-lock          per-name wx lock containing pid + createdAtMs
+lock          per-name Linux abstract Unix socket bind keyed by uid + canonical waits root + name
 acquisition   AbortSignal-aware; canceled waiter never enters later
 contention    250 ms maximum arbitration -> WAIT_BUSY, not an extra long MCP wait
-stale lock    recover when owner PID is gone; bounded lock acquisition
+owner death   kernel releases the abstract socket; no stale-path unlink or PID ownership inference
+migration     legacy $stateDir/waits/.locks files are ignored and cannot block ownership
 retention     completed records retained 24 hours
 ```
 
@@ -522,8 +523,11 @@ systemd:
 unit validation ^[A-Za-z0-9@_.:-]{1,256}$
 state enum active|inactive|failed, default active
 systemctl --user show only
+subprocess environment preserves explicit values; when absent derive XDG_RUNTIME_DIR=/run/user/<uid> and DBUS_SESSION_BUS_ADDRESS=unix:path=<runtime>/bus
+2-second subprocess timeout; request AbortSignal is passed to execFile
+request abort -> WAIT_ABORTED
 state mismatch -> pending
-command/bus unavailability -> WAIT_SOURCE_UNAVAILABLE
+command/bus unavailability -> transient WAIT_SOURCE_UNAVAILABLE; durable named wait remains pending for later resume
 ```
 
 - [ ] **Step 7: Run all local-source tests and commit**

@@ -615,7 +615,9 @@ Requirements:
 - directory mode `0700`;
 - file mode `0600`;
 - atomic temp-file + rename writes;
-- per-name cross-process lock with abort-aware acquisition;
+- per-name cross-process lock uses a Linux abstract Unix socket bind keyed by uid + canonical waits root + wait name;
+- kernel socket ownership releases automatically when the provider process dies, so no stale-path unlink or PID ownership inference is part of recovery;
+- legacy `$MCP_DEV_STATE_DIR/waits/.locks/*` files from the pre-review implementation are ignored and cannot block a new owner;
 - lock contention must fast-fail within a 250 ms arbitration window rather than extending one MCP call beyond its configured hold budget;
 - canceled lock waiters never enter the protected state machine later;
 - versioned state schema;
@@ -662,6 +664,8 @@ Invalid schemas fail at MCP validation before polling begins.
 
 Condition-specific probe failures that mean "not ready yet" are not errors. For example connection refused, a missing file under `file_exists`, HTTP non-ready status, and a systemd state mismatch leave the wait pending.
 
+`WAIT_SOURCE_UNAVAILABLE` is transient source availability, not a durable terminal wait status. The current MCP call returns the error before the engine persists a terminal transition; the named wait keeps its original `pending` state, deadline, and baseline so a later resume retries the same source identity.
+
 ## Generic condition semantics in detail
 
 ### TCP
@@ -678,7 +682,9 @@ The first API is deliberately credential-free. No custom headers, cookies, reque
 
 ### systemd
 
-Only the user manager is queried. The tool never starts/stops/restarts a unit. `systemctl --user show` is invoked as an argument array.
+Only the user manager is queried. The tool never starts/stops/restarts a unit. `systemctl --user show` is invoked as an argument array with a 2-second subprocess timeout and the current wait request's `AbortSignal`.
+
+The subprocess receives a cloned environment only; the provider never mutates `process.env`. Explicit non-empty `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` values are preserved. When absent, the WSL/Linux user-manager defaults are derived as `XDG_RUNTIME_DIR=/run/user/<uid>` and `DBUS_SESSION_BUS_ADDRESS=unix:path=<XDG_RUNTIME_DIR>/bus`. Request cancellation maps to `WAIT_ABORTED`; command/bus/timeout failures map to transient `WAIT_SOURCE_UNAVAILABLE` while durable wait state remains pending.
 
 ### PID
 
