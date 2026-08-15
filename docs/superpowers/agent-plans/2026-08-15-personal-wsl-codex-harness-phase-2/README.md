@@ -11,7 +11,8 @@ The original Wave-1 split below is retained as execution history. The authoritat
 ```text
 INTEGRATION BRANCH
 feat/personal-harness-wave1-integration
-current assembled head: ed67415
+implementation/evidence milestone: ed67415
+planning docs are synchronized above that milestone
 combined automated gate: PASS after installing pinned code-router dependencies
 
 COMPLETE / INTEGRATED
@@ -196,7 +197,7 @@ Task 6.5 is intentionally read-only with respect to production `providers/termin
 
 ## Current integration and decision gates
 
-The completed task commits have been assembled on `feat/personal-harness-wave1-integration` through `ed67415`. The combined automated gate is green after installing the Code provider's pinned dependencies in that worktree.
+The completed task commits have been assembled on `feat/personal-harness-wave1-integration`; `ed67415` is the stable implementation/evidence milestone before planning-doc synchronization. The combined automated gate is green after installing the Code provider's pinned dependencies in that worktree.
 
 Current decisions:
 

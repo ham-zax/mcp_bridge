@@ -61,10 +61,10 @@ Current assembled integration branch:
 
 ```text
 feat/personal-harness-wave1-integration
-head after current evidence integration: ed67415
+implementation/evidence milestone before planning-doc sync: ed67415
 ```
 
-The source task branches remain intact for provenance. Do not squash them yet; squash/rewrite history only at the final merge boundary after the remaining production surfaces pass live acceptance.
+Planning commits are synchronized on top of that milestone, so do not encode the docs-only tip SHA as an architectural dependency. The source task branches remain intact for provenance. Do not squash them yet; squash/rewrite history only at the final merge boundary after the remaining production surfaces pass live acceptance.
 
 ---
 
