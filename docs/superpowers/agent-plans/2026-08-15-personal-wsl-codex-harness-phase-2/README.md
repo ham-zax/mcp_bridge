@@ -11,24 +11,33 @@ The original Wave-1 split below is retained as execution history. The authoritat
 ```text
 INTEGRATION BRANCH
 feat/personal-harness-wave1-integration
-combined local implementation/evidence milestone before final status-doc sync: a619da3
+accepted live Task-7 / Files-Code-Terminal milestone: 6d7e76c2812947cc2f9dab2c0616373efb80c85e
 combined automated gate: PASS
+live Task-7 product gate: TERMINAL_ACCEPTED
 
 COMPLETE / INTEGRATED
 Tasks 1-6.6 personal Files/Bash + apply_patch + toolbox + durable tmux/broker foundation
-Task 7      LOCAL_IMPLEMENTATION_COMPLETE + LOCAL_ACCEPTANCE_COMPLETE; REAL_CHATGPT_ACCEPTANCE_PENDING
+Task 7      COMPLETE + LIVE_ACCEPTED; real ChatGPT verdict TERMINAL_ACCEPTED
 Tasks 9-10 rooted CodeDB router + code_search / code_context / code_symbol facade
 Task 11     RTK decision -> no harness integration; explicit helper only
 Task 12     concurrency trigger evidence retained
 Task 12.5   SAME_PATH_ATOMICITY_FIXED + CANCELLATION_SAFETY_FIXED; MODEL_VISIBLE_HASH_NEEDED = NO
 Task 13     FINAL: FORMAT_TRIGGER_NOT_FIRED; production codec work NONE
 
+TASK 8 DESIGN
+SPLIT_LAYER
+one personal wait(...) action preferred
+independent durable Terminal wait cursor
+coding-agent lifecycle DEFERRED_WITH_TRIGGER
+schema/context value gate required before product activation
+implementation not started
+
 NEXT FRONTIER
-rollback bundle preparation
--> live bridge activation
--> Actions Refresh
--> fresh ChatGPT Terminal acceptance
--> Task 8 evidence-driven await/resume decision
+Task 8 implementation on a fresh worktree
+-> local restart/cancellation/schema-value qualification
+-> fresh rollback anchor of the accepted Task-7 live system
+-> Task-8 live activation + Actions Refresh
+-> real ChatGPT wait/resume acceptance
 -> final consolidation / Task 14
 ```
 
@@ -70,8 +79,8 @@ Task 7 may proceed as written                  focused design amendment first
 In parallel:
 Agent 2 -> Task 4 apply_patch, based on Agent-1 foundation contract.
 
-The Task-6.5 Herdr verdict is complete. Task 8 await/resume now remains blocked only on real Task-7 ChatGPT product-path Terminal evidence after rollback-gated live activation.
-Tasks 9-10 Code router/facade open after the integration gate in a fresh mission.
+The Task-6.5 Herdr verdict is complete and Task 7 subsequently passed the real ChatGPT product path. Task 8 is no longer blocked on evidence: its focused design/implementation plan is coordinator-reviewed and ready for implementation. Herdr lifecycle behavior remains reference evidence only.
+Tasks 9-10 Code router/facade are complete.
 Task 11 RTK remains independent after raw Bash stays proven.
 Tasks 12-14 are final evidence/consolidation work.
 ```
@@ -192,7 +201,7 @@ Task 6.5 is intentionally read-only with respect to production `providers/termin
 
 ## Current integration and decision gates
 
-The combined local Phase-2 harness through Task 7, Task 12.5 cancellation safety, and the final Task 13 format audit is assembled on `feat/personal-harness-wave1-integration`. The complete local automated gate is green. Live activation remains a separate rollback-gated mission and has not been performed from this integration worktree.
+The combined Phase-2 harness through Task 7, Task 12.5 cancellation safety, and the final Task 13 format audit is assembled on `feat/personal-harness-wave1-integration`. The complete local automated gate is green, the candidate was rollback-gated live-activated, Actions were refreshed, and real ChatGPT Terminal acceptance passed with `TERMINAL_ACCEPTED`. The currently accepted runtime milestone remains `6d7e76c2812947cc2f9dab2c0616373efb80c85e` while Task 8 stays isolated until its own qualification.
 
 Current decisions:
 
@@ -214,11 +223,13 @@ GCF graph                       DEFERRED_WITH_TRIGGER
 production codec implementation NONE
 ```
 
-**Task 7 is locally implemented, integrated, and locally accepted.** Its real ChatGPT product-path acceptance is still pending. No bridge/1MCP restart or Actions Refresh belongs to this local integration milestone.
+**Task 7 is COMPLETE + LIVE_ACCEPTED.** Real ChatGPT proved connector/Code access, incremental zero-duplicate Terminal reads, resize, retained exit 7, broker-only restart survival with identical tmux/pane PIDs, exact-PTY human takeover with model write/resize/close blocked, model observation during takeover, control restoration after detach, and normal cleanup.
 
-Task 8 remains blocked on the required real product path: integrated deployment -> rollback preparation -> live bridge activation -> Actions Refresh -> fresh ChatGPT session -> real Terminal acceptance. Herdr's lifecycle states are reference evidence only; Herdr is not a runtime dependency.
+**Task 8 design is COMPLETE + COORDINATOR REVIEWED; implementation is next.** The selected architecture is `SPLIT_LAYER`: Terminal keeps private generation/transcript facts; one durable personal `wait(...)` action in `dev` owns named timeout/check/resume for Terminal output/exit plus minimal local readiness conditions. Agent lifecycle remains deferred with trigger. Before product activation, the implementation must pass an actual schema/context-value benchmark, and a fresh rollback bundle must snapshot the accepted Task-7 deployment rather than relying on the older pre-Task-7 rollback.
 
-Task 12.5 is FINAL + INTEGRATED with both `SAME_PATH_ATOMICITY_FIXED` and `CANCELLATION_SAFETY_FIXED`; model-visible revision/hash fields are not needed. Task 13 is FINAL + INTEGRATED: inspection of the finished Task-7 MCP confirms six Terminal tools, native `TextContent` only, no `structuredContent`, incremental/native terminal reads, concise list output, and concise administrative acknowledgements, so the format trigger remains not fired. Final consolidation follows the Task 8 evidence-driven decision after real ChatGPT acceptance.
+A post-acceptance same-name Terminal reopen probe found stale transcript replay from the prior incarnation. That does not invalidate `TERMINAL_ACCEPTED` for the qualified unique-name workflow, but Task-8 Task 1 must fix it with fresh per-incarnation state plus generation-guarded explicit reads before waits depend on session identity.
+
+Task 12.5 is FINAL + INTEGRATED with both `SAME_PATH_ATOMICITY_FIXED` and `CANCELLATION_SAFETY_FIXED`; model-visible revision/hash fields are not needed. Task 13 is FINAL + INTEGRATED: inspection of the finished Task-7 MCP confirms six Terminal tools, native `TextContent` only, no `structuredContent`, incremental/native terminal reads, concise list output, and concise administrative acknowledgements, so the format trigger remains not fired. Final consolidation follows Task-8 implementation and real wait/resume product acceptance.
 
 ## Required handoff format for every agent
 

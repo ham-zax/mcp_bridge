@@ -4,7 +4,7 @@
 
 **Base:** `6d7e76c2812947cc2f9dab2c0616373efb80c85e`
 
-**Status:** DESIGN APPROVED BY MISSION REQUIREMENTS; IMPLEMENTATION NOT STARTED
+**Status:** COORDINATOR-REVIEWED DESIGN; IMPLEMENTATION NOT STARTED
 
 ## Decision summary
 
@@ -13,6 +13,9 @@ WAIT_BOUNDARY                 SPLIT_LAYER
 OUTPUT_WAIT_STRATEGY          durable Terminal transcript offsets; never capture-pane polling
 MODEL_FACING_WAIT_API         one personal dev/Shell action: wait(...)
 WAIT_STATE_DURABILITY         named 0600 state under existing personal dev state
+SESSION_INSTANCE_BOUNDARY     every new Terminal open gets a new generation and fresh per-session transcript/model-cursor state
+TRANSCRIPT_READ_GUARD         every wait transcript read is generation-guarded; replacement cannot satisfy an old wait
+WAIT_SCHEMA_VALUE_GATE        measure actual tools/list tax and polling break-even before product activation
 AGENT_LIFECYCLE               DEFERRED_WITH_TRIGGER
 TASK8_IMPLEMENTATION_READY    YES
 ```
@@ -29,6 +32,32 @@ The design must cover two distinct classes of facts:
 2. **Generic local-host facts** that are not Terminal state: explicit PID exit, TCP listener readiness, file state, HTTP readiness, and systemd user-service state.
 
 The orchestration layer must remain durable across ordinary provider/broker/1MCP interruption while never becoming the owner of the underlying PTY, process, file, port, HTTP service, or systemd unit.
+
+### Post-acceptance coordinator probe: same-name Terminal reuse
+
+A live disposable probe after `TERMINAL_ACCEPTED` exposed one adapter defect that Task 8 must fix rather than preserve. The sequence was:
+
+```text
+open assistant-reopen-probe
+emit OLD_SESSION_MARKER
+read -> OLD_SESSION_MARKER
+close
+reopen assistant-reopen-probe
+emit NEW_SESSION_MARKER
+read -> OLD_SESSION_MARKER + NEW_SESSION_MARKER
+```
+
+The current `session.close` removes the tmux session but leaves the old per-name transcript directory, while the next `session.open` resets the model cursor to zero. Reusing a name can therefore replay output from the prior Terminal incarnation.
+
+Task 8 already needs stable session generations, so the fix belongs in the same private Terminal identity work:
+
+- a new Terminal incarnation must receive a new generation;
+- broker-side same-name lifecycle operations are serialized so concurrent open/close/read/observe cannot race the incarnation transition;
+- before a same-name new open becomes runnable, stale transcript/model-cursor/session metadata from the prior incarnation must be reset so old bytes cannot enter the new session;
+- broker reconciliation of one still-existing tmux incarnation must preserve its generation and transcript;
+- explicit transcript reads used by waits must be guarded by the expected generation so a close/reopen race cannot let bytes from a replacement session satisfy the old wait.
+
+This is an adapter/session-state defect, not a rejection of the tmux lifetime architecture. Existing unique-name Task-7 acceptance remains valid.
 
 ## Authoritative Task-7 product evidence
 
@@ -157,10 +186,12 @@ This remains viable for one-off short waits, but it is rejected as the Phase-2 a
 Terminal continues to own:
 
 - session identity/generation;
+- per-incarnation transcript/model-cursor state and reset on a genuinely new `session.open`;
+- short broker-owned per-name lifecycle serialization for incarnation-sensitive open/close/read/observe operations;
 - tmux pane live/dead state;
 - exact retained pane exit status;
 - transcript base/end logical offsets;
-- explicit transcript reads from a caller-provided logical cursor;
+- explicit transcript reads from a caller-provided logical cursor, optionally guarded by an expected generation;
 - `CURSOR_EXPIRED` / `CURSOR_AHEAD` semantics;
 - transcript rotation and UTF-8 boundary correctness.
 
@@ -377,9 +408,11 @@ stable Terminal generation
 The Terminal adapter needs two private broker capabilities:
 
 1. observe stable session generation, pane state, and transcript `{baseOffset,endOffset}`;
-2. read transcript from an explicit cursor without touching the model cursor.
+2. read transcript from an explicit cursor without touching the model cursor, while asserting the session still has the generation captured at arm time.
 
-The second capability already exists as private `session.read`. The first should be added as a read-only private observation operation rather than having the generic engine inspect Terminal state files directly.
+The second capability already exists as private `session.read`, but Task 8 must add an optional `expectedGeneration` guard. The broker checks the generation before and after the transcript read; a mismatch is returned as a private Terminal generation-mismatch error that the wait adapter maps to `WAIT_SOURCE_REPLACED`. The first capability should be added as a read-only private observation operation rather than having the generic engine inspect Terminal state files directly.
+
+`session.observe` itself must not combine metadata from one incarnation with transcript state from another. It therefore validates a stable generation across its observation before returning.
 
 ### Arm point and immediate-output race
 
@@ -410,6 +443,8 @@ The adapter first drains transcript bytes currently available. If no match exist
 Task 8 requires a stable private Terminal session generation UUID. It is created on session open and preserved through broker reconciliation. A new session reusing the same name gets a new generation.
 
 A wait captures the generation at arm time. If the name later resolves to another generation, the wait finishes as `WAIT_SOURCE_REPLACED`; it never silently starts watching the replacement session.
+
+Every explicit transcript read performed by that wait carries the captured generation. A replacement racing between observation and read must fail generation validation rather than return replacement-session bytes. A successful literal match is accepted only from a generation-guarded read.
 
 ## Model cursor interaction
 
@@ -476,6 +511,8 @@ A workflow that needs an exact command exit can either:
 
 Supported by the generic engine using PID plus start-time identity. It reports that the original process is gone/replaced. It does not know the process's exit code unless another source owns that information.
 
+If the requested PID is already absent when the wait is armed, the condition is immediately matched: the requested fact (that this PID is not running) already holds. If the PID exists at arm time, start-time ticks become the durable identity used for later reuse detection.
+
 ### Daemonized descendants
 
 Terminal does not promise to discover arbitrary descendants that detach from the pane. If the model has an explicit PID it may use `process_exit`. Otherwise readiness should be expressed through a stable condition such as TCP, HTTP, file, or systemd state.
@@ -523,9 +560,9 @@ There are two different cancellations.
 
 ### MCP/request cancellation or ChatGPT disconnect
 
-Abort only the current bounded hold loop promptly. The durable wait record remains pending and may be resumed later.
+Abort the current lock acquisition/check/hold promptly. A request canceled while queued for the per-name wait lock must be removed from contention and must never later acquire the lock and continue checking after cancellation. The durable wait record itself remains pending and may be resumed later.
 
-This prevents a transient ChatGPT/1MCP disconnect from destroying the logical wait.
+This prevents both a transient ChatGPT/1MCP disconnect from destroying the logical wait and the queued-cancellation defect already found/fixed in Files mutation coordination from being reintroduced in the wait subsystem.
 
 ### Explicit model cancellation
 
@@ -578,6 +615,9 @@ Requirements:
 - directory mode `0700`;
 - file mode `0600`;
 - atomic temp-file + rename writes;
+- per-name cross-process lock with abort-aware acquisition;
+- lock contention must fast-fail within a 250 ms arbitration window rather than extending one MCP call beyond its configured hold budget;
+- canceled lock waiters never enter the protected state machine later;
 - versioned state schema;
 - normalized condition stored for retry conflict checking;
 - arm timestamp and absolute deadline;
@@ -609,6 +649,7 @@ Stable error conditions include:
 ```text
 WAIT_NOT_FOUND
 WAIT_CONFLICT
+WAIT_BUSY
 INVALID_WAIT_CONDITION
 WAIT_SOURCE_UNAVAILABLE
 WAIT_SOURCE_REPLACED
@@ -633,7 +674,7 @@ The implementation reuses personal user-path semantics; it does not introduce an
 
 ### HTTP
 
-The first API is deliberately credential-free. No custom headers, cookies, request body, or URL userinfo are accepted. Per-probe timeout is at most 2 seconds. The response body is not persisted or returned to the model.
+The first API is deliberately credential-free. No custom headers, cookies, request body, or URL userinfo are accepted. Per-probe timeout is at most 2 seconds. Use `redirect: "manual"` so a readiness probe does not silently follow an unbounded or cross-origin redirect chain; an observed 2xx or 3xx status is ready when no explicit status is requested. The response body is not persisted or returned to the model.
 
 ### systemd
 
@@ -713,7 +754,22 @@ With the wait engine:
 - the model calls normal `terminal_read` after a Terminal match to receive unread output exactly once;
 - generic readiness probes return no curl/systemctl/stat diagnostic noise unless there is a true error.
 
-Schema cost is one additional personal tool. A multi-tool start/check/cancel design would add two or three tool choices; a Terminal-specific plus generic design would add at least two. The single named action is the smallest model-facing surface that still provides durable resume and explicit cancellation.
+Schema cost is one additional personal tool, but action count alone is not the acceptance metric. The first implementation has an eight-kind discriminated condition union, so Task 8 must measure the actual emitted `tools/list` bytes/tokens before retaining it. A multi-tool start/check/cancel design would add two or three tool choices; a Terminal-specific plus generic design would add at least two. The single named action remains the preferred surface, but it must earn its persistent schema tax against the model-turn/tool-result polling it removes.
+
+The qualification therefore records:
+
+```text
+personal schema bytes/tokens before wait
+personal schema bytes/tokens with wait
+incremental wait schema cost
+representative 30-second readiness workflow: manual polling vs named wait
+request tokens
+result tokens
+tool calls / follow-up debt
+break-even number of avoided polling checks
+```
+
+If the complete one-tool union does not materially reduce total schema+request+result cost on a real workflow that otherwise needs at least three readiness checks, pause before product activation and compare a narrowed first-phase condition set or a split surface. Do not retain a large union merely because it is one action.
 
 ## Notification decision
 
@@ -732,13 +788,16 @@ Prove:
 - named create is durable and retry-idempotent;
 - conflicting same-name definition returns `WAIT_CONFLICT`;
 - resume after provider restart uses persisted deadline/baseline;
-- request abort stops the current hold but leaves wait pending;
+- request abort while acquiring the per-name lock or during the current hold stops promptly, never enters later, and leaves wait pending;
+- same-name lock contention fast-fails as transient `WAIT_BUSY` rather than silently exceeding the bounded-call contract;
 - explicit cancel persists cancelled state and never kills the source;
 - timeout persists before response and never kills the source;
 - terminal output uses explicit transcript offsets and leaves model cursor unchanged;
 - literal match spans transcript chunks/restarts;
 - `CURSOR_EXPIRED` and `CURSOR_AHEAD` are not silently recovered;
 - session generation replacement fails explicitly;
+- close/reopen of the same Terminal name starts with fresh transcript/model-cursor state and cannot replay prior-incarnation bytes;
+- a replacement racing an explicit wait transcript read is rejected by generation validation rather than matching replacement bytes;
 - retained pane exit returns exact status;
 - process PID reuse is not misclassified as the same process;
 - TCP/file/HTTP/systemd level conditions behave as specified;
@@ -786,6 +845,8 @@ After local qualification and external activation, verify from a fresh ChatGPT s
 8. repeat with one generic readiness condition;
 9. interrupt one wait request and prove the durable wait remains resumable.
 
+Also record the schema/context value gate above. Product activation is not the place to discover that the new union costs more context than the polling it is intended to remove.
+
 ## Deferred triggers
 
 ```text
@@ -826,6 +887,9 @@ DEFERRED_WITH_TRIGGER
 
 TASK8_IMPLEMENTATION_READY
 YES
+
+WAIT_SCHEMA_VALUE_GATE
+REQUIRED_BEFORE_PRODUCT_ACTIVATION
 ```
 
 No production await/resume code is implemented by this design mission.

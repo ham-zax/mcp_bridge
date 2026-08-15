@@ -533,8 +533,23 @@ A small number of individual ChatGPT tool invocations were intercepted once by t
 - The additional live transcript-pipe reconciliation guard described above remains part of the accepted implementation because broker restart must preserve continuing transcript capture.
 - The Task-7 local systemd qualification and the later real ChatGPT product-path acceptance are separate evidence layers; both are retained here.
 
+## Post-acceptance coordinator probe
+
+A later disposable coordinator probe exercised a case that the original product-path matrix did not cover: explicit close followed by reopening the **same Terminal name**.
+
+Observed on the accepted Task-7 deployment:
+
+```text
+first incarnation -> OLD_SESSION_MARKER
+close
+same-name second incarnation -> NEW_SESSION_MARKER
+first read of second incarnation -> OLD_SESSION_MARKER + NEW_SESSION_MARKER
+```
+
+The tmux session itself was new, but the old per-name transcript directory remained and the new model cursor started at zero. This is a scoped session-state adapter defect, not a failure of the accepted tmux lifetime/human-takeover architecture. Task 8 already requires stable Terminal generations, so its first private Terminal task now also requires fresh per-incarnation transcript/model-cursor state and generation-guarded explicit transcript reads.
+
+Until that fix lands, use unique Terminal names when reopening after explicit close if stale transcript replay would be confusing.
+
 ## Risks / blockers
 
-No Task-7 correctness or product-path acceptance blocker remains.
-
-Task 8 await/resume design is unblocked by the final `TERMINAL_ACCEPTED` verdict.
+The real Task-7 product path remains `TERMINAL_ACCEPTED` for the qualified unique-name workflow, and Task 8 design remains unblocked. The same-name reincarnation defect above is a required Task-8 Task-1 regression/fix before wait semantics can rely on session generation.

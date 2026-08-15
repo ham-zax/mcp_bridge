@@ -40,9 +40,11 @@
 
 **Interfaces:**
 - `readTranscriptState(sessionDir)` -> `{ baseOffset, endOffset, budgetBytes }` without returning transcript bytes.
-- Private broker operation `session.observe` with `{ name }` -> `{ name, generation, paneDead, paneDeadStatus, panePid, transcript: { baseOffset, endOffset } }`.
-- Session metadata includes stable `generation: UUID` created on every new `session.open` and preserved by reconciliation.
-- Reusing a closed session name creates a different generation.
+- Broker owns a short in-memory per-name lifecycle serializer for incarnation-sensitive `session.open`, `session.close`, `session.read`, `model.read`, and `session.observe` operations.
+- Private broker operation `session.observe` with `{ name }` -> `{ name, generation, paneDead, paneDeadStatus, panePid, transcript: { baseOffset, endOffset } }`, validated against one stable generation.
+- Private `session.read` accepts optional `expectedGeneration`; it validates that generation before and after reading transcript bytes and rejects replacement races with `SESSION_GENERATION_MISMATCH`.
+- Session metadata includes stable `generation: UUID` created on every new `session.open` and preserved by reconciliation, and metadata writes are atomic.
+- Reusing a closed session name creates a different generation **and fresh per-incarnation transcript/model-cursor state**; prior-session bytes must never replay into the new incarnation.
 
 - [ ] **Step 1: Write failing transcript-state tests**
 
@@ -99,10 +101,23 @@ assert.notEqual(replacement.generation, first.generation);
 
 Also extend `protocol.test.mjs` so private operation vocabulary includes `session.observe` but MCP catalog tests remain six tools.
 
+Add a same-name incarnation regression that reproduces the live coordinator finding before the fix:
+
+```text
+open name -> emit OLD_SESSION_MARKER -> read -> close
+open same name -> emit NEW_SESSION_MARKER -> read
+```
+
+Expected RED behavior on the current base: the second read contains both old and new markers. The green contract is that it contains only the new incarnation's bytes.
+
+Add a race-oriented private-read test that replaces a same-name session while an explicit read is in progress. An `expectedGeneration` read must either return bytes from that generation or reject with `SESSION_GENERATION_MISMATCH`; it must never return replacement-session bytes as though they belonged to the old generation.
+
+Add a concurrent-open regression: two same-name `session.open` requests launched together must produce exactly one successful incarnation, one `SESSION_EXISTS` failure, one generation, and one fresh transcript state. The loser must never reset/delete the winner's state after the winner has created its tmux session.
+
 Run:
 
 ```bash
-node --test --test-name-pattern='generation|session.observe|operation vocabulary' test/tmux.test.mjs test/broker.test.mjs test/protocol.test.mjs
+node --test --test-name-pattern='generation|session.observe|expectedGeneration|same-name|concurrent open|operation vocabulary' test/tmux.test.mjs test/broker.test.mjs test/protocol.test.mjs
 ```
 
 Expected: FAIL because `session.observe` and stable generation do not exist.
@@ -112,39 +127,51 @@ Expected: FAIL because `session.observe` and stable generation do not exist.
 In `tmux.mjs` add private metadata read/merge helpers with this behavior:
 
 ```js
-// new open
-{ version: 2, name, generation: crypto.randomUUID(), cwd, createdAt }
+// genuinely new open, after proving no tmux session with this name exists
+await resetPriorIncarnationState(name);
+const generation = crypto.randomUUID();
+await writeSessionMetadataAtomic(name, {
+  version: 2,
+  name,
+  generation,
+  cwd,
+  createdAt: new Date().toISOString(),
+});
 
-// broker reconcile
+// broker reconcile of the same still-existing tmux incarnation
 const prior = await readSessionMetadata(name);
-const generation = prior?.generation ?? crypto.randomUUID();
-await writeSessionMetadata(name, { ...prior, version: 2, name, generation, recoveredAt });
+const recoveredGeneration = prior?.generation ?? crypto.randomUUID();
+await writeSessionMetadataAtomic(name, {
+  ...prior,
+  version: 2,
+  name,
+  generation: recoveredGeneration,
+  recoveredAt,
+});
 ```
 
-Do not overwrite an existing generation during broker reconciliation. `openSession` must always write a new generation, even when a prior state directory from a closed same-name session remains.
+At the broker boundary, serialize incarnation-sensitive operations per session name. `session.open` holds that lifecycle lease while it verifies the name is absent, resets prior-incarnation state, creates/configures tmux, writes the new generation metadata, and releases the startup gate. `session.close`, `session.read`, `model.read`, and `session.observe` use the same short serializer so state reset cannot race an active read/observation. This is an in-memory broker coordination primitive, not a new persisted lock or MCP surface.
+
+`resetPriorIncarnationState(name)` clears stale transcript/cursor/session metadata left by an explicitly closed prior incarnation before the new command gate is released. It must not run during broker reconciliation and must never reset a still-existing tmux session.
+
+Do not overwrite an existing generation during broker reconciliation. `openSession` always creates a new generation and fresh per-incarnation transcript state. Make `session.json` writes temp-file + rename atomic so a broker crash cannot silently truncate the generation identity.
 
 - [ ] **Step 5: Implement private `session.observe`**
 
-In `broker.mjs`:
+In `broker.mjs`, implement `session.observe` as a generation-stable observation: read the session generation, collect tmux/transcript state, then verify the generation is unchanged before returning. If the incarnation changed during the observation, return `SESSION_GENERATION_MISMATCH` rather than mixed state.
 
-```js
-case 'session.observe': {
-  const name = requireString(params.name, 'name');
-  const info = await tmux.sessionInfo(name);
-  const metadata = await tmux.sessionMetadata(name);
-  const transcript = await readTranscriptState(tmux.sessionDir(name));
-  return {
-    name,
-    generation: metadata.generation,
-    paneDead: info.paneDead,
-    paneDeadStatus: info.paneDeadStatus,
-    panePid: info.panePid,
-    transcript,
-  };
-}
+Extend private `session.read` with optional `expectedGeneration`:
+
+```text
+validate expected generation before transcript read
+read explicit transcript cursor
+validate expected generation again before return
+mismatch at either boundary -> SESSION_GENERATION_MISMATCH
 ```
 
-Keep this private; do not register any new Terminal MCP tool.
+This guard is private Terminal protocol only; do not change `terminal_read` MCP schema or the six-tool Terminal catalog.
+
+Keep `session.observe` private; do not register any new Terminal MCP tool.
 
 - [ ] **Step 6: Run the full Terminal suite and commit**
 
@@ -170,10 +197,11 @@ Expected: all Terminal tests pass and the public Terminal MCP catalog remains ex
 
 **Interfaces:**
 - `WaitStore({ stateDir })` persists `$stateDir/waits/<name>.json` plus per-name lock files.
+- `WaitStore.withLock(name, fn, { signal, maxWaitMs })` is cross-process, abort-aware, and never lets a canceled queued waiter enter later.
 - `WaitEngine({ store, sources, now?, sleep? }).run(args, signal)` -> `{ status, name, text/evidence fields }`.
 - Wait statuses: `pending | matched | timeout | cancelled | failed`.
 - Named create is idempotent only for an identical normalized definition; conflicting redefinition returns `WAIT_CONFLICT`.
-- Request abort stops only the current hold and leaves status `pending`.
+- Request abort stops lock acquisition/check/hold and leaves durable status `pending`; lock contention can return transient `WAIT_BUSY`.
 
 - [ ] **Step 1: Write failing private-state permission and atomicity tests**
 
@@ -200,6 +228,19 @@ test('wait store writes versioned private state atomically', async (t) => {
 
 Also test invalid names, corrupt JSON, and two concurrent writers to the same name serialize through a filesystem lock.
 
+Add the cancellation regression analogous to the Files coordinator bug already found in Phase 2:
+
+```text
+holder owns wait name lock
+second request queues
+AbortSignal fires while queued
+holder releases
+canceled callback must never enter
+later live waiter must still acquire normally
+```
+
+Also assert a contending lock attempt fast-fails as `WAIT_BUSY` within 250 ms instead of waiting behind a 10-15 second hold.
+
 Run:
 
 ```bash
@@ -218,11 +259,13 @@ root          $MCP_DEV_STATE_DIR/waits, mode 0700
 state file    <name>.json, mode 0600
 write         temp wx -> fsync/close -> rename -> chmod
 lock          per-name wx lock containing pid + createdAtMs
+acquisition   AbortSignal-aware; canceled waiter never enters later
+contention    250 ms maximum arbitration -> WAIT_BUSY, not an extra long MCP wait
 stale lock    recover when owner PID is gone; bounded lock acquisition
-retention     terminal records retained 24 hours
+retention     completed records retained 24 hours
 ```
 
-The store must expose `withLock(name, fn)`, `read(name)`, `create(record)`, `write(record)`, and `gc(nowMs)`.
+The store must expose `withLock(name, fn, { signal, maxWaitMs })`, `read(name)`, `create(record)`, `write(record)`, and `gc(nowMs)`. `withLock` checks cancellation before acquisition, while queued, after grant, and immediately before callback entry.
 
 Run the state tests and require PASS.
 
@@ -242,7 +285,7 @@ test('named create, resume, timeout, cancellation, and lost-response retry are d
 });
 ```
 
-Add an AbortController test where an active hold is aborted and a later resume sees `pending`, not `cancelled`.
+Add AbortController tests where (a) an active hold is aborted and a later resume sees `pending`, not `cancelled`, and (b) a request canceled while queued for the same-name store lock never enters the state-machine callback after the holder releases. A live waiter behind the canceled waiter must still make progress.
 
 Run:
 
@@ -262,20 +305,26 @@ export const MAX_WAIT_TIMEOUT_SECONDS = 86400;
 export const DEFAULT_HOLD_SECONDS = 10;
 export const MAX_HOLD_SECONDS = 15;
 export const MIN_POLL_MS = 250;
+export const WAIT_LOCK_ACQUIRE_MS = 250;
 export const COMPLETED_RETENTION_MS = 24 * 60 * 60 * 1000;
 ```
 
 Engine sequence under the per-name lock:
 
 ```text
+compute one bounded call budget
+abort-aware lock acquisition is capped at WAIT_LOCK_ACQUIRE_MS (250 ms)
+lock unavailable within 250 ms -> WAIT_BUSY; durable state unchanged
 create -> normalize definition -> persist pending before first check
 resume -> load record
 cancel -> persist cancelled and return
 terminal status -> replay persisted result
 pending -> check source -> persist any baseline/cursor patch -> persist terminal result before return
 hold loop -> never sleep/check past min(deadline, callStart+holdSeconds)
-request AbortSignal -> stop loop, keep durable pending state
+request AbortSignal -> stop acquisition/check/loop, keep durable pending state
 ```
+
+Do not allow lock arbitration to turn `hold_seconds=0` into a long blocking call or to extend a 15-second hold by another long lock timeout.
 
 The engine must never call a source mutator/kill method because no such interface exists.
 
@@ -345,10 +394,13 @@ On each check:
 
 1. call `session.observe`;
 2. compare generation and fail `WAIT_SOURCE_REPLACED` on mismatch;
-3. if `endOffset > baseline.cursor`, call private `session.read` with explicit cursor and bounded max bytes until caught up/matched;
-4. prepend persisted overlap bytes, search for the UTF-8 literal bytes, compute logical match offsets;
-5. atomically return baseline patch `{cursor, overlapBase64}` after each scanned chunk;
-6. retain at most `literalByteLength - 1` overlap bytes.
+3. if `endOffset > baseline.cursor`, call private `session.read` with explicit cursor, bounded max bytes, and `expectedGeneration: baseline.generation` until caught up/matched;
+4. map private `SESSION_GENERATION_MISMATCH` to terminal wait status `WAIT_SOURCE_REPLACED`;
+5. prepend persisted overlap bytes, search for the UTF-8 literal bytes, compute logical match offsets;
+6. atomically return baseline patch `{cursor, overlapBase64}` after each scanned chunk;
+7. retain at most `literalByteLength - 1` overlap bytes.
+
+A literal match is accepted only from a generation-guarded read. Do not accept a match based solely on an earlier `session.observe` result because close/reopen may race between observation and transcript access.
 
 Never call `model.read`.
 
@@ -362,6 +414,7 @@ CURSOR_AHEAD   -> failed with exact code/details
 retained dead after final drain, no match -> WAIT_SOURCE_ENDED + exact exit status
 terminal_exit on retained exit 7 -> matched exit=7
 same name, new generation -> WAIT_SOURCE_REPLACED
+same-name replacement racing transcript read -> WAIT_SOURCE_REPLACED, never false match
 broker restart while pending -> same generation/cursor resumes and later matches
 human attach -> output source remains read-only/usable
 ```
@@ -394,7 +447,7 @@ git commit -m "feat: wait on durable terminal transcript state"
 
 - [ ] **Step 1: Write failing PID identity tests**
 
-Use a real short-lived child process. Assert arm captures `/proc/<pid>/stat` start-time ticks and check matches after exit. Unit-test parser with a synthetic `/proc/<pid>/stat` line whose command name contains spaces/parentheses so field extraction is not implemented by naive whitespace splitting.
+Use a real short-lived child process. Assert arm captures `/proc/<pid>/stat` start-time ticks and check matches after exit. Also prove an already-absent PID matches immediately at arm/check rather than fabricating an identity. Unit-test parser with a synthetic `/proc/<pid>/stat` line whose command name contains spaces/parentheses so field extraction is not implemented by naive whitespace splitting.
 
 Expected: FAIL because the local source module does not exist.
 
@@ -456,8 +509,9 @@ HTTP:
 http/https only
 no URL userinfo
 no headers/cookies/body API
+redirect: manual (do not silently follow redirect chains or cross-origin redirects)
 2-second per-probe AbortSignal timeout
-explicit status matches exact code; otherwise 200..399 matches
+explicit status matches exact observed code; otherwise observed 200..399 matches
 response body ignored
 minimum repeat interval 500 ms enforced by engine source metadata
 ```
@@ -494,6 +548,7 @@ git commit -m "feat: add local readiness wait sources"
 - Modify: `scripts/render-config.mjs`
 - Modify: `scripts/smoke-local.sh`
 - Modify: `tests/harness.sh`
+- Modify: `tests/publication.sh` only if needed to prove the public export can load `pi-dev` without the private Terminal tree
 
 **Interfaces:**
 - Public tool exists only when `MCP_DEV_PATH_MODE=user` and the personal dev provider is rendered.
@@ -555,17 +610,23 @@ Keep schema descriptions concise; explicitly describe Terminal output as "new tr
 
 - [ ] **Step 3: Wire `WaitEngine` into personal server startup**
 
-In `server.mjs`, only under `pathMode === 'user'`:
+In `server.mjs`, only under `pathMode === 'user'`, initialize the wait subsystem. **Do not add a top-level static import from `pi-dev` into `providers/terminal/**`** because that private tree is excluded from the public bridge export. Load the Terminal broker client only inside the personal/user branch, for example:
 
 ```js
-const waitStore = new WaitStore({ stateDir });
-const terminalClient = new BrokerClient({ socketPath: terminalSocketPath });
-const waitEngine = createWaitEngine({
-  store: waitStore,
-  terminal: new TerminalWaitSource({ client: terminalClient }),
-  local: new LocalWaitSources({ defaultCwd }),
-});
+if (pathMode === 'user') {
+  const { BrokerClient } = await import('../terminal/broker-client.mjs');
+  const waitStore = new WaitStore({ stateDir });
+  const terminalClient = new BrokerClient({ socketPath: terminalSocketPath });
+  const waitEngine = createWaitEngine({
+    store: waitStore,
+    terminal: new TerminalWaitSource({ client: terminalClient }),
+    local: new LocalWaitSources({ defaultCwd }),
+  });
+  // register wait here
+}
 ```
+
+`TerminalWaitSource` accepts an injected client and must not itself statically import the private Terminal provider. Public workspace modes must be able to load/run `pi-dev` when `providers/terminal/**` is absent from the exported tree.
 
 Register `wait` and pass `extra.signal` to `waitEngine.run(args, extra.signal)`.
 
@@ -605,13 +666,26 @@ resume -> matched
 cancel -> cancelled
 AbortSignal -> call stops, record remains pending
 Terminal output match does not consume model Terminal cursor
+restricted/trusted-dev provider startup does not require the private Terminal tree
 ```
+
+Add a public-export/runtime regression that exercises the workspace-mode `pi-dev` surface from a fixture where `providers/terminal/**` is absent. This guards against accidentally turning the personal wait implementation into a static dependency of the public provider.
 
 - [ ] **Step 6: Update personal composition/static gates**
 
 `tests/harness.sh` must still require providers exactly `code`, `dev`, `terminal`; this task changes a tool inside `dev`, not provider count.
 
 `smoke-local.sh` validates the personal dev Terminal socket is absolute and points to `wsl-agent-terminal.sock`. Restricted/trusted-dev remain without that environment variable and without `wait`.
+
+Before committing the model-facing schema, capture actual `tools/list` bytes and `o200k_base` tokens for:
+
+```text
+personal catalog before wait
+personal catalog with wait
+incremental wait schema only
+```
+
+Also record the wait request shape for each condition kind. Do not infer low context cost from "one tool" alone; the eight-kind condition union is part of the schema tax. Carry these numbers into Task 6's value benchmark.
 
 - [ ] **Step 7: Run provider/composition gates and commit**
 
@@ -710,11 +784,36 @@ systemd_user    disposable user test unit reaches active
 
 Do not use real privileged/system services.
 
-- [ ] **Step 6: Qualify transcript rotation failure semantics**
+- [ ] **Step 6: Qualify transcript rotation and same-name incarnation semantics**
 
 Use a deliberately small transcript budget. Let a named output wait remain unresumed until its independent cursor expires. Resume and require exact `CURSOR_EXPIRED`; assert the engine does not mark matched/unmatched and does not advance to the retained tail.
 
-- [ ] **Step 7: Write local acceptance evidence and commit**
+Then repeat the coordinator's same-name lifecycle against the implemented Terminal core:
+
+```text
+open -> OLD_SESSION_MARKER -> close
+open same name -> NEW_SESSION_MARKER
+```
+
+Require the new model read contains only the new incarnation's transcript. Arm an old-generation wait before replacement and require `WAIT_SOURCE_REPLACED`; never allow the new marker to satisfy the old wait.
+
+- [ ] **Step 7: Benchmark context/schema value against manual polling**
+
+Use the actual emitted MCP schemas and one disposable readiness workflow that would otherwise require at least three checks over roughly 30 seconds. Compare:
+
+```text
+baseline personal schema bytes/tokens
+personal schema bytes/tokens with wait
+incremental schema tax
+manual polling request/result tokens and calls
+named wait request/result tokens and calls
+follow-up debt
+break-even avoided polls
+```
+
+Use the same tokenizer/accounting method already used by the harness benchmarks. If the full eight-kind one-tool union fails to materially reduce total schema+request+result cost for that real repeated-check workflow, stop before product activation and classify the issue as a surface/schema design problem. Compare a narrowed first-phase condition set or split surface rather than shipping a context-negative union.
+
+- [ ] **Step 8: Write local acceptance evidence and commit**
 
 The benchmark must record:
 
@@ -723,6 +822,7 @@ WAIT_BOUNDARY                 SPLIT_LAYER
 OUTPUT_WAIT_STRATEGY          DURABLE_TRANSCRIPT_OFFSETS_WITH_INDEPENDENT_WAIT_CURSOR
 MODEL_FACING_WAIT_API         wait(...)
 WAIT_STATE_DURABILITY         local/provider/broker restart matrix
+WAIT_SCHEMA_VALUE_GATE        PASS|REDESIGN
 AGENT_LIFECYCLE               DEFERRED_WITH_TRIGGER
 LOCAL_WAIT_ACCEPTANCE         PASS|FAIL
 ```
@@ -745,9 +845,11 @@ git commit -m "docs: qualify durable local wait semantics"
 **Interfaces:**
 - Final product gate for Task 8.
 
-- [ ] **Step 1: Prepare rollback and activate externally**
+- [ ] **Step 1: Prepare a fresh rollback anchor and activate externally**
 
-Do not restart a bridge from a request running through that same bridge. From an external controller, deploy the integrated implementation, render personal composition, restart/reconcile 1MCP/bridge, and refresh ChatGPT actions/connectors.
+Do not reuse the pre-Task-7 rollback bundle as the primary Task-8 rollback target. Before changing the accepted live deployment, capture a **new rollback bundle for the currently accepted Task-7 system** (Files atomicity/cancellation + Code facade + six-tool Terminal, with `TERMINAL_ACCEPTED`). That accepted deployment is the known-good parent of Task 8 and should be restored if wait activation fails.
+
+Do not restart a bridge from a request running through that same bridge. From an external controller, verify the fresh rollback bundle/dry-run, deploy the integrated Task-8 implementation, render personal composition, restart/reconcile 1MCP/bridge, and refresh ChatGPT actions/connectors.
 
 - [ ] **Step 2: Verify catalog and bounded request lifetime**
 
@@ -760,7 +862,7 @@ no new provider/domain
 Terminal remains exactly six tools
 ```
 
-Create a 30-second condition with `hold_seconds=10`; prove each call returns within the bounded hold and the same name resumes across calls.
+Create a 30-second condition with `hold_seconds=10`; prove each call returns within the bounded hold and the same name resumes across calls. Confirm the locally recorded `WAIT_SCHEMA_VALUE_GATE` remains valid against the real refreshed ChatGPT catalog; if the actual product-visible schema materially differs from the local measurement, stop and re-measure before accepting the surface.
 
 - [ ] **Step 3: Verify real resume across 1MCP/provider restart**
 
