@@ -1,0 +1,288 @@
+#!/usr/bin/env node
+import crypto from 'node:crypto';
+import { chmod, lstat, mkdir, unlink } from 'node:fs/promises';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+
+import {
+  TerminalError,
+  decodeRequest,
+  encodeResponse,
+  errorResponse,
+} from './protocol.mjs';
+import { readTranscript } from './transcript.mjs';
+import { TmuxBackend, validateSessionName } from './tmux.mjs';
+
+const DEFAULT_TRANSCRIPT_BUDGET_BYTES = 16 * 1024 * 1024;
+const DEFAULT_READ_MAX_BYTES = 64 * 1024;
+const MAX_PROTOCOL_LINE_BYTES = 1024 * 1024;
+
+function positiveIntegerEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new TerminalError('INVALID_CONFIG', `${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function runtimeDir() {
+  if (process.env.XDG_RUNTIME_DIR) return process.env.XDG_RUNTIME_DIR;
+  if (typeof process.getuid !== 'function') {
+    throw new TerminalError('INVALID_CONFIG', 'XDG_RUNTIME_DIR is required on this platform');
+  }
+  return `/run/user/${process.getuid()}`;
+}
+
+function stateBase() {
+  return process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state');
+}
+
+export function loadConfig() {
+  return {
+    socketPath: process.env.MCP_TERMINAL_SOCKET || path.join(runtimeDir(), 'wsl-agent-terminal.sock'),
+    stateRoot: process.env.MCP_TERMINAL_STATE_ROOT || path.join(stateBase(), 'wsl-agent-terminal'),
+    defaultCwd: process.env.MCP_TERMINAL_DEFAULT_CWD || '/home/hamza',
+    tmuxSocketName: process.env.MCP_TERMINAL_TMUX_SOCKET_NAME || 'wsl-agent',
+    tmuxSocketPath: process.env.MCP_TERMINAL_TMUX_SOCKET_PATH || undefined,
+    tmuxBin: process.env.MCP_TERMINAL_TMUX_BIN || 'tmux',
+    transcriptBudgetBytes: positiveIntegerEnv(
+      'MCP_TERMINAL_TRANSCRIPT_BUDGET_BYTES',
+      DEFAULT_TRANSCRIPT_BUDGET_BYTES,
+    ),
+    readMaxBytes: positiveIntegerEnv('MCP_TERMINAL_READ_MAX_BYTES', DEFAULT_READ_MAX_BYTES),
+  };
+}
+
+async function socketAcceptsConnections(socketPath) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection(socketPath);
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(value);
+    };
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+    setTimeout(() => finish(false), 200).unref();
+  });
+}
+
+async function prepareSocket(socketPath) {
+  await mkdir(path.dirname(socketPath), { recursive: true });
+  try {
+    const info = await lstat(socketPath);
+    if (!info.isSocket()) {
+      throw new TerminalError('SOCKET_PATH_CONFLICT', `broker socket path exists and is not a socket: ${socketPath}`);
+    }
+    if (await socketAcceptsConnections(socketPath)) {
+      throw new TerminalError('BROKER_ALREADY_RUNNING', `another broker is accepting connections at ${socketPath}`);
+    }
+    await unlink(socketPath);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return;
+    throw error;
+  }
+}
+
+function boundedReadLimit(value, configuredMax) {
+  if (value === undefined) return configuredMax;
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new TerminalError('INVALID_ARGUMENT', 'maxBytes must be a positive integer');
+  }
+  return Math.min(value, configuredMax);
+}
+
+function requireString(value, field) {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new TerminalError('INVALID_ARGUMENT', `${field} must be a non-empty string`);
+  }
+  return value;
+}
+
+export async function createBroker(config = loadConfig()) {
+  process.umask(0o077);
+  await mkdir(config.stateRoot, { recursive: true, mode: 0o700 });
+  await chmod(config.stateRoot, 0o700);
+
+  const tmux = new TmuxBackend({
+    tmuxBin: config.tmuxBin,
+    socketName: config.tmuxSocketName,
+    socketPath: config.tmuxSocketPath,
+    stateRoot: config.stateRoot,
+    defaultCwd: config.defaultCwd,
+    transcriptBudgetBytes: config.transcriptBudgetBytes,
+  });
+  await tmux.assertServer();
+  const reconciled = await tmux.reconcileSessions();
+  const leases = new Map();
+
+  async function dispatch(request) {
+    const { op, params } = request;
+    switch (op) {
+      case 'session.open':
+        return tmux.openSession({
+          name: requireString(params.name, 'name'),
+          command: params.command === undefined ? '' : params.command,
+          cwd: params.cwd,
+          cols: params.cols,
+          rows: params.rows,
+        });
+      case 'session.list': {
+        const sessions = await tmux.listSessions();
+        return {
+          sessions: sessions.map((session) => ({
+            ...session,
+            humanLease: leases.has(session.name),
+          })),
+        };
+      }
+      case 'session.read': {
+        const name = requireString(params.name, 'name');
+        validateSessionName(name);
+        await tmux.sessionInfo(name);
+        const maxBytes = boundedReadLimit(params.maxBytes, config.readMaxBytes);
+        return readTranscript(tmux.sessionDir(name), {
+          cursor: params.cursor === undefined ? 0 : params.cursor,
+          maxBytes,
+          recoveryTailBytes: Math.min(params.recoveryTailBytes || 4096, config.readMaxBytes),
+        });
+      }
+      case 'session.send':
+        return tmux.send({
+          name: requireString(params.name, 'name'),
+          text: params.text,
+          key: params.key,
+        });
+      case 'session.resize':
+        return tmux.resize({
+          name: requireString(params.name, 'name'),
+          cols: params.cols,
+          rows: params.rows,
+        });
+      case 'session.close': {
+        const name = requireString(params.name, 'name');
+        leases.delete(name);
+        return tmux.closeSession(name);
+      }
+      case 'lease.acquire_human': {
+        const name = requireString(params.name, 'name');
+        await tmux.sessionInfo(name);
+        if (leases.has(name)) {
+          throw new TerminalError('HUMAN_HAS_CONTROL', `human lease already exists for session ${name}`);
+        }
+        const lease = {
+          leaseId: crypto.randomUUID(),
+          clientId: requireString(params.clientId, 'clientId'),
+          acquiredAt: new Date().toISOString(),
+        };
+        leases.set(name, lease);
+        return { name, ...lease };
+      }
+      case 'lease.release_human': {
+        const name = requireString(params.name, 'name');
+        const leaseId = requireString(params.leaseId, 'leaseId');
+        const lease = leases.get(name);
+        if (!lease) return { name, released: false };
+        if (lease.leaseId !== leaseId) {
+          throw new TerminalError('LEASE_MISMATCH', `human lease id does not match session ${name}`);
+        }
+        leases.delete(name);
+        return { name, released: true };
+      }
+      default:
+        throw new TerminalError('UNSUPPORTED_OPERATION', `unsupported operation: ${op}`);
+    }
+  }
+
+  await prepareSocket(config.socketPath);
+  const server = net.createServer((socket) => {
+    socket.setEncoding('utf8');
+    let buffered = '';
+    let chain = Promise.resolve();
+    socket.on('data', (chunk) => {
+      buffered += chunk;
+      if (Buffer.byteLength(buffered, 'utf8') > MAX_PROTOCOL_LINE_BYTES) {
+        socket.end(encodeResponse(errorResponse(null, new TerminalError(
+          'REQUEST_TOO_LARGE',
+          `request line exceeds ${MAX_PROTOCOL_LINE_BYTES} bytes`,
+        ))));
+        return;
+      }
+      while (true) {
+        const newline = buffered.indexOf('\n');
+        if (newline === -1) break;
+        const line = buffered.slice(0, newline);
+        buffered = buffered.slice(newline + 1);
+        if (line.length === 0) continue;
+        chain = chain.then(async () => {
+          let id = null;
+          try {
+            const request = decodeRequest(line);
+            id = request.id;
+            const result = await dispatch(request);
+            socket.write(encodeResponse({ id, ok: true, result }));
+          } catch (error) {
+            socket.write(encodeResponse(errorResponse(id, error)));
+          }
+        });
+      }
+    });
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(config.socketPath, () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  await chmod(config.socketPath, 0o600);
+
+  return {
+    config,
+    tmux,
+    reconciled,
+    server,
+    async close() {
+      await new Promise((resolve) => server.close(resolve));
+      try {
+        await unlink(config.socketPath);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+    },
+  };
+}
+
+async function main() {
+  const broker = await createBroker();
+  process.stderr.write(
+    `wsl-agent terminal broker ready: ${broker.config.socketPath}; reconciled=${broker.reconciled.length}\n`,
+  );
+  let closing = false;
+  const shutdown = async () => {
+    if (closing) return;
+    closing = true;
+    try {
+      await broker.close();
+      process.exitCode = 0;
+    } catch (error) {
+      process.stderr.write(`terminal broker shutdown failed: ${error.message}\n`);
+      process.exitCode = 1;
+    }
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+  main().catch((error) => {
+    process.stderr.write(`terminal broker failed: ${error.message}\n`);
+    process.exitCode = 1;
+  });
+}
