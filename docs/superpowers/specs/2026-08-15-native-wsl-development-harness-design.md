@@ -41,45 +41,43 @@ The design must reduce three kinds of friction at once:
 ```text
                          ChatGPT
                             |
+                    MCP JSON envelope
+                    (transport only)
+                            |
                    Cloudflare + OAuth
                             |
                            1MCP
                             |
-        +-------------------+-------------------+
-        |                   |                   |
-       CODE               FILES               SHELL
-   CodeDB core        Pi-backed dev         Pi shell ops
-   + lean output      read/edit/write      command string
-                      + strict guards      + result adapter
-        |                   |                   |
-        |                   |             Linux CLI toolbox
-        |                   |          git/rg/sg/jq/pnpm/etc.
-        |                   |                   |
-        +-------------------+-------------------+
-                            |
-                         TERMINAL
-                    persistent PTY backend
+             +--------------+--------------+
+             |                             |
+            CODE                           DEV
+       CodeDB core/lean          +----------+----------+
+                                 |          |          |
+                               read       edit       write
 
-Optional response optimization, only after measurement:
+                                          bash
+                                            |
+                                       Pi internals
 
-structured/repetitive results -> GCF experiment
-source/diffs/raw diagnostics  -> unchanged
+Later, independently:
+
+Terminal                         -> persistent PTY backend
+bulk structured CodeDB results  -> native / compact JSON / TOON / GCF winner
 ```
 
-These are architectural **domains**, not permanent product names. CodeDB, Pi, RTK, or a terminal backend can be replaced later without changing the mental model. Pi is an implementation engine for Files/Shell primitives, not a nested agent, model, or session.
+The architectural domains remain **Code, Files, Shell, and Terminal**. The diagram groups Files and Shell under one small `dev` provider because that is the initial implementation shape, not because the domains are permanently coupled. CodeDB, Pi, a terminal backend, or a structured encoding can be replaced later without changing the mental model.
 
-The intended working loop should feel like a local coding harness:
+The intended working loop is:
 
 ```text
-Code:  locate the relevant symbols/files
-Files: read the exact window
-Files: apply a guarded exact edit or exclusive create
-Shell: git diff -- <path>
-Shell: run the focused test/build command
+Code:  locate relevant symbols/files
+Files: read a workspace-relative source window
+Files: apply an exact guarded edit or exclusive create
+Shell: run native Bash and receive terminal text
 Code:  re-check callers/context only if needed
 ```
 
-The model should reason about repository work and Linux commands, not about transport plumbing.
+MCP remains the transport envelope. It is not the model-facing language of repository work.
 
 ### Rejected approach A: keep generic filesystem/shell and accumulate helpers
 
@@ -91,52 +89,70 @@ Exposing a full Pi/agent-tool/Desktop Commander/agent-lsp-style catalog or runni
 
 ## Design principles
 
-### 1. Native Linux semantics are the primary Shell UX
+### 1. Native model-facing content boundary
 
-The Shell domain accepts a normal command string, not an argv array. The initial implementation reuses Pi's local shell operations but owns the remote-MCP result semantics.
+Rich records are useful **inside** the harness for tests, telemetry, logging, truncation, and reliability. They stop at the renderer boundary unless the underlying information is genuinely structured and a benchmark proves a compact representation helps.
 
-Initial visible interface:
+Initial model-facing policy:
+
+```text
+Bash output        -> TextContent containing terminal text
+source/text        -> TextContent containing source/text
+edit result        -> one TextContent diff, no duplicate success prose
+write result       -> short TextContent creation acknowledgement
+errors             -> TextContent containing the native diagnostic
+bulk records       -> native / compact JSON / TOON / GCF TextContent winner
+structuredContent  -> not used by default for dev primitives
+embedded resource  -> separate future context-offload experiment
+MCP App UI         -> irrelevant to the harness model interface
+```
+
+The current ChatGPT experiment showed that plain text, `structuredContent`, embedded resources, and MCP App UI survive the product path differently. For this harness, native semantic artifacts should remain native text. The policy is specific to this ChatGPT + 1MCP workflow; it is not a claim that `structuredContent` is universally wrong for every MCP client.
+
+### 2. Native Linux semantics are the primary Shell UX
+
+The visible Shell tool accepts one normal command string:
 
 ```text
 bash(
   command: string,
-  cwd: absolute_path,
-  timeout_seconds?: number = 30,
-  max_output_bytes?: number = 1048576
+  cwd?: workspace_relative_directory,
+  timeout_seconds?: number
 )
 ```
 
-Examples the model should reason about exactly as Linux commands:
+`cwd` is optional and defaults to the immutable configured workspace root. It is a convenience, not a security boundary for `trusted-dev`: the command itself may intentionally access anything available to the Linux service user.
+
+Examples:
 
 ```bash
 git status --short
 
 git diff --stat && git status --short
 
-rg "rankCandidate" packages/core | head -50
+rg "rankCandidate" satori/packages/core | head -50
 
-for f in packages/*/package.json; do
+for f in satori/packages/*/package.json; do
   jq -r '.name' "$f"
 done
 ```
 
 Implementation contract:
 
-- use Pi `createLocalBashOperations()` as the process backend; do **not** expose Pi `createBashTool()` directly because it converts ordinary non-zero exits into tool errors;
-- execute one native shell command string with Pi's local shell semantics;
-- require an explicit per-call absolute `cwd`; never keep mutable global cwd;
-- preserve pipes, redirects, heredocs, subshells, shell operators, globbing, and environment expansion;
-- forward the MCP request `AbortSignal` into Pi so cancellation kills the full process tree;
-- use a finite default timeout of 30 seconds and a maximum of 300 seconds; Terminal owns intentionally persistent/interactive processes later;
-- treat a normal non-zero exit code as execution data, not an MCP tool failure;
-- stream/capture stdout and stderr in Pi's native combined order; do not pretend the backend can reconstruct separate streams;
-- bound model-visible output and spill the complete combined stream to a bridge-owned state/log file when truncation occurs.
+- use Pi `createLocalBashOperations()`, not Pi `createBashTool()`, so ordinary non-zero exits remain execution data;
+- execute one native shell command string and preserve pipes, redirects, heredocs, subshells, shell operators, globbing, and environment expansion;
+- resolve optional `cwd` beneath `MCP_DEV_WORKSPACE_ROOT`; reject absolute cwd and `..` segments;
+- forward the MCP `AbortSignal` so cancellation kills the full process tree;
+- use a 30-second default timeout and 300-second maximum; Terminal owns persistent/interactive processes later;
+- capture Pi's combined stdout/stderr stream in emission order;
+- bound output according to deployment policy `MCP_DEV_MAX_OUTPUT_BYTES`, not a model-facing argument;
+- spill complete output to a bridge-owned state file when truncation occurs.
 
-Canonical initial result contract:
+Internal execution record:
 
 ```json
 {
-  "cwd": "/path/to/project",
+  "cwd": "/workspace/satori",
   "exit_code": 1,
   "output": "...",
   "output_bytes": 1234,
@@ -148,21 +164,29 @@ Canonical initial result contract:
 }
 ```
 
-Timeout returns `timed_out=true` with `exit_code=null` when a response can be delivered. MCP cancellation must always terminate the process tree promptly; delivery of a final `cancelled=true` result is best-effort because the caller may already have cancelled the request.
-
-A later RTK phase may add `output_mode="auto" | "raw"`; raw Pi-backed Shell is proven first.
-
-### 2. Files reuses Pi primitives behind stricter remote-concurrency guards
-
-The Files domain initially exposes Pi-backed `read`, multi-edit `edit`, and create-only `write`. Pi is the implementation engine, but its local-agent assumptions are not accepted blindly.
-
-Initial visible surface:
+Model-facing renderer:
 
 ```text
-read(cwd, path, offset?, limit?)
+normal exit 0 + output  -> output only
+normal exit 0 + empty   -> Command completed.
+non-zero exit           -> output + [exit N]
+truncated               -> tail + [truncated · full: PATH]
+timeout                 -> tail + [timed out after Ns]
+cancel                  -> best-effort tail + [cancelled]
+```
+
+The dev provider does not return the execution record through `JSON.stringify` and does not emit `structuredContent` for Bash.
+
+### 3. Files is workspace-relative by construction
+
+The Files domain reuses Pi `read`, multi-edit `edit`, and create-only `write`, but the model never supplies an arbitrary absolute cwd or absolute target path.
+
+Visible surface:
+
+```text
+read(path, offset?, limit?)
 
 edit(
-  cwd,
   path,
   edits=[
     {oldText, newText},
@@ -170,23 +194,42 @@ edit(
   ]
 )
 
-write(cwd, path, content)  # create-only
+write(path, content)  # create-only
 ```
 
-Rules:
+`path` is always relative to immutable `MCP_DEV_WORKSPACE_ROOT`.
 
-- every call requires an explicit absolute `cwd`;
-- preserve Pi's ranged read behavior and real multi-edit API;
-- `edit` must reject Pi's fuzzy fallback: each `oldText` is validated as an exact unique string against the same BOM-stripped/newline-normalized snapshot Pi will edit; quote/dash/whitespace normalization is not allowed to create a match;
-- the custom Pi `EditOperations` stores the bytes read for that invocation and, immediately before write, verifies the current file bytes still equal that snapshot; if another writer changed the file, the edit fails instead of overwriting it;
-- `write` is initially new-file creation only; implement Pi `WriteOperations.writeFile` with atomic exclusive creation (`wx` / `O_EXCL`) so concurrent creators cannot both succeed;
-- existing-file full rewrites are deliberately unavailable in the initial API; use guarded exact `edit` instead;
-- forward one compact edit diff (`details.diff`) in the model-visible result; omit Pi's redundant unified patch unless explicitly requested later;
-- full model-visible hash/CAS parameters are deferred. Add them only if guarded edits + exclusive create prove insufficient in real shared-tree work.
+Boundary rules:
 
-This catches fuzzy/ambiguous edits, serializes in-provider mutations through Pi, guarantees create-only races with `O_EXCL`, and detects an observed intervening edit before write. It is **not** claimed to be kernel-atomic CAS against an arbitrary external writer that changes the file between the final comparison and write; full CAS/versioned writes remain a later option if real shared-tree evidence requires them.
+- reject absolute paths;
+- reject any `..` path segment;
+- canonicalize the workspace root with `realpath`;
+- for existing read/edit targets, canonicalize the target with `realpath` and require it to remain beneath the root;
+- for create-only write, require an existing canonical parent beneath the root, then use atomic exclusive creation (`wx` / `O_EXCL`);
+- reject symlink escapes, including a symlinked parent for a new file;
+- test traversal, absolute outside paths, existing symlink escape, and new-file escape through an outside parent.
 
-### 3. Code is a replaceable intelligence domain
+Mutation rules:
+
+- preserve Pi's ranged read and multi-edit input;
+- reject Pi's fuzzy fallback: every `oldText` must occur exactly once after BOM removal and newline normalization only;
+- store the bytes read by the edit operation and compare them immediately before write as a best-effort external-race guard;
+- do not claim that comparison-plus-write is kernel-atomic CAS against arbitrary outside writers;
+- existing-file full rewrites are unavailable initially; use guarded exact edit;
+- defer model-visible hash/CAS parameters unless real shared-tree evidence requires them.
+
+Model-facing Files results:
+
+```text
+read   -> Pi source/text content
+edit   -> path + one useful diff only
+write  -> Created <path>
+error  -> native diagnostic text with isError=true
+```
+
+The provider does not return Pi's generic edit success prose alongside the diff and does not emit `structuredContent` for Files.
+
+### 4. Code is a replaceable intelligence domain
 
 Initial implementation: **CodeDB**.
 
@@ -199,9 +242,7 @@ As of 2026-08-15, current upstream CodeDB supports:
 - ranged `codedb_read`, `compact`, and `if_hash` skip-unchanged behavior;
 - a local watcher/index that updates after edits.
 
-Phase 1 pins **CodeDB v0.2.5840**, the current release selected for this benchmark, rather than following latest. The Linux x86_64 binary must be verified against the release checksum manifest before execution.
-
-CodeDB is context/navigation only in our architecture. Its fallback editor is not part of the intended workflow.
+Phase 1 pins **CodeDB v0.2.5840** and verifies the Linux x86_64 release checksum before execution. CodeDB remains context/navigation only; its fallback editor is not the mutation path.
 
 Launch/runtime contract:
 
@@ -212,102 +253,70 @@ CODEDB_MCP_LEAN=1
 CODEDB_NO_TELEMETRY=1
 ```
 
-Installation must not create automatic client integrations we do not want: no DeepWiki registration and no persistent CodeDB hooks in Codex/Claude/etc. The initial plan therefore installs the verified release binary directly instead of running CodeDB's convenience installer; no client-registration/hook cleanup should be needed.
+Install the verified release binary directly so no client hooks, DeepWiki registration, or unrelated client configuration is created. Every call passes an explicit absolute `project`. Runtime activation inspects the actual advertised tool list instead of trusting documentation counts.
 
-Every model-facing CodeDB call passes:
+### 5. Terminal is a backend choice, not a permanent MCP product
 
-```text
-project="/home/hamza/repo/<repo>"
-```
+Terminal is for interactive or persistent processes that Bash should not own:
 
-The neutral `/tmp` cwd is deliberate so failure to pass `project` cannot silently index `/home/hamza/repo` as a multi-repository workspace. Runtime activation must inspect the actual `tools/list` instead of trusting a documentation count.
-
-### 4. Terminal is a backend choice, not a permanent MCP product
-
-Terminal exists only for tasks where one-shot `exec` is the wrong abstraction:
-
-- debugger/REPL sessions;
-- interactive installers/prompts;
-- watch mode and long-running development servers;
-- TUI applications;
-- sessions the agent returns to repeatedly.
+- development/watch servers;
+- REPLs and debuggers;
+- interactive installers;
+- programs requiring control keys or later reattachment.
 
 Selection criterion is stronger than "persistent across tool calls": the preferred backend should keep local PTYs alive independently of an individual MCP child process whenever practical, bound returned output, and permit human attachment/intervention.
 
 Candidate order for the later benchmark:
 
-1. **daemon-managed CLI backend** (currently `pilotty` is the strongest researched shape) because it can be driven through our native Shell with zero extra MCP schemas and owns PTYs in a separate local daemon;
-2. **interactive-terminal-mcp** as a simple direct MCP baseline;
-3. **pty-mcp** as a feature-rich comparison.
+1. daemon-managed local CLI backend;
+2. `interactive-terminal-mcp` as a direct MCP baseline;
+3. `pty-mcp` as a feature-rich comparison.
 
-Research correction: the currently published `interactive-terminal-mcp` documentation confirms stateful sessions across tool calls, but does not by itself establish the separate per-user daemon/TUI persistence previously attributed to it. We must test the exact package/repository before treating those claims as requirements. `pty-mcp` documents persistent remote sessions via its `ai-tmux` daemon, while local sessions remain owned by the MCP server process.
+No terminal candidate is foundational today.
 
-The Terminal phase chooses one backend by benchmark; no candidate is foundational today.
+### 6. Structured formats compete on our real payloads
 
-### 5. GCF is a context optimization experiment, not a correctness dependency
+GCF and TOON both have credible evidence for reducing structured context, but neither is accepted as universally better for this coding workload. Their published measurements conflict, and both projects describe structure-dependent tradeoffs.
 
-We like GCF because the interesting property is not only compact single responses but session-level dedup/delta for repeated structured shapes. Current GCF/gcf-proxy upstream supports MCP proxying and session-oriented compaction; the current pinned shadow candidate is GCF v3.5.3.
-
-However, vendor benchmark numbers are hypotheses for our environment, not acceptance evidence.
-
-We measure:
+The first stateless screen uses the same actual CodeDB captures and records the payload's structure class:
 
 ```text
-actual ChatGPT-visible tool result
-actual token/context consumption
-model comprehension/task accuracy
-latency
-round-trip/protocol reliability
+native CodeDB text          # model-facing baseline when available
+pretty/native JSON          # exact JSON payload
+compact JSON                # same payload, whitespace removed
+TOON v4.1.1                 # same JSON value
+GCF spec v3.5.3             # same JSON value via gcf-python v2.6.0
 ```
 
-The first shadow pass may compare offline size, round-trip fidelity, and encoding latency as a cheap screening step. We do **not** treat that as production acceptance; any live adoption still requires actual ChatGPT-visible context, comprehension, and protocol measurements.
+For each applicable representation measure:
 
-Initial GCF candidates:
+- conversion eligibility;
+- exact round-trip fidelity;
+- bytes;
+- one shared tokenizer estimate;
+- encode/decode latency;
+- structure class (uniform records, deep nesting, irregular/mixed shapes, graph-like data).
 
-- CodeDB search/context/caller/dependency/status output;
-- process/status/diagnostic records from the later dev harness;
-- repeated structured records across several turns.
-
-Default passthrough:
-
-- source code;
-- patches/diffs;
-- short shell output;
-- error/stack traces under active debugging;
-- anything requested with `raw` semantics.
-
-GCF is first tested in shadow/offline mode against real captured responses. If useful, the first live candidate is `gcf-proxy` wrapped around CodeDB only, behind 1MCP—not in front of the public Cloudflare/OAuth endpoint and not around Pi Files/Shell. Start that live experiment stateless, and first verify CodeDB actually returns structured JSON inside MCP `content[].text`, because the current proxy rewrites JSON-valued text blocks rather than arbitrary `structuredContent`. `gcf-proxy --session` and `--delta` are not enabled until we prove their proxy-process state is correctly isolated to the same ChatGPT/MCP conversation that owns the prior context; process-global dedup/delta state must never leak references across independent clients or conversations.
-
-### 6. RTK is an optional Shell output policy
-
-RTK is not the shell executor. Native Bash remains the executor.
-
-Later Shell behavior:
+Record independent verdicts:
 
 ```text
-exec(command, output_mode="auto")
-  -> optionally ask RTK rewrite/classifier
-  -> execute effective command
-  -> structured result
-
-exec(command, output_mode="raw")
-  -> execute original command exactly
-  -> no RTK
+TOON = PROMISING | NOT_MATERIAL | INCOMPATIBLE
+GCF  = PROMISING | NOT_MATERIAL | INCOMPATIBLE
 ```
 
-RTK's own supported coding-agent integrations work by rewriting Bash-tool command strings before execution. Our remote MCP path does not inherit those hooks automatically, so integration must be explicit beneath our Shell implementation.
+Neither verdict affects CodeDB's independent KEEP/REMOVE decision.
 
-Adoption gates:
+If one or both remain promising, the later real-path stateless experiment compares **native TextContent vs TOON TextContent vs GCF TextContent** through ChatGPT -> OAuth -> Cloudflare -> 1MCP -> CodeDB. Only after stateless GCF wins may session dedup/delta be evaluated. Stateful GCF correctness and conversation isolation are separate from serialization efficiency.
 
-- no change in exit-code semantics;
-- no hidden loss of relevant failure evidence;
-- compound commands/pipelines covered by tests;
-- deterministic raw bypass;
-- measurable reduction on our real `git`, `pnpm`, `rg`, and diagnostic workloads.
+Source code, diffs, terminal output, and active diagnostics remain native text by default.
 
-### 7. CLI capabilities stay CLIs unless a domain needs semantics
+### 7. RTK is an optional Shell output policy
 
-Install/use ordinary Linux tools through Shell rather than exposing them as MCPs:
+RTK is not the shell executor. Native Pi-backed Bash remains the executor. A later experiment may transform supported noisy commands beneath Bash, with a permanent raw bypass and no change to exit/cancel semantics.
+
+### 8. CLI capabilities stay CLIs unless a domain needs semantics
+
+Use ordinary Linux tools through Bash rather than exposing them as MCPs:
 
 ```text
 git
@@ -320,43 +329,45 @@ node/pnpm
 normal Linux tooling
 ```
 
-`ast-grep` is specifically a CLI capability, not another model-facing MCP domain.
+`ast-grep` is a CLI capability, not another model-facing domain.
 
 ## Component selection
 
 | Domain/layer | Selected initial implementation | Why | Replacement gate |
 |---|---|---|---|
-| Transport | existing Cloudflare OAuth Bridge + 1MCP | already healthy and supervised | no change unless a demonstrated protocol limitation blocks the harness |
-| Code | CodeDB v0.2.5840 core + lean | small core profile, indexed context, bounded reads, explicit project | benchmark against Serena only if accuracy/diagnostics become a demonstrated limitation |
-| Files | thin `dev` MCP adapter over Pi 0.84.1 read/edit/write | reuse mature coding primitives while enforcing stricter remote/concurrent mutation semantics | replace Pi only if the backend itself becomes a demonstrated limitation |
-| Shell | `trusted-dev`: Pi `createLocalBashOperations()` through `dev`; `restricted`: legacy restricted shell until equivalent policy exists | native command string for the trusted reference deployment without weakening the public restricted profile | RTK is an output policy, not a replacement |
-| Terminal | undecided; benchmark later | persistence semantics need empirical testing | choose one backend after reliability/session-survival/output-size benchmark |
-| Structured response optimization | GCF shadow experiment, then optional live experiment | promising for repeated structured records | enable only after actual ChatGPT-visible A/B measurements |
-| CLI output optimization | RTK experiment | can compact normal dev commands transparently beneath Shell | enable auto mode only after raw-vs-auto benchmark |
+| Transport | existing Cloudflare OAuth Bridge + 1MCP | already healthy and supervised | change only for a demonstrated protocol limitation |
+| Code | CodeDB v0.2.5840 core + lean | bounded indexed context and explicit project | compare alternatives only if accuracy/diagnostics fail evidence gates |
+| Files | workspace-confined `dev` adapter over Pi 0.84.1 | mature primitives with a smaller model schema and explicit boundary enforcement | replace Pi only for a demonstrated backend limitation |
+| Shell | `trusted-dev`: Pi local Bash operations; `restricted`: legacy restricted shell until an equivalent policy exists | native command string without weakening the public restricted profile | RTK is an output policy, not a replacement |
+| Model-facing dev results | native TextContent renderer | preserves source, diffs, diagnostics, and terminal semantics | change only with direct ChatGPT-path evidence |
+| Structured bulk format | native / compact JSON / TOON / GCF screen | conflicting vendor evidence requires workload-specific measurement | adopt only after stateless real-path A/B |
+| Terminal | undecided; benchmark later | persistence/session semantics need empirical testing | choose by reliability and session-survival evidence |
 
 ## Why Pi backs Files + Shell
 
-We reuse Pi's coding primitives instead of rebuilding a mini coding harness from first principles, but we do **not** expose a Pi agent or Pi's whole tool catalog.
+Pi already implements ranged reads, multi-edit, native command-string execution, process-tree termination, timeouts, and mutation queues. Its SDK exports these primitives directly, so no nested agent/model/session is needed.
 
-Reasons:
+Our adapter adds only remote-harness concerns:
 
-1. Pi already implements ranged reads, multi-edit, native command-string shell execution, process-tree termination, timeouts, and mutation queues;
-2. its SDK exports the primitive factories/operations directly, so no nested model/session is needed;
-3. our MCP adapter can expose only `read`, `edit`, `write`, and `bash`;
-4. remote MCP needs a few stricter semantics than Pi's local-agent defaults: exact edit guards, atomic create-only writes, non-zero exit as data, bounded structured results, explicit cwd, and forwarded cancellation;
-5. this is much less custom infrastructure than reimplementing all file/shell machinery while keeping the architectural domains replaceable.
+- workspace-relative Files boundary;
+- exact-match guard instead of fuzzy fallback;
+- atomic exclusive create;
+- normal non-zero Shell exits as data;
+- explicit cancellation and timeout policy;
+- internal observability records;
+- native TextContent rendering.
 
-Initial dependency pin: `@earendil-works/pi-coding-agent@0.84.1`, matching the installed lineage being validated on this WSL machine. Upgrading Pi is a separate change after the adapter contract is proven.
+Initial dependency pin: `@earendil-works/pi-coding-agent@0.84.1`, matching the installed lineage validated on this WSL machine.
 
 ## Migration strategy
 
-No big-bang replacement. Code and Files/Shell are independent domains: failure of one candidate does not block evaluation of the other.
+No big-bang replacement. Code and Files/Shell are independent candidates.
 
 ### Phase 0 — Cloudflare OAuth Bridge and publication scaffold
 
 **Status:** complete or isolated for merge review.
 
-The working bridge behavior is already established, and the publication-scaffold branch defines the generic repository layout that new provider work should target:
+New harness work targets:
 
 ```text
 config/templates/mcp.json
@@ -364,161 +375,142 @@ providers/
 external generated 1MCP state/config
 ```
 
-Harness implementation must build on that layout rather than restoring tracked machine-specific `config/mcp.json`.
+Do not restore machine-specific tracked deployment config.
 
-### Phase 1 — CodeDB only
+### Phase 1 — CodeDB + neutral structured-format screen
 
-Add CodeDB independently of Files/Shell replacement.
+Add CodeDB independently and keep the existing filesystem/shell providers for comparison.
 
-Implementation requirements:
+CodeDB requirements:
 
-- pin CodeDB `v0.2.5840` Linux x86_64 asset and verify SHA-256 `f784c931b053031ca9928173828130c504f769c9e94bf5c2666ab71091747966`;
-- no auto-update;
-- no DeepWiki registration;
-- no client hooks;
-- `CODEDB_TOOLS_PROFILE=core`;
-- `CODEDB_MCP_LEAN=1`;
-- `CODEDB_NO_TELEMETRY=1`;
-- launcher cwd `/tmp`;
-- explicit absolute `project` on every call;
-- runtime assert actual advertised tool names rather than trusting documentation counts;
-- keep the existing filesystem and shell providers unchanged for A/B comparison.
+- exact v0.2.5840 binary/checksum pin;
+- core + lean + no telemetry;
+- neutral `/tmp` cwd;
+- explicit absolute project on every call;
+- actual runtime tool-list assertion;
+- no client hooks/registrations.
 
-Benchmark one concrete Satori architecture-tracing task with old primitives versus CodeDB. Record:
+Benchmark one concrete Satori architecture-tracing task. Record:
 
 ```text
 tool calls
-returned bytes / estimated tokens
-whole-file reads
-repeated reads
-irrelevant reads
+whole-file/repeated/irrelevant reads
 wall time
-accuracy of concrete file/function call chain
+call-chain correctness
+total advertised tool-schema bytes and estimated tokens
+representative request bytes/tokens and nested field count
+model-visible result bytes/tokens
+follow-up calls needed to recover missing evidence
 index freshness after edit
 ```
 
-After the benchmark, capture representative CodeDB results and run a **shadow/offline GCF v3.5.3 measurement** using pinned `gcf-python v2.6.0`, which implements the v3.5.3 numeric domain. This does not alter the live bridge. First measure **conversion coverage**: CodeDB documents plain-text MCP responses by default, so only JSON-valued `content[].text` is directly eligible for the current `gcf-proxy` path. For eligible captures, measure encoded size/token estimate, encode/decode latency, and round-trip fidelity. Model-comprehension and end-to-end protocol acceptance belong to the later live experiment.
-
-Decision handling is independent:
+Run the independent stateless format screen on actual eligible CodeDB payloads:
 
 ```text
-CodeDB KEEP
-  -> leave CodeDB registered
-
-CodeDB REMOVE
-  -> remove CodeDB from template/generated config, smoke checks, and public docs
-  -> keep the benchmark evidence
-  -> continue to Phase 2
+native text
+pretty JSON
+compact JSON
+TOON 4.1.1
+GCF 3.5.3 via gcf-python 2.6.0
 ```
 
-### Phase 2 — Pi-backed `dev` provider: Files + Shell
+The CodeDB verdict and TOON/GCF verdicts are separate.
 
-Create one local stdio provider exposing exactly:
+After any tool-catalog activation:
 
 ```text
-read
-edit
-write
-bash
+restart bridge if provider composition changed
+verify bridge health
+refresh the ChatGPT workspace/plugin Actions
+start a fresh session using that MCP
+verify the expected action catalog
 ```
 
-The current filesystem MCP and shell MCP remain enabled during A/B comparison.
+### Phase 2 — workspace-confined Pi `dev` provider
 
-#### Files acceptance
-
-- `read` preserves Pi offset/limit behavior;
-- `edit` preserves Pi's multi-edit input and returns one compact `details.diff` representation;
-- before Pi edit logic runs, each `oldText` must be exactly unique in the BOM-stripped/newline-normalized snapshot; Pi fuzzy quote/dash/whitespace normalization must never create an accepted match;
-- custom `EditOperations` verifies immediately before write that the file bytes still equal the snapshot read by that invocation, so an intervening external write becomes a conflict;
-- `write` is create-only and uses a custom Pi `WriteOperations.writeFile` with atomic exclusive creation (`wx` / `O_EXCL`);
-- two concurrent creates for the same absent path yield exactly one success;
-- existing paths are never overwritten by `write`;
-- explicit absolute cwd is isolated per request.
-- profile mapping remains explicit: `trusted-dev` enables Pi Bash; `restricted` does not expose unrestricted Pi Bash and continues using the legacy restricted shell during this phase.
-
-#### Shell acceptance
-
-- `bash.command` is one native shell string;
-- Pi `createLocalBashOperations()` is the executor; Pi `createBashTool()` is not exposed directly;
-- exit code 0 and non-zero exit codes are normal results;
-- result contains cwd, exit_code, combined output, output byte count, duration, timed_out, cancelled, truncated, and full_output_path;
-- default timeout is 30 seconds, maximum timeout is 300 seconds;
-- timeout and MCP cancellation kill the full process tree;
-- output is bounded without losing the recoverable full-output file;
-- pipes, `&&`, redirects, subshells, and normal Linux syntax work;
-- no mutable global cwd exists.
-
-Benchmark against the old filesystem + shell providers on the same workflows, including:
+During A/B, expose:
 
 ```text
-ranged read
-multi-location edit
-fuzzy-only edit candidate (must reject)
-concurrent create-only write
-native compound shell command
-non-zero shell exit
-MCP cancellation
-hung command/default timeout
-verbose command truncation/full-output recovery
+both profiles: read, edit, write
+trusted-dev:   bash additionally
+restricted:    legacy restricted shell remains separate
 ```
 
-Decision handling:
+Files acceptance:
+
+- immutable `MCP_DEV_WORKSPACE_ROOT`;
+- paths are relative only;
+- absolute paths and `..` rejected;
+- existing target and write parent canonicalized beneath root;
+- traversal, absolute outside, symlink escape, and outside-parent creation tests;
+- ranged read;
+- exact multi-edit with fuzzy fallback rejected;
+- one model-facing diff only;
+- atomic create-only write with exactly one winner under a race;
+- no `structuredContent`.
+
+Shell acceptance:
+
+- visible schema is `command`, optional relative `cwd`, optional `timeout_seconds`;
+- output limit comes from deployment policy, not the request schema;
+- optional cwd defaults to workspace root;
+- absolute cwd and any `..` cwd segment are rejected;
+- cwd confinement is only an invocation convenience: under `trusted-dev`, the Bash command itself may intentionally access files/services outside the workspace with the authority of the Linux service user;
+- normal non-zero exits are data;
+- timeout/cancel kills the process tree;
+- terminal output is native TextContent with concise exceptional annotations;
+- no JSON execution wrapper and no `structuredContent`.
+
+Benchmark old vs new using runtime and context metrics:
 
 ```text
-Pi CUTOVER
-  -> remove the old filesystem provider for both profiles
-  -> trusted-dev: use `dev.read/edit/write/bash` and remove the legacy shell from its rendered composition
-  -> restricted: use `dev.read/edit/write`, keep the legacy restricted shell, and do not expose unrestricted Pi Bash
-
-Pi KEEP_OLD_PROVIDERS
-  -> remove `dev` from template/generated config, smoke checks, and temporary docs
-  -> keep benchmark evidence
+advertised tool count/schema bytes/tokens
+representative request bytes/tokens and field count
+model-visible result bytes/tokens
+follow-up calls needed for evidence
+wall time/correctness/retries
 ```
 
-No losing experimental provider remains registered after the decision.
+After activation, cutover, or rollback, repeat the ChatGPT workspace/plugin refresh and fresh-session catalog verification. No losing provider remains registered.
 
 ### Phase 3 — Linux CLI toolbox
 
-Install/pin `ast-grep` and any other genuinely useful CLIs missing from WSL. No new MCP schemas.
+Install/pin useful missing CLIs such as `ast-grep`; add no MCP schemas.
 
 ### Phase 4 — RTK experiment
 
-After raw Pi-backed Shell is stable, benchmark a pinned RTK integration beneath `bash` with explicit auto/raw semantics. Do not change native exit/cancel behavior, and keep a permanent raw bypass.
+Benchmark optional RTK shaping beneath proven raw Bash. Preserve raw bypass, native result semantics, and diagnostic correctness.
 
 ### Phase 5 — persistent Terminal and long-wait control flow
 
-Benchmark terminal backends independently for persistent bash state, REPL/debugger interaction, watch/dev processes, reconnect/restart survival where claimed, bounded incremental reads, special keys, human attachment, and cleanup.
+Benchmark terminal backends independently. Design `await_until` only after measuring the real end-to-end request lifetime and concurrent-resume behavior.
 
-`await_until` is **not** part of the CodeDB+Pi implementation plan. Design it only after measuring the real end-to-end MCP/Cloudflare request lifetime and deciding how it coordinates concurrent resumptions. Cloudflare currently documents a 125-second default Proxy Read Timeout for proxied HTTP, so a 180-second lease is not accepted without a live transport measurement.
+### Phase 6 — live stateless structured-format experiment
 
-Prefer native MCP Tasks if the connected ChatGPT/1MCP path later advertises and successfully negotiates them; otherwise evaluate a small compatibility primitive separately.
+Through the real ChatGPT path compare:
 
-### Phase 6 — live GCF vs native output experiment
+```text
+native CodeDB TextContent
+TOON TextContent
+GCF TextContent
+```
 
-If the shadow screen is promising, first wrap **CodeDB only** with a pinned `gcf-proxy` release in stateless mode and compare it with native CodeDB output through the real ChatGPT -> Cloudflare -> 1MCP path. Do not wrap Pi Files/Shell by default; source windows, edit diffs, shell output, and diagnostics remain raw/lossless evidence.
-
-Before enabling `gcf-proxy --session` or `--delta`, verify experimentally that state is scoped to a single ChatGPT/MCP conversation rather than a shared long-lived provider process. If 1MCP multiplexes independent clients through one stdio provider, session/delta requires an isolation strategy or stays disabled.
-
-Compare actual ChatGPT-visible context/tokens, comprehension, latency, protocol reliability, repeated-call savings, and raw-evidence preservation.
+Use the same semantic payload/task and measure actual context, comprehension, latency, protocol reliability, and raw-evidence preservation. Re-pin the then-current proxy/codec versions. Evaluate GCF session/delta only after stateless GCF wins and conversation state is proven isolated.
 
 ### Phase 7 — consolidation and tool-surface reduction
 
-Only after the useful components are proven:
-
-- remove any superseded providers that survived earlier rollback gates;
-- hide/filter redundant tools only if schema context remains material;
-- consider a CodeDB facade only if its core tool set still causes measurable cognitive/schema debt;
-- measure final always-visible schema size;
-- update acceptance docs around the stable domains rather than backend product names.
+Remove superseded providers, measure the final always-visible schema, and consider facades or an `apply_patch` experiment only after the primitive layer is proven.
 
 ## Multi-agent/shared-tree rules
 
 Server-enforced:
 
-- exact unique edit preconditions with Pi fuzzy matching rejected;
-- snapshot-before-write conflict detection for edits;
-- atomic exclusive create-only writes;
-- explicit per-call cwd isolation.
+- workspace-relative Files namespace;
+- canonical root/target/parent containment;
+- symlink-escape rejection;
+- exact unique edit preconditions;
+- best-effort snapshot-before-write conflict detection;
+- atomic exclusive create-only writes.
 
 Agent operating contract:
 
@@ -527,106 +519,115 @@ preserve other agents' changes
 do not reset/revert/stash unrelated work
 do not use git add -A in shared-tree workflows
 stage only assigned paths
-reread shared files immediately before mutation when material
-on edit/create conflict: reread and reconcile; never force-overwrite by default
+reread shared files immediately before material mutation
+on edit/create conflict: reread and reconcile
 ```
 
 Worktrees remain optional for tasks that genuinely need isolation.
 
 ## Result/context budget policy
 
-Every model-facing result-producing operation follows progressive disclosure:
+- keep internal structured records inside the harness;
+- render native semantic artifacts to TextContent;
+- never emit `structuredContent` by default for dev primitives;
+- keep source, diffs, terminal output, and active diagnostics lossless;
+- bound noisy output and expose a recoverable full-output handle when needed;
+- apply TOON/GCF only to genuinely structured bulk data after a benchmark win;
+- measure schema, request, and result context separately.
 
-- bounded default output;
-- explicit truncation metadata;
-- full output recoverable from a path/handle when applicable;
-- no full repository dumps;
-- no full logs at INFO simply because they exist;
-- preserve exact raw evidence on request;
-- transformations must be measurable and reversible/bypassable.
-
-The target is to reduce tool-originated context pressure so long sessions degrade less from repeated code/log/schema payloads. This can improve one source of session slowdown/context pressure, but it is not claimed to control ChatGPT UI rendering, internal history compaction, service latency, or model reasoning latency.
+The goal is to reduce one controllable source of long-session degradation: tool schemas, verbose envelopes, duplicate confirmations, repeated structured records, whole-file reads, and large logs. This does not claim control over ChatGPT UI rendering, internal history compaction, service latency, or model reasoning latency.
 
 ## Test strategy
 
-Each phase has its own regression suite and a live acceptance gate.
+Each phase has automated provider tests, generated-config tests, live 1MCP verification, and a manual ChatGPT catalog gate.
 
-Global invariants after every phase:
+Global invariants:
 
 ```text
-Cloudflare OAuth Bridge status issues = 0
+bridge status issues = 0
 public MCP health = OK
 systemd autostart remains enabled
-no duplicate bridge/runtime process
-no unrelated staged/user work modified
-bash/config syntax checks green
-existing lifecycle tests green
-new provider/version is pinned
+no duplicate runtime process
+no unrelated user work modified
+syntax/config/provider tests green
+provider/version pins exact
 ```
 
-For new provider code, use test-first behavior around failures and concurrency, especially fuzzy-vs-exact edit rejection, intervening edit conflicts, concurrent exclusive creates, non-zero shell exits, timeout cleanup, cancellation/process-group cleanup, and truncation/full-output recovery.
+Tool-surface gate whenever tools are added or removed:
 
-One designated integrator owns the Git index and commits during implementation. Helpers/subagents may edit and test assigned paths but do not independently stage/commit in the shared worktree.
+```text
+restart the bridge and verify health
+refresh ChatGPT workspace/plugin Actions
+start a fresh MCP-backed session
+verify expected actions and absence of removed actions
+```
 
-No provider is removed until its replacement passes both automated regression tests and one real ChatGPT-driven Satori task.
+One designated integrator owns the Git index and commits. Helpers may edit/test assigned paths but do not independently stage or commit.
 
 ## Observability
 
-Track enough to compare phases without dumping context into the model:
+Track internally without dumping records into model-visible results:
 
 ```text
 provider/tool
 latency_ms
-input/output byte counts
-truncated flag
-conflict/create-exclusive flag
-RTK/GCF transformation applied? yes/no
-raw vs transformed byte counts
+request/result byte counts
+exit/timed_out/cancelled/truncated
+full-output path when retained
+conflict/create-exclusive outcome
+format applied: native/json/toon/gcf
+raw vs transformed bytes/tokens
 error category
 ```
 
-Detailed payloads remain debug-only. INFO logs must not echo full MCP request arguments or full tool results.
+Benchmark reports additionally record:
+
+```text
+advertised tool-schema bytes/tokens
+request argument bytes/tokens
+nested/request field count
+model-visible result bytes/tokens
+follow-up calls needed to recover evidence
+```
+
+INFO logs must not echo full request arguments or full tool results.
 
 ## Decision log
 
 ### Frozen now
 
-- Four capability domains: Code, Files, Shell, Terminal.
-- Existing Cloudflare OAuth Bridge + 1MCP remains the transport/composition layer.
-- The publication-scaffold layout is the base for new harness implementation; do not restore tracked machine-specific deployment config.
-- CodeDB is Phase 1 and is pinned to v0.2.5840 for the first benchmark.
-- Pi 0.84.1 is the initial implementation engine for Files + Shell primitives, not a nested agent/model/session.
-- The `dev` provider exposes `read`, `edit`, and `write` in both profiles; Pi `bash` is enabled only for `trusted-dev` until an equivalent restricted native-shell policy is designed.
-- Pi fuzzy edit fallback is rejected by our exact guard; edits also verify the pre-write snapshot has not changed.
-- `write` is atomic create-only initially; model-visible full hash/CAS writes are deferred unless evidence requires them.
-- Shell uses Pi `createLocalBashOperations()` with our result/cancellation contract; normal non-zero exits are data, not tool errors.
-- Shell command input is one native command string with explicit absolute cwd and a finite default timeout.
-- One compact edit diff is returned; redundant patch output is omitted by default.
-- Linux CLIs stay behind Shell instead of becoming MCPs.
-- A shadow GCF v3.5.3 measurement using `gcf-python v2.6.0` follows the CodeDB benchmark without changing the live bridge.
-- CodeDB and Pi have independent keep/remove gates and explicit loser rollback paths.
-- `await_until` is split into a later Terminal/control-flow design after live transport lifetime measurement.
-- RTK is optional future output shaping with a permanent raw bypass.
-- Terminal backend is selected empirically later.
-- Tool hiding/facading happens after the implementation choices are proven.
+- Four domains remain Code, Files, Shell, Terminal.
+- MCP JSON is transport, not the default model-facing language.
+- Dev primitives return native TextContent; no default `structuredContent`.
+- CodeDB v0.2.5840 is the initial Code candidate.
+- Pi 0.84.1 is the Files/Shell implementation engine, not a nested agent.
+- Files paths are workspace-relative and server-confined.
+- Bash exposes `command`, optional relative `cwd`, and optional timeout only.
+- Output byte limit is deployment policy.
+- Edit returns one useful diff without duplicate confirmation prose.
+- TOON and GCF compete neutrally on real CodeDB payloads; neither vendor benchmark decides adoption.
+- CodeDB, TOON, GCF, and Pi have independent verdicts.
+- ChatGPT tool-catalog changes require workspace/plugin refresh followed by a fresh session.
+- GCF stateful session/delta evaluation follows, rather than accompanies, a stateless win.
+- `apply_patch`, Terminal, RTK, and `await_until` remain separate later experiments.
 
 ### Explicitly not frozen yet
 
-- whether full model-visible Files hash/CAS is needed after guarded Pi usage;
-- final terminal backend;
-- long-wait/`await_until` design and lease duration;
-- RTK production default policy;
-- exact pinned `gcf-proxy` release for the first live CodeDB wrapper and whether session/delta can be safely conversation-scoped;
-- whether CodeDB's core tools need a later facade;
-- whether a Codex-style multi-file `apply_patch` tool is worth adding after Pi `read/edit/write` is exercised in real work.
+- whether full model-visible Files hash/CAS is needed;
+- final Terminal backend;
+- long-wait control-flow design;
+- RTK production policy;
+- TOON or GCF live insertion details;
+- whether CodeDB needs a facade;
+- whether an `apply_patch` facade beats Pi multi-edit after cutover.
 
 ## Immediate next plan
 
-The next implementation plan covers the focused **CodeDB + Pi evaluation and cutover sequence** only:
+The implementation plan covers:
 
 ```text
-Phase 1: CodeDB activation -> benchmark -> shadow GCF -> keep/remove rollback
-Phase 2: Pi-backed dev provider -> benchmark -> cutover/rollback
+Phase 1: CodeDB activation -> benchmark -> native/JSON/TOON/GCF screen -> independent verdicts
+Phase 2: workspace-confined Pi dev provider -> native TextContent benchmark -> cutover/rollback
 ```
 
-It must target the publication-scaffold repository boundaries (`config/templates/`, generated external 1MCP state, and `providers/pi-dev/`). It must not implement RTK, Terminal, live GCF, or `await_until`.
+It targets the publication-scaffold boundaries (`config/templates/`, generated external state, and `providers/pi-dev/`). It does not implement RTK, Terminal, live structured-format interception, `await_until`, or `apply_patch`.
