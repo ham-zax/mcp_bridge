@@ -18,6 +18,7 @@ contains() { grep -Eq "$2" "$1"; }
 is_public_path() {
   case "$1" in
     docs/superpowers/* | \
+    docs/personal/* | \
     config/profiles/personal.env | \
     config/templates/mcp-personal.json | \
     providers/terminal/* | \
@@ -84,6 +85,7 @@ test_private_only_paths_are_not_public() {
   for path in \
     config/profiles/personal.env \
     config/templates/mcp-personal.json \
+    docs/personal/example \
     providers/terminal/example \
     providers/code-router/example \
     bin/wsl-term; do
