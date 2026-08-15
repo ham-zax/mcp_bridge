@@ -12,8 +12,8 @@ Cloudflare Tunnel
    v
 1MCP on 127.0.0.1:3050
    |
-   +-- filesystem provider
-   `-- shell provider
+   +-- dev (Pi read/edit/write; trusted-dev Bash)
+   `-- legacy shell (restricted profile only)
 ```
 
 The project keeps public software generic while deployment identity and mutable state remain local. A deployment chooses a trust profile explicitly; there is no silent profile default.
@@ -79,7 +79,7 @@ Legacy `scripts/start.sh`, `scripts/status.sh`, and `scripts/stop.sh` remain com
 
 ## Current development surface
 
-The bridge evaluated CodeDB and removed it after its independent benchmark failed the required post-edit freshness gate; the benchmark evidence remains under `docs/benchmarks/`. The remaining experimental `dev` provider uses pinned Pi primitives for workspace-relative `read`, exact guarded multi-`edit`, and atomic create-only `write`. Under `trusted-dev` it also exposes native-command `bash`; under `restricted` it deliberately omits Pi Bash and the existing allowlisted shell remains responsible for Shell. Dev results are plain model-facing text: source, one diff, a short create acknowledgement, or terminal output. The legacy filesystem and shell providers remain during A/B and are removed only by an explicit cutover.
+The bridge evaluated CodeDB and removed it after its independent benchmark failed the required post-edit freshness gate. The Pi-backed `dev` provider then passed all 21 mandatory runtime/boundary cases and won the Files/Shell cutover. Both profiles now use workspace-relative `read`, exact guarded multi-`edit`, and atomic create-only `write` through pinned Pi primitives. Under `trusted-dev`, `dev.bash` is the Shell backend and accepts one native Bash command string; under `restricted`, Pi Bash is deliberately omitted and the legacy allowlisted shell remains as the transitional Shell backend. Dev results are plain model-facing text: source, one diff, a short create acknowledgement, or terminal output. Benchmark evidence remains under `docs/benchmarks/`.
 
 ## Important 1MCP 0.34.4 compatibility behavior
 

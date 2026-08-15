@@ -6,12 +6,20 @@ source "$DIR/lib/bridge/common.sh"
 
 CONFIG="$BRIDGE_CONFIG_DIR/mcp.json"
 if [ -f "$CONFIG" ]; then
-  node - "$CONFIG" "$DIR" <<'NODE'
+  node - "$CONFIG" "$DIR" "${MCP_BRIDGE_PROFILE:-}" <<'NODE'
 const fs = require('fs');
 const path = require('path');
-const [configFile, repoRoot] = process.argv.slice(2);
+const [configFile, repoRoot, profile] = process.argv.slice(2);
 const cfg = JSON.parse(fs.readFileSync(configFile, 'utf8'));
 const dev = cfg.mcpServers?.dev;
+if (cfg.mcpServers?.filesystem) throw new Error('filesystem provider must be absent after Pi cutover');
+if (profile) {
+  const actual = Object.keys(cfg.mcpServers ?? {}).sort();
+  const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : null;
+  if (!expected || JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`unexpected final provider set for ${profile || 'unknown'}: ${actual.join(',')}`);
+  }
+}
 if (dev) {
   const pkgFile = path.join(repoRoot, 'providers', 'pi-dev', 'node_modules', '@earendil-works', 'pi-coding-agent', 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
@@ -33,4 +41,4 @@ curl -sf -m 5 -X POST "$URL" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1.0.0"}}}'
 echo
 echo
-echo "(connectivity check only; full tool surface: inspect filesystem|shell|dev, or docs/acceptance.md from ChatGPT)"
+echo "(connectivity check only; final tool surface: inspect dev plus restricted-only shell, or docs/acceptance.md from ChatGPT)"

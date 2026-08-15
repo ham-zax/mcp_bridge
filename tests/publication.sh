@@ -58,12 +58,14 @@ test_explicit_profile_contract() {
 test_profiles_are_distinct() {
   grep -Fqx 'MCP_SHELL_MODE=allowlist' "$ROOT/config/profiles/restricted.env" || return 1
   grep -Fqx 'MCP_SHELL_MODE=unrestricted' "$ROOT/config/profiles/trusted-dev.env" || return 1
-  contains "$ROOT/config/profiles/trusted-dev.env" '^MCP_SHELL_ALLOW_DANGEROUS=ALL$' && \
-  ! contains "$ROOT/config/profiles/restricted.env" '^MCP_SHELL_ALLOW_DANGEROUS=ALL$'
+  grep -Fq 'MCP_SHELL_ALLOW_COMMANDS=' "$ROOT/config/profiles/restricted.env" || return 1
+  grep -Fq 'MCP_SHELL_ALLOW_PATTERNS=' "$ROOT/config/profiles/restricted.env" || return 1
+  grep -Fqx 'MCP_SHELL_ALLOW_DANGEROUS=' "$ROOT/config/profiles/restricted.env" || return 1
+  ! grep -Eq '^MCP_SHELL_ALLOW_(COMMANDS|PATTERNS|DANGEROUS)=' "$ROOT/config/profiles/trusted-dev.env"
 }
 
 test_renderer_generates_both_profiles() {
-  local tmp env_file state profile config
+  local tmp env_file state profile
   tmp="$(mktemp -d)" || return 1
   env_file="$tmp/deployment.env"
   cat > "$env_file" <<'EOF'
@@ -74,29 +76,32 @@ EOF
   for profile in restricted trusted-dev; do
     state="$tmp/$profile"
     node "$ROOT/scripts/render-config.mjs" --profile "$profile" --env-file "$env_file" --state-dir "$state" --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
-    config="$state/1mcp/mcp.json"
-    node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!c.mcpServers?.filesystem || !c.mcpServers?.shell || !c.mcpServers?.dev) process.exit(1)' "$config" || { rm -rf "$tmp"; return 1; }
-    grep -Fq '/tmp/example-workspace' "$config" || { rm -rf "$tmp"; return 1; }
-    grep -Fq "$ROOT/providers/legacy-shell/server.py" "$config" || { rm -rf "$tmp"; return 1; }
     grep -Fq "MCP_BRIDGE_PROFILE='$profile'" "$state/bridge.env" || { rm -rf "$tmp"; return 1; }
   done
-  grep -Fq '"MCP_SHELL_ALLOW_DANGEROUS": "ALL"' "$tmp/trusted-dev/1mcp/mcp.json" || { rm -rf "$tmp"; return 1; }
-  grep -Fq '"MCP_SHELL_ALLOW_DANGEROUS": ""' "$tmp/restricted/1mcp/mcp.json" || { rm -rf "$tmp"; return 1; }
-  node - "$tmp/restricted/1mcp/mcp.json" "$tmp/trusted-dev/1mcp/mcp.json" <<'NODE'
+  node - "$tmp/restricted/1mcp/mcp.json" "$tmp/trusted-dev/1mcp/mcp.json" "$ROOT" <<'NODE2'
 const fs = require('fs');
-const [restrictedFile, trustedFile] = process.argv.slice(2);
+const [restrictedFile, trustedFile, root] = process.argv.slice(2);
 const restricted = JSON.parse(fs.readFileSync(restrictedFile, 'utf8'));
 const trusted = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
+const keys = cfg => Object.keys(cfg.mcpServers ?? {}).sort();
+if (JSON.stringify(keys(restricted)) !== JSON.stringify(['dev', 'shell'])) process.exit(1);
+if (JSON.stringify(keys(trusted)) !== JSON.stringify(['dev'])) process.exit(1);
 for (const cfg of [restricted, trusted]) {
   const env = cfg.mcpServers.dev.env;
   if (env.MCP_DEV_WORKSPACE_ROOT !== '/tmp/example-workspace') process.exit(1);
   if (env.MCP_DEV_MAX_OUTPUT_BYTES !== '1048576') process.exit(1);
   if (!env.MCP_DEV_STATE_DIR.endsWith('/dev')) process.exit(1);
+  if (cfg.mcpServers.filesystem) process.exit(1);
 }
 if (restricted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'allowlist') process.exit(1);
 if (trusted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'unrestricted') process.exit(1);
-NODE
+if (!restricted.mcpServers.shell.args.includes(root + '/providers/legacy-shell/server.py')) process.exit(1);
+if (restricted.mcpServers.shell.env.MCP_SHELL_ALLOW_DANGEROUS !== '') process.exit(1);
+if (trusted.mcpServers.shell) process.exit(1);
+NODE2
+  local rc=$?
   rm -rf "$tmp"
+  return "$rc"
 }
 
 test_pi_install_and_smoke_contract() {
@@ -106,6 +111,8 @@ test_pi_install_and_smoke_contract() {
   grep -Fq 'MCP_DEV_STATE_DIR' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'MCP_DEV_MAX_OUTPUT_BYTES' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'MCP_DEV_SHELL_MODE' "$ROOT/scripts/smoke-local.sh" || return 1
+  grep -Fq 'unexpected final provider set' "$ROOT/scripts/smoke-local.sh" || return 1
+  grep -Fq 'filesystem provider must be absent after Pi cutover' "$ROOT/scripts/smoke-local.sh" || return 1
 }
 
 test_env_is_ignored() {

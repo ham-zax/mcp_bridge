@@ -12,7 +12,7 @@ Designed for dedicated agentic development environments. Shell execution is inte
 
 That may include access to:
 
-- files outside the configured filesystem-provider workspace through shell commands;
+- files outside the configured Pi Files workspace through trusted Shell commands;
 - developer credentials readable by the service user;
 - local processes and systemd user services;
 - network endpoints available to that account;

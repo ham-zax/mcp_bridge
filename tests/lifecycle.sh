@@ -34,7 +34,7 @@ test_no_global_process_matching() {
 
 test_dependencies_are_pinned() {
   contains "$ROOT/scripts/setup.sh" 'ONE_MCP_VERSION="0\.34\.4"' && \
-  contains "$ROOT/config/templates/mcp.json" '@modelcontextprotocol/server-filesystem@2026\.7\.10' && \
+  contains "$ROOT/providers/pi-dev/package.json" '"@earendil-works/pi-coding-agent"[[:space:]]*:[[:space:]]*"0\.84\.1"' && \
   contains "$ROOT/config/templates/mcp.json" 'mcp-shell-server==1\.1\.8'
 }
 

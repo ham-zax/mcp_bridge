@@ -4,7 +4,6 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
 ONE_MCP_VERSION="0.34.4"
-FILESYSTEM_MCP_VERSION="2026.7.10"
 SHELL_MCP_VERSION="1.1.8"
 
 usage() {
@@ -97,7 +96,6 @@ if [ "${BRIDGE_SETUP_SKIP_INSTALL:-0}" != "1" ]; then
     command -v "$cmd" >/dev/null 2>&1 || { echo "$cmd missing" >&2; exit 1; }
   done
   echo "  1MCP:          @1mcp/agent@$ONE_MCP_VERSION"
-  echo "  filesystem MCP: @modelcontextprotocol/server-filesystem@$FILESYSTEM_MCP_VERSION"
   echo "  shell MCP:      mcp-shell-server==$SHELL_MCP_VERSION"
   echo "  cloudflared:     $(cloudflared --version 2>/dev/null | head -n1)"
   echo "  node:            $(node -v)"

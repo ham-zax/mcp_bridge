@@ -135,6 +135,10 @@ export async function renderConfig(options) {
     __DEV_MAX_OUTPUT_BYTES__: String(devMaxOutputBytes),
   });
 
+  if (profile === 'trusted-dev') {
+    delete rendered.mcpServers.shell;
+  }
+
   const oneMcpDir = path.join(stateDir, '1mcp');
   await fs.mkdir(stateDir, { recursive: true, mode: 0o700 });
   await fs.chmod(stateDir, 0o700);

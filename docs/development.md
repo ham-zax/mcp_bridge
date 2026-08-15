@@ -31,7 +31,7 @@ Lifecycle tests use isolated fake processes and paths; they must not restart the
 
 ## Dependency pins
 
-The current privileged runtime pins 1MCP, the filesystem provider, and shell provider. Upgrade them intentionally and rerun OAuth/lifecycle/provider acceptance. The 1MCP OAuth CSP compatibility patch is version-specific.
+The current privileged runtime pins 1MCP, Pi coding primitives, the MCP SDK/Zod used by the `dev` provider, and the legacy shell dependency retained for the `restricted` profile. Upgrade them intentionally and rerun OAuth/lifecycle/provider acceptance. The 1MCP OAuth CSP compatibility patch is version-specific.
 
 ## Engineering history
 

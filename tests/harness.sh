@@ -18,30 +18,34 @@ if (cfg.mcpServers?.codedb) process.exit(1);
 NODE
 }
 
-test_codedb_absent_from_rendered_config() {
-  local tmp
+test_final_rendered_composition() {
+  local tmp profile
   tmp="$(mktemp -d)" || return 1
   cat > "$tmp/deployment.env" <<'ENV'
 MCP_WORKSPACE_ROOT=/tmp/example-workspace
 MCP_PUBLIC_URL=https://mcp.example.test
 MCP_TUNNEL_NAME=
 ENV
-  node "$ROOT/scripts/render-config.mjs" \
-    --profile trusted-dev \
-    --env-file "$tmp/deployment.env" \
-    --state-dir "$tmp/state" \
-    --repo-root "$ROOT" >/dev/null || {
-      rm -rf "$tmp"
-      return 1
-    }
-  node - "$tmp/state/1mcp/mcp.json" <<'NODE'
+  for profile in restricted trusted-dev; do
+    node "$ROOT/scripts/render-config.mjs" \
+      --profile "$profile" \
+      --env-file "$tmp/deployment.env" \
+      --state-dir "$tmp/$profile" \
+      --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
+  done
+  node - "$tmp/restricted/1mcp/mcp.json" "$tmp/trusted-dev/1mcp/mcp.json" <<'NODE2'
 const fs = require('fs');
-const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-for (const name of ['filesystem', 'shell']) {
-  if (!cfg.mcpServers?.[name]) process.exit(1);
-}
-if (cfg.mcpServers?.codedb) process.exit(1);
-NODE
+const [restrictedFile, trustedFile] = process.argv.slice(2);
+const restricted = JSON.parse(fs.readFileSync(restrictedFile, 'utf8'));
+const trusted = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
+const keys = cfg => Object.keys(cfg.mcpServers ?? {}).sort();
+if (JSON.stringify(keys(restricted)) !== JSON.stringify(['dev', 'shell'])) process.exit(1);
+if (JSON.stringify(keys(trusted)) !== JSON.stringify(['dev'])) process.exit(1);
+if (restricted.mcpServers?.codedb || trusted.mcpServers?.codedb) process.exit(1);
+if (restricted.mcpServers?.filesystem || trusted.mcpServers?.filesystem) process.exit(1);
+if (restricted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'allowlist') process.exit(1);
+if (trusted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'unrestricted') process.exit(1);
+NODE2
   local rc=$?
   rm -rf "$tmp"
   return "$rc"
@@ -69,9 +73,16 @@ NODE
   done
 }
 
+test_legacy_filesystem_dependency_removed() {
+  ! grep -Fq '@modelcontextprotocol/server-filesystem' "$ROOT/config/templates/mcp.json" &&
+  ! grep -Fq 'FILESYSTEM_MCP_VERSION' "$ROOT/scripts/setup.sh" &&
+  ! grep -Fq '@modelcontextprotocol/server-filesystem' "$ROOT/scripts/setup.sh"
+}
+
 run_test 'losing CodeDB candidate is removed from source/template' test_codedb_candidate_removed
-run_test 'rendered configs contain no CodeDB provider after rollback' test_codedb_absent_from_rendered_config
+run_test 'final rendered provider composition matches Pi cutover' test_final_rendered_composition
 run_test 'Pi dev provider pins and structure are complete' test_pi_provider_structure
+run_test 'legacy filesystem dependency is removed after Pi cutover' test_legacy_filesystem_dependency_removed
 
 printf '\n%d tests, %d failures\n' "$TESTS" "$FAILURES"
 [ "$FAILURES" -eq 0 ]
