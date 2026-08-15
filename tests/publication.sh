@@ -112,6 +112,24 @@ test_generic_systemd_template() {
   contains "$unit" 'EnvironmentFile=-@STATE_DIR@/bridge\.env'
 }
 
+test_systemd_installer_renders_without_live_manager() {
+  local tmp target unit
+  tmp="$(mktemp -d)" || return 1
+  target="$tmp/systemd"
+  mkdir -p "$tmp/home" "$target"
+  HOME="$tmp/home" BRIDGE_STATE_DIR="$tmp/state" BRIDGE_SYSTEMD_TARGET_DIR="$target" \
+    BRIDGE_SYSTEMD_DRY_RUN=1 "$ROOT/scripts/install-systemd-user.sh" >/dev/null || { rm -rf "$tmp"; return 1; }
+  unit="$target/mcp-dev-bridge.service"
+  [ -f "$unit" ] || { rm -rf "$tmp"; return 1; }
+  ! grep -q '@[A-Z_][A-Z_]*@' "$unit" || { rm -rf "$tmp"; return 1; }
+  grep -Fq "ExecStart=$ROOT/bin/start" "$unit" || { rm -rf "$tmp"; return 1; }
+  grep -Fq "EnvironmentFile=-$tmp/state/bridge.env" "$unit" || { rm -rf "$tmp"; return 1; }
+  if command -v systemd-analyze >/dev/null 2>&1; then
+    systemd-analyze verify "$unit" >/dev/null 2>&1 || { rm -rf "$tmp"; return 1; }
+  fi
+  rm -rf "$tmp"
+}
+
 run_test 'public bin entrypoints exist and are executable' test_public_entrypoints
 run_test 'publication directory structure exists' test_public_structure
 run_test 'setup requires explicit trust profile' test_explicit_profile_contract
@@ -121,6 +139,7 @@ run_test '.env remains ignored' test_env_is_ignored
 run_test 'runtime and 1MCP state default outside the repository' test_state_defaults_are_external
 run_test 'public tracked files contain no personal deployment identity' test_no_personal_identity_in_public_files
 run_test 'generic systemd template targets public bin entrypoints' test_generic_systemd_template
+run_test 'systemd installer renders a valid fixture without live manager' test_systemd_installer_renders_without_live_manager
 
 printf '\n%s tests, %s failures\n' "$TESTS" "$FAILURES"
 [ "$FAILURES" -eq 0 ]

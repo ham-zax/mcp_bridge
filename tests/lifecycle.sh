@@ -38,6 +38,12 @@ test_dependencies_are_pinned() {
   contains "$ROOT/config/templates/mcp.json" 'mcp-shell-server==1\.1\.8'
 }
 
+test_oauth_csp_patch_is_preserved() {
+  contains "$ROOT/scripts/setup.sh" "form-action 'self' https:" && \
+  contains "$ROOT/scripts/setup.sh" "form-action 'self'" && \
+  contains "$ROOT/scripts/setup.sh" 'unexpected 1MCP .* OAuth provider contents; refusing blind patch'
+}
+
 test_cloudflare_oauth_is_canonical() {
   ! grep -R -nE 'Route A|Route B|route-a|route-b|tunnel-client' \
     "$ROOT/scripts" "$ROOT/README.md" "$ROOT/docs/PLAN.md" "$ROOT/ACCEPTANCE.md" >/dev/null && \
@@ -85,12 +91,14 @@ test_status_has_core_diagnostics() {
 }
 
 test_systemd_user_autostart_contract() {
-  local unit="$ROOT/systemd/hamza-cloudflare-oauth-bridge.service"
+  local unit="$ROOT/systemd/mcp-dev-bridge.service.in"
   [ -f "$unit" ] && [ -x "$ROOT/scripts/install-systemd-user.sh" ] && \
-  contains "$unit" 'ExecStart=.*/scripts/start\.sh' && \
-  contains "$unit" 'ExecStop=.*/scripts/stop\.sh' && \
+  contains "$unit" 'ExecStart=@REPO_ROOT@/bin/start' && \
+  contains "$unit" 'ExecStop=@REPO_ROOT@/bin/stop' && \
+  contains "$unit" 'EnvironmentFile=-@STATE_DIR@/bridge\.env' && \
   contains "$unit" 'WantedBy=default\.target' && \
-  contains "$ROOT/scripts/install-systemd-user.sh" 'systemctl --user enable hamza-cloudflare-oauth-bridge\.service'
+  contains "$ROOT/scripts/install-systemd-user.sh" 'UNIT_NAME="mcp-dev-bridge\.service"' && \
+  contains "$ROOT/scripts/install-systemd-user.sh" 'systemctl --user enable "\$UNIT_NAME"'
 }
 
 test_systemd_installer_handles_missing_home() {
@@ -108,6 +116,7 @@ test_lifecycle_lock_is_used_everywhere() {
 run_test 'lifecycle entrypoint scripts remain executable' test_scripts_are_executable
 run_test 'no global pkill/pgrep lifecycle management' test_no_global_process_matching
 run_test 'privileged MCP dependencies are pinned' test_dependencies_are_pinned
+run_test '1MCP OAuth consent CSP compatibility patch is preserved' test_oauth_csp_patch_is_preserved
 run_test 'Cloudflare OAuth Bridge is the only canonical stack' test_cloudflare_oauth_is_canonical
 run_test 'start.sh is the canonical Cloudflare OAuth entrypoint' test_start_is_canonical_entrypoint
 run_test 'direct 1MCP startup is used without serve --background' test_no_internal_1mcp_background_supervisor
