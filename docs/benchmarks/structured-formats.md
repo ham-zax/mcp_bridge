@@ -5,16 +5,19 @@
 **GCF:** `gcf-python==2.6.0` / GCF spec 3.5.3  
 **Tokenizer:** `tiktoken==0.13.0`, `o200k_base`
 
-## Verdicts
+## Corrected verdicts
 
 ```text
-TOON = NOT_MATERIAL
-GCF  = INCOMPATIBLE under the plan's graph-profile command
+TOON        = NOT_MATERIAL
+GCF generic = NOT_MATERIAL
+GCF graph   = DEFERRED_NO_GRAPH_PAYLOAD
 ```
 
-Additional diagnostic: GCF's generic profile round-tripped all three payloads, but still used more tokens than CodeDB's native model-facing text. Therefore the profile bug does not create a practical reason to insert stateless GCF into this harness now.
+The correction phase confirmed that `gcf encode/decode` is specifically the graph profile, while arbitrary JSON belongs on `encode-generic/decode-generic`. The earlier graph-profile failure on ordinary CodeDB JSON was therefore a benchmark/profile mismatch, not a general GCF incompatibility result.
 
-These verdicts are independent of the CodeDB `REMOVE` decision.
+Fresh generic-profile reruns round-tripped all three arbitrary-JSON captures exactly. Generic GCF still used materially more tokens than the paired native CodeDB model-facing text, so there is no reason to insert it into the current bridge.
+
+No natural model-facing graph JSON exists in the current harness to test the graph profile fairly. The graph profile is therefore deferred rather than declared incompatible. These format verdicts are independent of the corrected CodeDB `ROUTER_EXPERIMENT` decision.
 
 ## Actual payloads
 
@@ -38,11 +41,11 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/benchmarks/structured/
 
 ## Fidelity
 
-| Payload | TOON round-trip | planned GCF graph round-trip | GCF generic diagnostic |
+| Payload | TOON round-trip | historical wrong-profile graph attempt | GCF generic round-trip |
 |---|---|---|---|
-| context | exact | **failed** | exact |
-| search | exact | **failed** | exact |
-| symbol | exact | **failed** | exact |
+| context | exact | failed as expected for non-graph input | exact |
+| search | exact | failed as expected for non-graph input | exact |
+| symbol | exact | failed as expected for non-graph input | exact |
 
 No values were coerced to make a codec pass.
 
@@ -54,26 +57,26 @@ No values were coerced to make a codec pass.
 | context | pretty JSON | 12,708 | 3,183 |
 | context | compact JSON | 9,515 | 2,389 |
 | context | TOON | 8,002 | 2,053 |
-| context | GCF graph | 34 | 11* |
-| context | GCF generic diagnostic | 6,845 | 1,871 |
+| context | historical wrong-profile GCF graph output | 34 | 11* |
+| context | GCF generic | 6,845 | 1,871 |
 | search | native text | 2,287 | **512** |
 | search | pretty JSON | 5,353 | 1,485 |
 | search | compact JSON | 4,284 | 1,066 |
 | search | TOON | 3,386 | 903 |
-| search | GCF graph | 47 | 14* |
-| search | GCF generic diagnostic | 3,360 | 882 |
+| search | historical wrong-profile GCF graph output | 47 | 14* |
+| search | GCF generic | 3,360 | 882 |
 | symbol | native text | 252 | **60** |
 | symbol | pretty JSON | 383 | 120 |
 | symbol | compact JSON | 282 | 73 |
 | symbol | TOON | 248 | 73 |
-| symbol | GCF graph | 47 | 14* |
-| symbol | GCF generic diagnostic | 265 | 78 |
+| symbol | historical wrong-profile GCF graph output | 47 | 14* |
+| symbol | GCF generic | 265 | 78 |
 
-`*` The tiny graph-profile results are **not compression wins**. They fail exact round-trip because the graph profile projected non-graph CodeDB values into graph-shaped data and discarded the original structure.
+`*` The tiny historical graph-profile results are **not compression wins**. They came from feeding non-graph arbitrary JSON to a graph codec and discarded the original structure; they are retained only as evidence of the benchmark/profile mismatch.
 
 ### Relative to compact JSON
 
-| Payload | TOON token delta | GCF generic diagnostic token delta |
+| Payload | TOON token delta | GCF generic token delta |
 |---|---:|---:|
 | context | -14.1% | -21.7% |
 | search | -15.3% | -17.3% |
@@ -81,7 +84,7 @@ No values were coerced to make a codec pass.
 
 ### Relative to the existing native CodeDB response
 
-| Payload | TOON token overhead | GCF generic diagnostic token overhead |
+| Payload | TOON token overhead | GCF generic token overhead |
 |---|---:|---:|
 | context | **+161.9%** | +138.6% |
 | search | **+76.4%** | +72.3% |
@@ -124,31 +127,37 @@ TOON used 21.7% to 161.9% **more** tokens than native text across all three pair
 
 **TOON = NOT_MATERIAL.**
 
-## GCF disposition and plan-profile issue
+## GCF disposition and profile correction
 
-The implementation plan specifies:
+The pinned `gcf-python==2.6.0` CLI explicitly defines:
 
-```bash
-gcf encode < input.json
-gcf decode < output.gcf
+```text
+gcf encode / decode                 graph profile
+gcf encode-generic / decode-generic arbitrary-JSON generic profile
 ```
 
-In `gcf-python==2.6.0` those commands use the graph profile. The three real CodeDB payloads are not graph payloads, and exact round-trip failed for all three. Under the plan's explicit fidelity rule, this is:
+### Generic profile
 
-**GCF = INCOMPATIBLE under the planned graph-profile command.**
+The correction phase reran all three existing arbitrary-JSON captures with `encode-generic/decode-generic` and strict sorted-JSON equality. All three round trips were exact.
 
-This is a profile mismatch rather than proof that every GCF profile is incapable of representing the data. The package also exposes:
+Fresh measurements:
 
-```bash
-gcf encode-generic
-gcf decode-generic
-```
+| Payload | Compact JSON tokens | GCF generic tokens | Native text tokens | Generic encode cold/warm | Generic decode cold/warm |
+|---|---:|---:|---:|---:|---:|
+| context | 2,389 | 1,871 | **784** | 0.04 / 0.04 s | 0.05 / 0.05 s |
+| search | 1,066 | 882 | **512** | 0.04 / 0.04 s | 0.04 / 0.04 s |
+| symbol | 73 | 78 | **60** | 0.04 / 0.04 s | 0.04 / 0.04 s |
 
-and that generic profile round-tripped all three real values exactly. It reduced compact JSON tokens for the two larger payloads, but still used 30.0% to 138.6% more tokens than native text across the three paired payloads.
+Observed fact: generic GCF is lossless and reduces compact JSON for the two larger payloads, but native model-facing text remains 30.0% to 138.6% smaller in token count across the paired workload.
 
-Therefore two facts should be kept separate:
+Policy decision: **GCF generic = NOT_MATERIAL** for the current bridge.
 
-1. the plan's graph-profile command is not a valid generic-JSON GCF benchmark and should be corrected before any future GCF codec claim;
-2. even the fair generic-profile diagnostic is **not material relative to native CodeDB text** on this workload, so no live stateless GCF insertion is justified by these captures.
+### Graph profile
 
-The architecture spec and implementation plan were left read-only during execution, as required.
+The correction phase searched the rooted CodeDB/Pi evidence for a natural model-facing graph JSON payload. None exists. `dev` intentionally emits native text; CodeDB caller/dependency tools also render native text, and a live `codedb_deps` result was dependency prose rather than JSON. Correction captures contained no natural top-level `nodes`, `edges`, or `symbols` graph payload.
+
+The old `gcf encode` failures therefore answer only this question: "what happens if arbitrary non-graph JSON is fed to the graph profile?" They do not establish graph-profile incompatibility with genuine graph data.
+
+Creating a synthetic graph solely to make the codec benchmarkable would violate the correction design. Policy decision: **GCF graph = DEFERRED_NO_GRAPH_PAYLOAD**.
+
+If a future Code-domain/Terminal feature naturally exposes a graph-shaped model-facing payload, graph GCF can be benchmarked then against that real representation.

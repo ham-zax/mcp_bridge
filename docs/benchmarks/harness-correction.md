@@ -93,7 +93,20 @@ The old stale-index failure is **adapter / architecture mismatch** evidence for 
 
 ## GCF correction
 
-The corrected generic/graph profile evaluation has not yet executed. Generic GCF is not classified incompatible; graph GCF has not yet received a fair graph-shaped evaluation.
+### Observed facts
+
+- Pinned CLI `gcf-python==2.6.0` explicitly maps `encode/decode` to the graph profile and `encode-generic/decode-generic` to arbitrary JSON.
+- Fresh generic-profile reruns round-tripped the context/search/symbol captures exactly.
+- Generic token counts were 1,871 / 882 / 78 versus paired native CodeDB text at 784 / 512 / 60.
+- Generic encode/decode fresh-process times were about 0.04-0.05 s in the correction rerun.
+- The current harness has no natural model-facing graph JSON: Pi emits native text, CodeDB dependency/caller output is native text, and correction captures contained no natural top-level `nodes`, `edges`, or `symbols` payload.
+- The historical arbitrary-JSON failure through `gcf encode` is therefore a benchmark/profile mismatch, not a graph-codec incompatibility verdict.
+
+### Policy decisions
+
+**GCF generic = NOT_MATERIAL.** It is faithful and can improve compact JSON, but native text remains materially smaller on the paired workload.
+
+**GCF graph = DEFERRED_NO_GRAPH_PAYLOAD.** Do not synthesize a graph solely to benchmark the codec; retest if a future model-facing feature naturally produces genuine graph data.
 
 ## Final verdicts
 
