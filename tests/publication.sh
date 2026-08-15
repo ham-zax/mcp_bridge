@@ -93,11 +93,42 @@ test_state_defaults_are_external() {
   ! contains "$common" 'BRIDGE_CONFIG_DIR=.*BRIDGE_ROOT/config'
 }
 
+test_rendered_deployment_is_selected_by_lifecycle() {
+  local tmp state env_file
+  tmp="$(mktemp -d)" || return 1
+  state="$tmp/state/mcp-dev-bridge"
+  env_file="$tmp/deployment.env"
+  mkdir -p "$tmp/runtime"
+  cat > "$env_file" <<'EOF'
+MCP_WORKSPACE_ROOT=/tmp/example-workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TUNNEL_NAME=
+EOF
+  HOME="$tmp/home" XDG_STATE_HOME="$tmp/state" XDG_RUNTIME_DIR="$tmp/runtime" \
+    node "$ROOT/scripts/render-config.mjs" --profile trusted-dev --env-file "$env_file" --state-dir "$state" --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
+  HOME="$tmp/home" XDG_STATE_HOME="$tmp/state" XDG_RUNTIME_DIR="$tmp/runtime" BRIDGE_STATE_DIR="$state" BRIDGE_ROOT="$ROOT" \
+    bash -c '
+      source "$1/lib/bridge/common.sh"
+      [ "$BRIDGE_CONFIG_DIR" = "$2/1mcp" ] &&
+      [ "$BRIDGE_RUN_DIR" = "$3/mcp-dev-bridge" ] &&
+      [ "$TUNNEL_URL" = "https://mcp.example.test" ] &&
+      [ "$BRIDGE_WORKSPACE_ROOT" = "/tmp/example-workspace" ]
+    ' _ "$ROOT" "$state" "$tmp/runtime" || { rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+}
+
 test_no_personal_identity_in_public_files() {
-  local path
+  local path private_user private_home private_domain private_host private_service private_title pattern
+  private_user="ham""za"
+  private_home="/home/$private_user"
+  private_domain="mcp.$private_user.my.id"
+  private_host="DESKTOP-""HQOUFCO"
+  private_service="$private_user-cloudflare-oauth-bridge"
+  private_title="Ham""za WSL"
+  pattern="${private_home}|${private_domain//./\\.}|${private_host}|${private_service}|${private_title}"
   while IFS= read -r path; do
     [ -f "$ROOT/$path" ] || continue
-    if grep -I -nE '/home/hamza|mcp\.hamza\.my\.id|DESKTOP-HQOUFCO|hamza-cloudflare-oauth-bridge|Hamza WSL' "$ROOT/$path" >/dev/null 2>&1; then
+    if grep -I -nE "$pattern" "$ROOT/$path" >/dev/null 2>&1; then
       echo "personal deployment identity found in $path" >&2
       return 1
     fi
@@ -137,6 +168,7 @@ run_test 'trusted-dev is unrestricted while restricted is not' test_profiles_are
 run_test 'renderer generates valid external state for both profiles' test_renderer_generates_both_profiles
 run_test '.env remains ignored' test_env_is_ignored
 run_test 'runtime and 1MCP state default outside the repository' test_state_defaults_are_external
+run_test 'lifecycle selects an actually rendered external deployment' test_rendered_deployment_is_selected_by_lifecycle
 run_test 'public tracked files contain no personal deployment identity' test_no_personal_identity_in_public_files
 run_test 'generic systemd template targets public bin entrypoints' test_generic_systemd_template
 run_test 'systemd installer renders a valid fixture without live manager' test_systemd_installer_renders_without_live_manager

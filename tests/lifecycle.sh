@@ -46,7 +46,7 @@ test_oauth_csp_patch_is_preserved() {
 
 test_cloudflare_oauth_is_canonical() {
   ! grep -R -nE 'Route A|Route B|route-a|route-b|tunnel-client' \
-    "$ROOT/scripts" "$ROOT/README.md" "$ROOT/docs/PLAN.md" "$ROOT/ACCEPTANCE.md" >/dev/null && \
+    "$ROOT/bin" "$ROOT/lib/bridge" "$ROOT/scripts" "$ROOT/README.md" "$ROOT/docs/architecture.md" "$ROOT/docs/operations.md" >/dev/null && \
   [ ! -e "$ROOT/profiles/hamza-local-dev.yaml" ]
 }
 
