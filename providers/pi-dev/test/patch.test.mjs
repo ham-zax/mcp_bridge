@@ -10,6 +10,7 @@ import {
   preflightPatch,
   runPatch
 } from '../patch.mjs';
+import { runEdit, runWrite } from '../files.mjs';
 
 const tempDir = prefix => fs.mkdtemp(path.join(os.tmpdir(), prefix));
 
@@ -450,3 +451,81 @@ test('first-operation write failure reports no confirmed application and an unce
 
   assert.equal(await fs.readFile(target, 'utf8'), 'alpha\n');
 });
+
+test('multi-file patch reports partial application when a later snapshot becomes stale', async () => {
+  const defaultCwd = await tempDir('patch-multifile-stale-');
+  const first = path.join(defaultCwd, 'first.txt');
+  const second = path.join(defaultCwd, 'second.txt');
+  await fs.writeFile(first, 'one\n');
+  await fs.writeFile(second, 'two\n');
+
+  const plan = await preflightPatch({
+    pathMode: 'user',
+    defaultCwd,
+    patch: patch(
+      '*** Begin Patch',
+      '*** Update File: first.txt',
+      '@@',
+      '-one',
+      '+ONE',
+      '*** Update File: second.txt',
+      '@@',
+      '-two',
+      '+TWO',
+      '*** End Patch'
+    )
+  });
+
+  await fs.writeFile(second, 'EXTERNAL\n');
+  await assert.rejects(
+    () => applyPatchPlan(plan),
+    error => {
+      assert.equal(error.code, 'PATCH_PARTIAL');
+      assert.match(error.message, /applied: update first\.txt/i);
+      assert.match(error.message, /failed: update second\.txt/i);
+      assert.match(error.message, /changed since preflight|reread and reconcile/i);
+      return true;
+    }
+  );
+
+  assert.equal(await fs.readFile(first, 'utf8'), 'ONE\n');
+  assert.equal(await fs.readFile(second, 'utf8'), 'EXTERNAL\n');
+});
+
+test('concurrent personal mutations on disjoint paths do not interfere', async () => {
+  const defaultCwd = await tempDir('patch-disjoint-agents-');
+  await fs.writeFile(path.join(defaultCwd, 'edit.txt'), 'alpha\n');
+  await fs.writeFile(path.join(defaultCwd, 'patch.txt'), 'beta\n');
+
+  const settled = await Promise.allSettled([
+    runEdit({
+      pathMode: 'user',
+      defaultCwd,
+      path: 'edit.txt',
+      edits: [{ oldText: 'alpha', newText: 'ALPHA' }]
+    }),
+    runPatch({
+      pathMode: 'user',
+      defaultCwd,
+      patch: patch(
+        '*** Begin Patch',
+        '*** Update File: patch.txt',
+        '@@',
+        '-beta',
+        '+BETA',
+        '*** End Patch'
+      )
+    }),
+    runWrite({ pathMode: 'user', defaultCwd, path: 'new.txt', content: 'NEW\n' })
+  ]);
+
+  assert.ok(settled.every(x => x.status === 'fulfilled'));
+  assert.equal(await fs.readFile(path.join(defaultCwd, 'edit.txt'), 'utf8'), 'ALPHA\n');
+  assert.equal(await fs.readFile(path.join(defaultCwd, 'patch.txt'), 'utf8'), 'BETA\n');
+  assert.equal(await fs.readFile(path.join(defaultCwd, 'new.txt'), 'utf8'), 'NEW\n');
+});
+
+test.todo('CAS trigger: overlapping apply_patch calls on one snapshot must not both report success after one update is lost');
+test.todo('CAS trigger: disjoint apply_patch updates to one file must preserve both changes or reject one actor');
+test.todo('CAS trigger: apply_patch versus exact edit on one file must preserve both changes or reject one actor');
+test.todo('CAS trigger: delete/update race must not report both operations as successful');

@@ -217,3 +217,123 @@ BOTH_EARN_PLACE
 ```
 
 During Phase 2, keep both visible with distinct descriptions: `edit` for guarded single-file replacements and `apply_patch` for multi-file/structural mutation. Re-evaluate retirement only after real ChatGPT-path acceptance during consolidation.
+
+## Task 12 — Concurrency Regression and CAS Trigger
+
+**Verdict:** `CAS_TRIGGER_FIRED_FOCUSED_DESIGN_REQUIRED`
+
+Task 12 started from the intended default `DEFERRED_WITH_TRIGGER`. The trigger fired because repeated real personal-primitive races produced silent lost updates, not merely ordinary conflicts or synthetic stress failures.
+
+No production CAS implementation, hash field, Files schema change, or public-profile change is included in this task. The focused follow-up design is recorded at:
+
+```text
+docs/superpowers/specs/2026-08-15-personal-files-cas-trigger-design.md
+```
+
+Raw stress evidence is retained outside Git under the normal user state directory:
+
+```text
+${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/benchmarks/task12-concurrency/
+```
+
+### Classification rules
+
+```text
+SAFE_CONFLICT
+  stale/conflicting mutation is rejected explicitly and requires reread/reconcile
+
+SILENT_LOST_UPDATE
+  both actors report success while one valid mutation disappears or is contradicted
+
+PARTIAL_APPLICATION
+  an earlier mutation committed, a later operation failed, and the diagnostic reports applied/failed state
+
+BENCHMARK_ARTIFACT
+  synthetic timing or harness behavior does not represent the actual primitive contract
+```
+
+The CAS trigger is **not** “a conflict occurred.” It is repeated real or reproducible `SILENT_LOST_UPDATE` that the current guard cannot reliably prevent.
+
+### Real primitive concurrency corpus
+
+All repeated cases below used exported personal Files operations with `pathMode=user` against real temporary files. The main corpus used 50 iterations for same-file mutation races and 30 for exclusive-create/disjoint-path races.
+
+| Scenario | Runs | Classification / result |
+|---|---:|---|
+| two actors edit the same exact region | 50 | 50 `SAFE_CONFLICT` |
+| actor edits stale exact region after another actor changes it | 1 | `SAFE_CONFLICT` |
+| overlapping `apply_patch` on the same region | 50 | **50 `SILENT_LOST_UPDATE`** |
+| disjoint `apply_patch` changes on one file | 50 | **50 `SILENT_LOST_UPDATE`** |
+| `apply_patch` versus exact `edit` on one file | 50 | **50 `SILENT_LOST_UPDATE`** |
+| create/create on one absent personal path | 30 | 30 `SAFE_CONFLICT` |
+| two moves race for one destination | 30 | 30 `SAFE_CONFLICT` |
+| delete/update from the same patch snapshot | 50 | **50 `SILENT_LOST_UPDATE`** |
+| multi-file patch with second precondition made stale | 1 | `PARTIAL_APPLICATION`, explicit `PATCH_PARTIAL` |
+| independent edits in different files | 30 | 30 safe independent successes |
+| concurrent edit/patch/write on disjoint paths | 30 | 30 safe independent successes |
+| edit snapshot then native Bash mutation before final write | 1 | `SAFE_CONFLICT` |
+
+An independent preliminary probe also reproduced the two most important mixed cases at 80/80: disjoint patch/patch on one file and patch/edit on one file.
+
+### Silent-lost-update evidence
+
+The disjoint patch/patch case is the cleanest trigger. Both actors start from the same bytes, one changing an early exact region and one changing a late exact region. Both calls return fulfilled, but the final file contains only one valid change. No conflict or partial-application diagnostic is emitted.
+
+The same defect occurs for overlapping patches: both patch calls can report success while only the last whole-file result survives.
+
+The patch/edit case proves the race crosses the retained `BOTH_EARN_PLACE` primitives: a patch and guarded exact edit can both return success while one valid disjoint change disappears.
+
+The delete/update race demonstrates a state contradiction rather than only lost text: both patch operations can return success and the update can leave the file present after the concurrent delete also reported success.
+
+These outcomes are `SILENT_LOST_UPDATE`, not `SAFE_CONFLICT`.
+
+### Root cause
+
+Patch preflight stores whole-file `before` bytes and computes a whole-file `after` buffer. At application time update/delete perform a snapshot comparison and then mutate in a separate asynchronous step. The comparison does not remain protected through the write/unlink.
+
+A deterministic timing trace, run only after the real race reproduced, showed the exact interleaving:
+
+```text
+A reads original snapshot
+B reads original snapshot
+A accepts snapshot
+B accepts snapshot
+A writes precomputed full-file result
+B writes precomputed full-file result
+both return fulfilled
+one result survives
+```
+
+The trace is root-cause instrumentation, not the trigger evidence itself. The trigger comes from the repeated unsimulated `runPatch` / `runEdit` results above.
+
+### Existing guards that remain correct
+
+Task 12 also verifies that the current guard set is useful and must be preserved:
+
+- exact same-region edit/edit rejects one actor explicitly;
+- a stale exact anchor rejects after another actor changes that region;
+- create-only `write` keeps one-winner `wx` semantics;
+- move destination races reject one actor while preserving the losing source;
+- changes visible before the edit/patch final snapshot check are rejected;
+- a stale later operation in a multi-file patch produces explicit `PATCH_PARTIAL` after an earlier confirmed mutation;
+- disjoint canonical paths can mutate concurrently without interference.
+
+Therefore Task 12 does **not** recommend replacing existing exact/snapshot/create-only guards. It opens a focused atomicity/CAS follow-up around the same-path check-to-mutate window.
+
+### Current ledger recommendation
+
+The Task-1 ledger entry remains useful historical baseline:
+
+```text
+stronger CAS/hash  DEFERRED_WITH_TRIGGER
+```
+
+Task 12 supersedes its current status with:
+
+```text
+stronger CAS/hash  TRIGGER_FIRED_FOCUSED_DESIGN_REQUIRED
+```
+
+The focused design deliberately does **not** approve model-visible hash fields yet. A standalone expected hash checked before the current write would inherit the same check-then-write race. The first follow-up step should make the existing implicit snapshot precondition atomic for cooperating same-path Files mutations, while preserving disjoint-path concurrency and current partial-application semantics. A model-visible revision/hash should be added only if a later focused benchmark proves it is still necessary after atomic enforcement.
+
+`apply_patch` remains `BOTH_EARN_PLACE`, `edit` remains the guarded simple replacement primitive, `write` remains create-only, personal path semantics remain unchanged, and public `restricted` / `trusted-dev` behavior remains unchanged.
