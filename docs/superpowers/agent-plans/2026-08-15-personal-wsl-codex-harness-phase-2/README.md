@@ -197,7 +197,7 @@ Task 6.5 is intentionally read-only with respect to production `providers/termin
 
 ## Current integration and decision gates
 
-The completed task commits have been assembled on `feat/personal-harness-wave1-integration`; `ed67415` is the stable implementation/evidence milestone before planning-doc synchronization. The combined automated gate is green after installing the Code provider's pinned dependencies in that worktree.
+The completed non-Terminal task commits through Task 12.5 and Task 13 have been assembled on `feat/personal-harness-wave1-integration`. The combined automated gate is green with the worktree-local qualified provider dependencies; Agent 3 Task 7 remains isolated and is not yet integrated.
 
 Current decisions:
 
@@ -208,14 +208,20 @@ Herdr runtime/hybrid            REJECTED_WITH_EVIDENCE
 Code facade                     CODE_SMALL_EXPLICIT_FACADE
 RTK automatic harness shaping   REJECTED_WITH_EVIDENCE
 RTK explicit helper             optional outside harness architecture
-CAS/consistency trigger         FIRED -> Task 12.5
+same-path Files atomicity       SAME_PATH_ATOMICITY_FIXED (Task 12.5 COMPLETE + INTEGRATED)
+model-visible revision/hash     NO current need; remains evidence-triggered
+format trigger                  FORMAT_TRIGGER_NOT_FIRED (Task 13 COMPLETE + INTEGRATED)
+TOON                            REJECTED_WITH_EVIDENCE
+GCF generic                     DEFERRED_WITH_TRIGGER
+GCF graph                       DEFERRED_WITH_TRIGGER
+production codec implementation none
 ```
 
-**Task 7 is now unblocked** because Task 6.6 fixed retained dead-pane reconciliation and the tmux/broker backend decision is frozen.
+**Task 7 is still running in Agent 3's isolated Terminal worktree** and remains the Terminal critical path. It is not part of this integration milestone.
 
-Task 8 still waits for Task 7's real ChatGPT product-path evidence. Herdr's lifecycle states are reference evidence only; Herdr is not a runtime dependency.
+Task 8 is blocked only on Task 7's real ChatGPT product-path evidence. Herdr's lifecycle states are reference evidence only; Herdr is not a runtime dependency.
 
-Task 12.5 can run in parallel with Task 7 because it owns Pi mutation internals/tests while Task 7 owns Terminal/provider integration. Task 13 should audit only the actual final model-facing payload classes and should not reopen codecs by default.
+Task 12.5 is COMPLETE + INTEGRATED. Task 13 is `FORMAT_TRIGGER_NOT_FIRED` + INTEGRATED and retains only a small post-Task-7 confirmation that the final Terminal MCP implementation still returns native `TextContent` without introducing a materially repetitive structured result. Task 14 remains pending Task 7 acceptance, the Task 8 decision, and that final Terminal format confirmation.
 
 ## Required handoff format for every agent
 
