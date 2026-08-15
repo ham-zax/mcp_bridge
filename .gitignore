@@ -5,3 +5,5 @@ config/sessions/
 config/*.pid
 __pycache__/
 *.pyc
+
+.worktrees/
