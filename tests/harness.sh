@@ -119,6 +119,7 @@ test_legacy_filesystem_dependency_removed() {
 run_test 'losing CodeDB candidate is removed from source/template' test_codedb_candidate_removed
 run_test 'final rendered provider composition matches Pi cutover' test_final_rendered_composition
 run_test 'personal smoke validation accepts the private provider contract' test_personal_smoke_validation
+run_test 'personal toolbox contract passes' bash "$ROOT/tests/personal-toolbox.sh"
 run_test 'Pi dev provider pins and structure are complete' test_pi_provider_structure
 run_test 'legacy filesystem dependency is removed after Pi cutover' test_legacy_filesystem_dependency_removed
 
