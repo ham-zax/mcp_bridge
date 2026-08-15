@@ -6,7 +6,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@modelcontextprotocol/server-filesystem",
+        "@modelcontextprotocol/server-filesystem@2026.7.10",
         "/home/hamza/repo"
       ],
       "tags": ["filesystem"]

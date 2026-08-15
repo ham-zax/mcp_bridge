@@ -1,158 +1,262 @@
-# Installation plan — Hamza Local Dev bridge
+# Cloudflare OAuth Bridge — setup and operations
 
-Architecture: ChatGPT Business app → Secure MCP Tunnel → 1MCP → {filesystem, shell}. No custom bridge code.
+This repository has one supported runtime architecture:
 
-## 0. Prerequisites (verified on this machine)
-
-| Tool | Version | Checked |
-|---|---|---|
-| node | v24.19.0 | ✅ |
-| pnpm | 10.28.2 | ✅ |
-| npm | 12.0.2 | ✅ |
-| python3 / uv / uvx | 3.12.3 / 0.11.18 (mcp-shell-server runs via uvx — no pip install) | ✅ |
-| ports 3050 (1MCP), 8080 (tunnel-client admin UI) | free | ✅ |
-
-Nothing of this stack is installed yet (`1mcp`, `tunnel-client` absent; no stale config dirs).
-
-## 1. Install packages
-
-```bash
-npm install -g @1mcp/agent        # aggregator (Apache-2.0)
+```text
+ChatGPT
+  -> https://mcp.hamza.my.id/mcp
+  -> Cloudflare Tunnel
+  -> 1MCP OAuth on 127.0.0.1:3050
+  -> filesystem + unrestricted developer shell
 ```
 
-`tunnel-client` (go binary + bundled cloudflared, Apache-2.0): install via the platform Tunnels page — `https://platform.openai.com/settings/organization/tunnels` has the supported Linux amd64 download — or `github.com/openai/tunnel-client/releases`. Extract `tunnel-client` (+ sibling `cloudflared`) to `~/.local/bin`. Homebrew is macOS-only. Verify: `tunnel-client --version` and `tunnel-client help quickstart`.
+Earlier alternate transport experiments are retired and are not part of this repository's active design.
 
-Optional re-run: `scripts/setup.sh` automates steps 1 + checks.
+## 1. Prerequisites
 
-## 2. Config files (already in this repo)
+Verified on this WSL machine:
 
-### `config/mcp.json` — 1MCP inventory
-
-- `filesystem`: `npx -y @modelcontextprotocol/server-filesystem /home/hamza/repo`. Roots are enforced server-side; allows access to `/home/hamza/repo` and all of its subfolders. First `npx` run downloads the package (slow once).
-- `shell`: `uvx --from mcp-shell-server==1.1.8 python scripts/mcp-shell-server.py` with `ALLOW_COMMANDS` (`git,pnpm,node,npx,rg,grep,ls,cat,pwd,bash,sh`), `ALLOW_PATTERNS=.*`, and `MCP_SHELL_ALLOW_DANGEROUS=ALL`.
-  - Built-in dangerous command blocks (`bash`, `ssh`, `sed`, `xargs`, `env`, etc.) and argument/operator validation are neutralized by `scripts/mcp-shell-server.py` to allow full developer workflow access (including `bash -c`, pipes, redirects, subshells).
-  - Timeout: 30 s default / 300 s max timeout, 1 MiB output cap.
-
-Why these commands:
-
-| Command | Used for |
+| Tool | Expected |
 |---|---|
-| `git` | status / diff / log / show / restore / add / commit |
-| `pnpm` | `pnpm test`, `pnpm run check`, `pnpm semantic:verify`, `pnpm build`, focused package tests |
-| `node`, `npx` | `node ...`, `npx ...` one-offs |
-| `rg`, `grep` | search inside both repos |
-| `ls`, `cat`, `pwd` | orientation |
-| `bash`, `sh` | pipelines, multi-step scripts, subshells |
+| Node | v24.19.0 |
+| npm | available from the active NVM install |
+| pnpm | 10.28.2 |
+| Python / uv / uvx | available |
+| cloudflared | installed in `~/.local/bin` |
+| curl / flock / setsid | available |
 
-**CWD convention:** the shell server's implicit working directory is the CWD of the `1mcp serve` process — started with CWD `/home/hamza/repo` (`scripts/start.sh` does this). Always pass an explicit `directory` ("satori" or "trufflehog") per call. Boundary: trusted operator on private machine.
+WSL uses systemd. This repo ships a systemd user unit for automatic startup; install it with `scripts/install-systemd-user.sh`.
 
-### `profiles/hamza-local-dev.yaml` — tunnel-client profile
+## 2. Install and verify dependencies
 
-`mcp.server_urls[0]` = `http://127.0.0.1:3050/mcp` (channel `main`), `startup_wait_timeout: 60s` (waits for the 1MCP listener before the first poll), loopback admin UI on `:8080`, secrets via `env:` refs only.
-
-### `.env` — secrets
+Run:
 
 ```bash
-cp .env.example .env
-# fill CONTROL_PLANE_API_KEY
-set -a; source .env; set +a
+cd /home/hamza/repo/satori_bridge
+scripts/setup.sh
 ```
 
-## 3. Route B (public HTTPS tunnel → 1MCP)
+The setup script installs/verifies these exact privileged dependency versions:
 
-ChatGPT custom MCP apps attach a **remote** MCP endpoint: Workspace/User Settings → Apps → Create → endpoint → auth (if applicable) → **Scan Tools** → draft (Dev label). Verified against the current help article (help.openai.com/en/articles/12584461). No Platform Tunnels RBAC, no Runtime API key, no `tunnel-client`.
+```text
+@1mcp/agent@0.34.4
+@modelcontextprotocol/server-filesystem@2026.7.10
+mcp-shell-server==1.1.8
+```
 
-### Expose 1MCP
+It also verifies the pinned 1MCP OAuth consent implementation and applies the repository's CSP redirect patch.
 
-1MCP binds `http://127.0.0.1:3050` (localhost only — do not rebind to `0.0.0.0`); the MCP endpoint is `/mcp`.
+## 3. MCP inventory
 
-For Route B, Cloudflare Tunnel exposes the endpoint over HTTPS:
-* **Cloudflare Tunnel (`hamza-wsl` / `mcp.hamza.my.id`)**:
-  ```bash
-  scripts/tunnel-up.sh     # starts cloudflared tunnel, 1MCP with --enable-auth, and background watchdog
-  ```
-  Endpoint: `https://mcp.hamza.my.id/mcp` (or custom `$TUNNEL_NAME` / `$TUNNEL_URL`).
-* **Stop**: `scripts/tunnel-down.sh` stops the tunnel and watchdog, leaving local 1MCP active. Use `scripts/stop.sh` to stop all processes.
+`config/mcp.json` defines two local MCP providers.
 
-### Create the ChatGPT app
+### Filesystem
 
-1. **Developer mode must be enabled.** On Business, only workspace **Admins/Owners** can enable it (Workspace Settings → Permissions & Roles → Connected Data Developer mode, or the toggle during app creation). Route B still needs this boss step; it only removes the Platform-tunnel RBAC one.
-2. Workspace **Settings → Apps → Create** (or User Settings → Apps → Create if you're an authorized admin).
-3. Name `Hamza Local Dev`; MCP endpoint `https://mcp.hamza.my.id/mcp` (or your configured tunnel URL).
-4. Authentication: start with **None** for the first proof — then harden (below).
-5. **Scan Tools** → expect 15 tools: `filesystem_1mcp_*` (14) + `shell_1mcp_shell_execute` (1).
-6. Keep it as a **draft** (Dev label). Test in a new chat, tools render after selecting the app.
-7. First prompt: *"Hamza Local Dev is enabled. Read `/home/hamza/repo/satori/package.json` using the app. Do not modify anything."*
+```text
+@modelcontextprotocol/server-filesystem@2026.7.10
+root: /home/hamza/repo
+```
 
-### Security: what Route B trades away — and the hardening ladder
+The filesystem server enforces the root itself.
 
-Route B makes the endpoint **publicly reachable** while the tunnel runs, and the tool inventory includes filesystem write + shell execution. That is a real change of risk posture versus Route A (outbound polling, endpoint never exposed). Mitigations, in order of preference:
+### Shell
 
-1. **1MCP OAuth (`--enable-auth --external-url https://<tunnel>`)** — ChatGPT's Scan Tools flow supports OAuth ("if your server uses OAuth, complete the authorization prompt"). In `1MCP` v0.34.4, the consent page CSP requires patching `form-action 'self'` to `form-action 'self' https:;` in `@1mcp/agent/build/auth/sdkOAuthServerProvider.js` so browsers permit the `302` redirect back to `chatgpt.com` (handled automatically in `scripts/setup.sh`). Verify 1MCP advertises `refresh_token` in metadata.
-2. **Ephemeral windows + random URL** (Quick Tunnel): tunnel only up while working, down after. This is *not authentication* — treat it as the baseline discipline, not the guarantee.
-3. **Skip tunnel-level SSO** (Cloudflare Access, ngrok OAuth): those protect browser sessions, not server-side MCP clients like ChatGPT's — they cannot complete an interactive login. Don't invest there.
-4. **Route A remains the "never public" option** — same 1MCP stack, `scripts/start.sh`, no exposure at all. Sections 4–7 below.
+```text
+mcp-shell-server==1.1.8
+```
 
-Known ChatGPT quirks (help article): tools are a **frozen snapshot** — changes to 1MCP inventory after creation need a refresh/recreate; app updates after publish are not automatic on Business (recreate+republish); deep research uses custom apps read/fetch only; agent mode doesn't use custom apps; write actions may prompt for confirmation; web only, no mobile.
+The shell provider is intentionally relaxed through `scripts/mcp-shell-server.py` with:
 
-## 4. Route A: Tunnel + keys (OpenAI side, ~5 min)
+```text
+ALLOW_PATTERNS=.*
+MCP_SHELL_ALLOW_DANGEROUS=ALL
+```
 
-1. **Tunnel**: `https://platform.openai.com/settings/organization/tunnels` → create tunnel (needs Tunnels Read + Manage; if self-serve is disabled ask the org admin) — or `tunnel-client admin tunnels create` with `OPENAI_ADMIN_KEY`. Copy `tunnel_<32 hex>` into `profiles/hamza-local-dev.yaml` → `control_plane.tunnel_id`. After `create`, wait ~25–30 s for the tunnel to become ready.
-2. **Runtime API key**: `https://platform.openai.com/settings/organization/api-keys` → create Runtime API key for the principal that holds Tunnels **Read + Use** → export as `CONTROL_PLANE_API_KEY`.
+This is a trusted-development-machine configuration, not a shell sandbox.
 
-Validate before running anything: `tunnel-client doctor --profile hamza-local-dev` (works from `~/.config/tunnel-client/` — generated via `tunnel-client init --sample sample_mcp_with_dcr --profile hamza-local-dev --tunnel-id <ID> --mcp-server-url http://127.0.0.1:3050/mcp`, or copy this repo's profile next to it).
+The 1MCP process starts with CWD `/home/hamza/repo`. Agent shell calls should still provide explicit `directory` values whenever possible.
 
-## 5. Route A: Start the stack (local, in this order)
+## 4. Cloudflare and OAuth configuration
+
+The default public origin is:
+
+```text
+https://mcp.hamza.my.id
+```
+
+The public MCP endpoint is:
+
+```text
+https://mcp.hamza.my.id/mcp
+```
+
+Optional overrides:
 
 ```bash
+export TUNNEL_URL=https://mcp.hamza.my.id
+export TUNNEL_NAME=
+```
+
+These values may also be copied from `.env.example` into your own environment handling. The bridge does not require a secret `.env` file for its default setup.
+
+1MCP is always launched as the OAuth-enabled public-origin backend:
+
+```text
+serve
+--config-dir /home/hamza/repo/satori_bridge/config
+--enable-auth
+--external-url https://mcp.hamza.my.id
+```
+
+It binds only to `127.0.0.1:3050`. `cloudflared` publishes that loopback service.
+
+## 5. Start
+
+Canonical start command:
+
+```bash
+cd /home/hamza/repo/satori_bridge
 scripts/start.sh
 ```
 
-This: starts 1MCP as a background supervised runtime (scope = `config/`, crash-retry ×5, logs at `config/logs/server.log`), then runs `tunnel-client run --profile hamza-local-dev` in the foreground.
+Startup is transactional:
 
-> Known issue: on this machine `1mcp serve --background` via the npm bin shim fails (1MCP 0.34.4 `resolveSelfInvocation` bug — the supervisor re-spawns `node serve ...` because the shim has no `.js` suffix). `scripts/start.sh` works around it by invoking the entry as `node "$(npm root -g)/@1mcp/agent/build/index.js" serve --background`. See README "Known issue".
+```text
+acquire lifecycle lock
+  -> disable old watchdog intent
+  -> reconcile exactly one OAuth-enabled 1MCP
+  -> wait for local /health/ready
+  -> start/reuse cloudflared
+  -> wait for public /health/ready
+  -> mark Cloudflare OAuth Bridge enabled
+  -> start watchdog
+  -> release lifecycle lock
+```
 
-Verify:
+If a required component fails before the transaction is committed, startup removes the partial bridge state and returns failure.
+
+For backward compatibility only:
+
+```bash
+scripts/tunnel-up.sh
+```
+
+is an alias to `scripts/start.sh`.
+
+## 6. Inspect
+
+Run:
 
 ```bash
 scripts/status.sh
-curl http://127.0.0.1:8080/readyz   # tunnel client ready
-1mcp serve --status --config-dir config   # exit 0 = running + ready
 ```
 
-Local tool-surface check without the tunnel: `scripts/smoke-local.sh`, then `1mcp inspect filesystem` / `1mcp inspect shell` (tools are exposed on the wire as `{server}_1mcp_{tool}`, e.g. `filesystem_1mcp_read_text_file`, `shell_1mcp_shell_execute`).
+A healthy stack should report:
 
-Diagnose at any time: tunnel-client admin UI `http://127.0.0.1:8080/ui` (request history, log export includes redacted runtime YAML). Stop: `scripts/stop.sh`.
+```text
+desired state: running
+exactly one config-scoped 1MCP process
+listener :3050 PID = server.pid PID = bridge one-mcp.pid
+local health: ready
+cloudflared: running
+watchdog: running
+public health: ok
+issues: 0
+```
 
-## 6. Route A: ChatGPT Business connector
+Useful direct probes:
 
-Keep the daemon running — the connector must discover the tunnel while `tunnel-client run` is healthy.
+```bash
+curl -fsS http://127.0.0.1:3050/health/ready
+curl -fsS https://mcp.hamza.my.id/health/ready
+```
 
-1. `chatgpt.com/#settings/Connectors` → **Connect to MCP** (or "Create connector") with the tunnel URL/token from Tunnels management for tunnel `<ID>`.
-2. After pairing, the connector lists the MCP endpoint; tools from `filesystem` and `shell` should appear (tool names will be namespaced, e.g. `filesystem_*`, `shell_*` — exact prefix is whatever the ChatGPT connector renders).
+`status.sh` deliberately diagnoses:
 
-## 7. Route A: ChatGPT Business developer-mode app (private)
+- duplicate 1MCP processes for this repository's config directory;
+- 1MCP PID/listener mismatches;
+- stale managed PID files;
+- an enabled bridge missing 1MCP, cloudflared, watchdog, local health, or public health;
+- disabled desired state with managed processes still present.
 
-1. ChatGPT **Business** plan → Settings → Developer mode → create app.
-2. Attach the connector from step 5; keep the app private to you (do not publish org-wide — the trust model is "trusted operator").
-3. Select the app in the chat selector and run the acceptance test: `ACCEPTANCE.md`.
+## 7. Watchdog
 
-Exact UI labels vary by rollout; they move but the flow (connector ← tunnel, app ← connector) does not.
+The watchdog is started only after the public endpoint is healthy.
 
-## 8. Security settings recap (both routes)
+Every reconciliation cycle:
 
-| Layer | Measure |
-|---|---|
-| Transport (Route A) | outbound-only long-poll; MCP server never exposed inbound; `cloudflared` bundled by tunnel-client |
-| Transport (Route B) | cover with HTTPS only; ephemeral randomized URL up only while working (scripts/tunnel-up.sh / tunnel-down.sh); preferred hardening = 1MCP `--enable-auth` OAuth (verify `offline_access` refresh-token metadata; help article requires it) — tunnel-level SSO does not work for server-side MCP clients |
-| 1MCP | binds `localhost:3050` only; no auth (loopback). If you ever need auth: `--enable-auth` — different deployment, do the OAuth/PRMD readout first (tunnel-client expects a DCR-friendly server for that path) |
-| Filesystem | explicit allowed roots, enforced |
-| Shell | fully relaxed via `scripts/mcp-shell-server.py` (`MCP_SHELL_ALLOW_DANGEROUS=ALL`, `ALLOW_PATTERNS=.*`); **not** a sandbox — arbitrary command execution as user `hamza`; trust boundary is private machine / operator trust |
-| Keys | `.env`-only, `env:` refs in profiles; `OPENAI_ADMIN_KEY` never used by the daemon |
+1. checks that the desired-running marker still exists;
+2. acquires the same `flock` lifecycle lock used by manual `start.sh` and `stop.sh`;
+3. reconciles exactly one correctly configured OAuth 1MCP runtime;
+4. reconciles the bridge-owned `cloudflared` process;
+5. releases the lock.
 
-## 9. Evolution (never code a custom bridge)
+This prevents manual startup and watchdog recovery from simultaneously killing/starting the same components.
 
-- Replace shell server → edit `config/mcp.json` (nothing above changes).
-- Add database/browser servers → `1mcp mcp add postgres -- ...` / `1mcp mcp add playwright -- ...`.
-- Enforce repo confinement below MCP → bubblewrap or dedicated Linux user wrapping `uvx mcp-shell-server`.
-- Two apps later, not one → revisit; today one endpoint is the right interface.
+If the desired-running marker is removed, the watchdog exits instead of resurrecting the bridge.
+
+## 8. Stop
+
+Canonical stop command:
+
+```bash
+scripts/stop.sh
+```
+
+It:
+
+```text
+acquires lifecycle lock
+  -> disables desired-running state
+  -> stops watchdog
+  -> stops exact bridge-owned cloudflared
+  -> stops config-scoped 1MCP
+  -> clears runtime state
+  -> releases lifecycle lock
+```
+
+For backward compatibility only, `scripts/tunnel-down.sh` aliases `scripts/stop.sh`.
+
+## 9. ChatGPT connector
+
+The ChatGPT MCP app/connector points to:
+
+```text
+https://mcp.hamza.my.id/mcp
+```
+
+1MCP supplies the OAuth flow and exposes the composed filesystem/shell tool inventory. If the tool inventory changes materially, refresh/recreate the connector as required by the product UI.
+
+## 10. Tests
+
+Before treating lifecycle changes as complete, run:
+
+```bash
+bash tests/lifecycle.sh
+bash -n scripts/*.sh tests/lifecycle.sh
+git diff --check
+scripts/status.sh
+```
+
+The regression suite uses isolated fake processes and must not intentionally restart the live bridge.
+
+## 11. WSL boot behavior
+
+Install/enable autostart once:
+
+```bash
+scripts/install-systemd-user.sh
+```
+
+This installs `systemd/hamza-cloudflare-oauth-bridge.service` into `~/.config/systemd/user/`, reloads the user manager, and enables the unit for `default.target` without forcing an immediate restart.
+
+The machine already has:
+
+```text
+systemd=true
+user linger enabled for hamza
+```
+
+so after the unit is enabled, a fresh WSL distro start can launch the canonical bridge automatically without an interactive shell login. The service calls `scripts/start.sh` on start and `scripts/stop.sh` on stop.
+
+The unit uses an explicit PATH containing the current NVM Node v24.19.0 installation and `~/.local/bin`. If Node is moved/upgraded to a different NVM version path, update the unit or rerun the installer after updating the checked-in unit.

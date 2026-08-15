@@ -1,83 +1,137 @@
-# Acceptance test — first live session from this chat
+# Cloudflare OAuth Bridge — end-to-end acceptance
 
-Goal: prove the full loop works from the ChatGPT Business app — **filesystem read → edit → diff → focused test → rerun → Task → status → commit** — without the user copying logs or touching GitHub.
+Goal: prove that the live ChatGPT connector can use the local development machine through the canonical Cloudflare OAuth Bridge without manual log copying or GitHub round-trips.
 
-Preconditions:
-- `scripts/start.sh` green; `scripts/status.sh` shows both daemons healthy.
-- Connector paired and app selected in the chat (docs/PLAN.md steps 5–6).
-- Tool names below are the verified wire names from `1mcp inspect` (v0.34.4): filesystem tools appear as `filesystem_1mcp_<tool>` (note: `read_file` is deprecated upstream in favor of `read_text_file`), shell as `shell_1mcp_shell_execute`. The ChatGPT connector may render them identically (they are the tool names 1MCP advertises).
+## Preconditions
 
-## Runbook
-
-### 1. Read a real file
-
-Tool `filesystem_1mcp_read_text_file`:
-
-```json
-{"path": "/home/hamza/repo/satori/packages/core/src/core/semantic-search-service.ts"}
+```bash
+cd /home/hamza/repo/satori_bridge
+scripts/start.sh
+scripts/status.sh
 ```
 
-Expected: full file content (this is the file we will touch later).
+`status.sh` should report `desired state: running`, public health `ok`, and `issues: 0`.
 
-### 2. Make a reversible edit
+The ChatGPT connector/app should point at:
 
-Edit via `filesystem_1mcp_edit_file` — e.g. replace the first line of the class-level doc comment (record the exact before/after) — or add a JSDoc note. Content change must be trivial and self-reverting.
-
-### 3. Diff
-
-Tool `shell_1mcp_shell_execute`, argv, `directory: "satori"`:
-
-```json
-{"command": ["git", "diff"], "directory": "satori"}
+```text
+https://mcp.hamza.my.id/mcp
 ```
 
-Expected: only the one edit from step 2.
+Expected tool naming from 1MCP 0.34.4:
 
-### 4. Focused core test
-
-```json
-{"command": ["pnpm", "--filter", "@zokizuan/satori-core", "exec", "node",
- "--import", "tsx", "--import", "./src/test-state-root.ts",
- "--test", "--test-concurrency=8",
- "src/core/core/search-projections.test.ts"],
- "directory": "satori", "timeout": 300}
+```text
+filesystem_1mcp_<tool>
+shell_1mcp_shell_execute
 ```
 
-This is exactly the package's `test:raw` invocation without the glob — expected green (this test file exists; it exercises the projection layer adjacent to the semantic search service).
+## 1. Read a repository file
 
-### 5. Induce a failure and react
-
-Edit `semantic-search-service.ts` with a deliberate type-slip (or break the doc comment syntax), rerun step 4, confirm the failure output arrives in the chat. Then revert via the filesystem server or `git restore`, rerun step 4 → green.
-
-### 6. Long task through the shell
+Use `filesystem_1mcp_read_text_file`:
 
 ```json
-{"command": ["pnpm", "semantic:verify"], "directory": "satori", "timeout": 300}
+{"path":"/home/hamza/repo/satori/package.json"}
 ```
 
-Server max is 300 s; default 30 s would time out — always pass `timeout` for build/verify commands.
+Expected: file content is returned directly in chat.
 
-Expected: reproducibility verdict from `scripts/verify-semantic-engine-reproducibility.mjs`.
+## 2. Search and inspect code
 
-### 7. Land it
+Use filesystem search or the shell MCP (`rg`, `git`, etc.) against `/home/hamza/repo/satori`.
+
+Expected: repository discovery works without copying source into chat manually.
+
+## 3. Make a reversible edit
+
+Use `filesystem_1mcp_edit_file` on a deliberately trivial file change.
+
+Then inspect:
 
 ```json
-{"command": ["git", "status"], "directory": "satori"}
-{"command": ["git", "diff"], "directory": "satori"}
-{"command": ["git", "commit", "-m", "docs: <what this chat changed>"], "directory": "satori"}
+{"command":["git","diff"],"directory":"/home/hamza/repo/satori"}
 ```
 
-Then `{"command": ["git", "status"], "directory": "satori"}` → clean; `{"command": ["git", "log", "-1", "--oneline"], "directory": "satori"}` shows the commit.
+Expected: only the intended edit appears.
 
-## Expected failure modes (known, not bugs)
+## 4. Run a focused test
 
-| Try | Result |
+Example:
+
+```json
+{
+  "command":[
+    "pnpm","--filter","@zokizuan/satori-core","exec","node",
+    "--import","tsx","--import","./src/test-state-root.ts",
+    "--test","--test-concurrency=8",
+    "src/core/core/search-projections.test.ts"
+  ],
+  "directory":"/home/hamza/repo/satori",
+  "timeout":300
+}
+```
+
+Expected: test output returns through the connector.
+
+## 5. Exercise failure/recovery
+
+Make a reversible test-only break, run the focused test and confirm the error reaches chat, then restore the file and rerun green.
+
+## 6. Long developer command
+
+```json
+{
+  "command":["pnpm","semantic:verify"],
+  "directory":"/home/hamza/repo/satori",
+  "timeout":300
+}
+```
+
+Expected: command output is returned up to the configured timeout/output cap.
+
+## 7. Verify bridge health from the connector
+
+Run:
+
+```json
+{
+  "command":["bash","-c","cd /home/hamza/repo/satori_bridge && scripts/status.sh"],
+  "directory":"/home/hamza/repo/satori_bridge"
+}
+```
+
+Expected:
+
+```text
+desired state: running
+local health: ready
+cloudflared: running
+watchdog: running
+public health: ok
+issues: 0
+```
+
+## Expected boundaries
+
+| Operation | Expected result |
 |---|---|
-| `filesystem_1mcp_read_text_file` on `/etc/passwd` or `/home/hamza/.bashrc` (outside allowed roots) | denied — outside `/home/hamza/repo` root |
-| `shell_1mcp_shell_execute` with `{"command": ["bash", "-c", "..."]}`, `["rm", "x"]`, `["ssh", ...]`, `["git", "-c", "x=y", "status"]` | runs — policy fully relaxed (`MCP_SHELL_ALLOW_DANGEROUS=ALL`, `ALLOW_PATTERNS=.*`) via scripts/mcp-shell-server.py |
-| `{"command": ["cat", "/etc/passwd"]}` | runs — expected (see README "Interface contract"); the shell server is now unrestricted by design |
-| `shell_1mcp_shell_execute` without `directory` | runs at `/home/hamza/repo` (1MCP process CWD) — always pass the repo name |
+| Filesystem MCP reads outside `/home/hamza/repo` | denied by filesystem provider |
+| Shell command reads outside `/home/hamza/repo` | allowed if Linux user `hamza` can access it |
+| `bash -c`, pipes, redirects, `ssh`, `sed`, `xargs`, etc. through shell MCP | allowed by the intentionally relaxed developer-shell policy |
+| Shell call without explicit `directory` | inherits the 1MCP process CWD (`/home/hamza/repo`); explicit directories are preferred |
 
 ## Done
 
-This chat can now: read local code → edit it → diff → run focused tests → run full verify → inspect live output → commit — with nothing copied and no GitHub round-trip.
+Acceptance is complete when ChatGPT can:
+
+```text
+read local code
+-> search
+-> edit
+-> inspect git diff
+-> run tests/builds
+-> receive failures
+-> repair
+-> verify bridge status
+```
+
+without the user manually transferring source or logs.

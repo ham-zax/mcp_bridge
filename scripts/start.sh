@@ -1,45 +1,68 @@
 #!/usr/bin/env bash
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-mkdir -p "$DIR/run"
-cd /home/hamza/repo
+# shellcheck source=bridge-common.sh
+source "$DIR/scripts/bridge-common.sh"
 
-ONE_MCP_ENTRY="$(npm root -g)/@1mcp/agent/build/index.js"
+TUNNEL_NAME="${TUNNEL_NAME:-}"
+TUNNEL_URL="${TUNNEL_URL:-https://mcp.hamza.my.id}"
+export TUNNEL_NAME TUNNEL_URL
 
-RC=0
-1mcp serve --status --config-dir "$DIR/config" >/dev/null 2>&1 || RC=$?
-if [ "$RC" -eq 3 ]; then
-  echo "== starting 1MCP runtime (scope: $DIR/config) =="
-  EXTRA=()
-  if [ -f "$DIR/run/tunnel.url" ]; then
-    EXTRA=(--external-url "$(cat "$DIR/run/tunnel.url")")
-    echo "   external-url: $(cat "$DIR/run/tunnel.url")"
+for cmd in node npm cloudflared curl flock; do
+  command -v "$cmd" >/dev/null 2>&1 || {
+    echo "$cmd is required to start the Cloudflare OAuth Bridge" >&2
+    exit 1
+  }
+done
+
+if ! bridge_lock_acquire 30; then
+  echo "another bridge lifecycle operation is already in progress" >&2
+  exit 1
+fi
+
+START_COMMITTED=false
+cleanup_failed_start() {
+  local rc=$?
+  if [ "$START_COMMITTED" != true ]; then
+    bridge_disable
+    bridge_stop_watchdog
+    bridge_stop_cloudflared
+    bridge_stop_1mcp
+    rm -f "$BRIDGE_TUNNEL_URL_FILE"
   fi
-  node "$ONE_MCP_ENTRY" serve --background --config-dir "$DIR/config" "${EXTRA[@]}"
-elif [ "$RC" -ne 0 ]; then
-  echo "1MCP runtime state:" >&2
-  1mcp serve --status --config-dir "$DIR/config" >&2 || true
-  echo "use scripts/stop.sh then start again" >&2
-  exit "$RC"
-else
-  echo "1MCP runtime already running (scope: $DIR/config)"
-fi
+  bridge_lock_release
+  trap - EXIT INT TERM
+  exit "$rc"
+}
+trap cleanup_failed_start EXIT INT TERM
 
-if [ "${BRIDGE_ROUTE:-tunnel}" = "public" ]; then
-  echo "BRIDGE_ROUTE=public: tunnel-client not needed (Route B)."
-  echo "  expose 1MCP now: scripts/tunnel-up.sh"
-  exit 0
-fi
+# Manual starts and watchdog reconciliation share the same lifecycle lock.
+# Disable/stop the old watchdog first so there is only one reconciler.
+bridge_disable
+bridge_stop_watchdog
 
-if [ -z "${CONTROL_PLANE_API_KEY:-}" ]; then
-  echo "CONTROL_PLANE_API_KEY is not set (see .env.example)" >&2
+echo "== starting Cloudflare OAuth Bridge =="
+echo "1MCP OAuth origin: http://127.0.0.1:3050/mcp"
+echo "public MCP URL:    $TUNNEL_URL/mcp"
+
+bridge_reconcile_1mcp "$TUNNEL_URL"
+bridge_start_cloudflared
+printf '%s\n' "$TUNNEL_URL" > "$BRIDGE_TUNNEL_URL_FILE"
+
+PUBLIC_ATTEMPTS="${BRIDGE_PUBLIC_HEALTH_ATTEMPTS:-45}"
+PUBLIC_INTERVAL="${BRIDGE_PUBLIC_HEALTH_INTERVAL:-3}"
+if ! bridge_wait_url "$TUNNEL_URL/health/ready" "$PUBLIC_ATTEMPTS" "$PUBLIC_INTERVAL" 5; then
+  echo "Cloudflare OAuth Bridge public endpoint did not become healthy" >&2
   exit 1
 fi
-if grep -q "REPLACE_ME" "$DIR/profiles/hamza-local-dev.yaml"; then
-  echo "profiles/hamza-local-dev.yaml still has placeholder tunnel_id" >&2
-  exit 1
-fi
 
-echo "== starting tunnel-client (foreground; Ctrl-C to stop) =="
-echo "   admin UI: http://127.0.0.1:8080/ui   health: http://127.0.0.1:8080/readyz"
-tunnel-client run --profile hamza-local-dev
+bridge_enable
+bridge_start_watchdog
+START_COMMITTED=true
+bridge_lock_release
+trap - EXIT INT TERM
+
+echo "Cloudflare OAuth Bridge is ready"
+echo "  MCP endpoint: $TUNNEL_URL/mcp"
+echo "  status:       scripts/status.sh"
+echo "  stop:         scripts/stop.sh"

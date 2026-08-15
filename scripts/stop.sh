@@ -1,29 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# 1. Stop watchdog first so it doesn't resurrect 1MCP or cloudflared
-if [ -f "$DIR/run/watchdog.pid" ]; then
-  kill "$(cat "$DIR/run/watchdog.pid")" 2>/dev/null || true
-  rm -f "$DIR/run/watchdog.pid"
-fi
-pkill -f "watchdog.sh" 2>/dev/null || true
+# shellcheck source=bridge-common.sh
+source "$DIR/scripts/bridge-common.sh"
 
-# 2. Stop cloudflared (Route B)
-if [ -f "$DIR/run/cloudflared.pid" ]; then
-  kill "$(cat "$DIR/run/cloudflared.pid")" 2>/dev/null || true
-  rm -f "$DIR/run/cloudflared.pid"
+if ! bridge_lock_acquire 30; then
+  echo "another bridge lifecycle operation is already in progress" >&2
+  exit 1
 fi
-pkill -f "cloudflared tunnel run" 2>/dev/null || true
+trap 'bridge_lock_release' EXIT INT TERM
 
-# 3. Stop tunnel-client (Route A)
-if [ -f "$DIR/run/tunnel-client.pid" ]; then
-  PID="$(cat "$DIR/run/tunnel-client.pid")"
-  kill "$PID" 2>/dev/null || true
-  rm -f "$DIR/run/tunnel-client.pid"
-fi
-pkill -f "tunnel-client run" 2>/dev/null || true
+# Disable first so a watchdog waiting on the lifecycle lock exits instead of
+# resurrecting a component while shutdown is in progress.
+bridge_disable
+bridge_stop_watchdog
+bridge_stop_cloudflared
+bridge_stop_1mcp
+rm -f "$BRIDGE_TUNNEL_URL_FILE"
 
-# 4. Stop 1MCP runtime
-1mcp serve --stop --config-dir "$DIR/config" || true
-pkill -f "node.*@1mcp/agent.*serve" 2>/dev/null || true
-echo "stopped all bridge processes"
+bridge_lock_release
+trap - EXIT INT TERM
+
+echo "Cloudflare OAuth Bridge stopped"
