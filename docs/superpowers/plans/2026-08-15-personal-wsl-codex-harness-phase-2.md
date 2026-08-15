@@ -4,9 +4,9 @@
 
 **Goal:** Turn the private WSL bridge into a durable Codex-like local coding harness: unrestricted file and Bash access as user `hamza`, Codex-style patching, a rich native CLI toolbox, persistent tmux-backed terminal sessions with human takeover, a small multi-repository Code intelligence facade, and evidence-gated output/context optimizations.
 
-**Architecture:** Keep Cloudflare + OAuth + 1MCP as transport. Keep Files/Shell in the Pi-backed `dev` provider, but add a private `personal` profile whose filesystem boundary is the Linux user account rather than a workspace sandbox and whose stable default directory is `/home/hamza`. The proven Terminal baseline is a separate MCP provider over a thin Unix-socket broker and dedicated tmux lifetime authority. Before that implementation is frozen into the model-facing Terminal/await layer, benchmark Herdr as an evidence-driven challenger and possible hybrid component. Add a separate `code` MCP provider only after a rooted-CodeDB child-process router proves useful across multiple repositories. Public-release profiles remain isolated from all private-only capability.
+**Architecture:** Keep Cloudflare + OAuth + 1MCP as transport. Files/Shell live in the Pi-backed private `dev` provider with Linux-user authority and `/home/hamza` as the stable default directory. Terminal is a separate provider over a thin Unix-socket broker and a dedicated tmux lifetime authority; Herdr v0.8.0 was benchmarked and rejected as the production backend/hybrid because it did not preserve our process-lifetime or transcript semantics. Code is a separate private provider exposing the qualified three-action facade over one correctly rooted CodeDB child per active repository. Public-release profiles remain isolated from all private-only capability.
 
-**Tech Stack:** Node.js >= 22.19, `@modelcontextprotocol/sdk` 1.30.0, `@earendil-works/pi-coding-agent` 0.84.1, Bash, tmux >= 3.4, user systemd, Git, Herdr v0.8.0 for the Terminal/await challenger experiment, CodeDB 0.2.5840 for the first router experiment, ast-grep 0.45.0 for the CLI-toolbox phase, optional RTK after raw Bash/Terminal are proven.
+**Tech Stack:** Node.js >= 22.19, `@modelcontextprotocol/sdk` 1.30.0, `@earendil-works/pi-coding-agent` 0.84.1, Bash, tmux >= 3.4, user systemd, Git, CodeDB 0.2.5840 for rooted repository intelligence, ast-grep 0.45.0 for the CLI toolbox, and optional explicit `rtk test`/`rtk err` invocations through native Bash. Herdr v0.8.0 and RTK 0.43/0.45 remain benchmark evidence, not production harness dependencies.
 
 ## Global Constraints
 
@@ -22,16 +22,49 @@
 - Terminal PTYs must survive ChatGPT disconnects, Cloudflare reconnects, 1MCP restarts, MCP-provider restarts, and terminal-broker restarts. They are allowed to die when the WSL instance itself stops.
 - Terminal human attachment is single-writer: human attachment blocks model input/resize/ordinary close but does not block model observation.
 - Terminal output is incremental and bounded; old output may rotate, but cursor semantics must never silently return the wrong bytes.
-- The completed tmux/broker implementation is the qualified Terminal baseline, not an untouchable implementation choice. Herdr v0.8.0 must be benchmarked against it before Task 7 freezes the production Terminal MCP/human-takeover backend.
-- A Herdr experiment is read-only with respect to the production Terminal implementation: it may create `experiments/herdr/**` and benchmark evidence, but it must not silently replace `providers/terminal/**`, systemd units, or live MCP composition.
-- If Herdr wins or a hybrid wins, write and review a focused Terminal design amendment before Task 7 production integration; do not migrate by benchmark fiat.
+- The tmux/broker implementation is the selected Terminal backend. Herdr v0.8.0 was benchmarked as a challenger and the final verdict is `TMUX_BROKER_WINS`; Herdr and the Herdr/tmux hybrid are rejected as production Terminal backends with retained evidence.
+- Herdr's coding-agent lifecycle detection/wait model remains reference evidence for Task 8 only. Do not add Herdr as a runtime dependency merely to reuse that concept.
+- Before Task 7 integration, retained dead `remain-on-exit` panes must reconcile without aborting broker startup; the focused fix is Task 6.6.
 - `apply_patch` does not replace `edit` or `write` until its own correctness/ergonomics benchmark produces an explicit `PATCH_WINS`, `BOTH_EARN_PLACE`, or `EDIT_WINS` verdict.
 - The Code domain must never return to exposing CodeDB's entire 10-tool catalog directly without an explicit later decision.
 - `await` semantics are designed only after Terminal is live and measured.
-- RTK remains optional output shaping with a permanent raw/native bypass.
-- Stronger model-visible hash/CAS is evidence-triggered; current exact-edit/snapshot guards remain until repeated real or reproducible silent-lost-update evidence justifies a focused CAS design. Do not add stronger model-visible CAS inline merely because synthetic stress exists.
+- Native Bash remains the sole harness execution path. Automatic/selective RTK integration is rejected with evidence. `rtk test` and `rtk err` may be invoked explicitly through Bash as optional local helpers, with native/full output as recovery; no RTK classifier, MCP action, schema field, or hook belongs in the harness.
+- The stronger-consistency trigger has fired: repeated real same-file `apply_patch`/`edit` races produced silent lost updates. The approved next step is focused provider-internal canonical-path mutation serialization; model-visible hash fields remain unapproved until that atomic enforcement is proven and real stale-read workflows still justify them.
 - GCF/TOON remain evidence-triggered for genuinely structured bulk payloads; they are not mandatory Phase-2 implementation work and are not applied to source, patches, normal terminal output, or active diagnostics unless a new real payload class triggers a focused benchmark.
 - One designated integrator owns staging and commits during shared-tree work.
+
+---
+
+## Current Implementation Status — 2026-08-15
+
+The task prose below remains executable/reproducible history, but this table is the authoritative current frontier.
+
+| Area | Status | Evidence / integration state |
+|---|---|---|
+| Tasks 1-3 — baseline, personal profile, unrestricted Files/Bash | **COMPLETE + INTEGRATED** | Wave integration lineage through `2f5baae` |
+| Task 4 — `apply_patch` | **COMPLETE + INTEGRATED** | `BOTH_EARN_PLACE`; integrated at `2f5baae` |
+| Task 5 — CLI toolbox | **COMPLETE + INTEGRATED** | portable contract wired into harness |
+| Task 6 — durable tmux/broker | **COMPLETE + INTEGRATED** | broker/tmux lifetime separation proven |
+| Task 6.5 — Herdr challenger | **COMPLETE** | `TMUX_BROKER_WINS`; benchmark source `792e9b5`; integrated evidence `cf11ef6` |
+| Task 6.6 — retained dead-pane reconciliation | **COMPLETE** | source `3ade00f`; integrated fix `44000c6`; mixed live/dead double-restart test passes |
+| Task 7 — Terminal MCP + human takeover | **NEXT TERMINAL CRITICAL PATH** | unblocked after Task 6.6 integration |
+| Task 8 — await/resume | **PENDING TASK-7 PRODUCT EVIDENCE** | Herdr answer `PARTIALLY`; generic conditions still require focused design |
+| Task 9 — rooted multi-repo CodeDB router | **COMPLETE** | source `d010aaf`; integrated `46fcb48` |
+| Task 10 — small Code facade | **COMPLETE** | `CODE_SMALL_EXPLICIT_FACADE`; source `fa46650`; integrated `a04cf41` |
+| Task 11 — RTK | **COMPLETE / NO HARNESS INTEGRATION** | RTK 0.45 verdict: explicit helper only; evidence integrated through `aac4f3f` |
+| Task 12 — concurrency/CAS trigger | **COMPLETE; TRIGGER FIRED** | source `c01e52b`; integrated `61ae4af`; focused design created |
+| Task 12.5 — atomic same-path mutation enforcement | **NEXT FILES HARDENING TASK** | required before final acceptance; no model-visible hash field yet |
+| Task 13 — structured-format trigger audit | **PENDING** | default expectation remains `FORMAT_TRIGGER_NOT_FIRED` |
+| Task 14 — final consolidation/live acceptance | **PENDING** | follows Terminal, await decision, Task 12.5, and format audit |
+
+Current assembled integration branch:
+
+```text
+feat/personal-harness-wave1-integration
+head after current evidence integration: ed67415
+```
+
+The source task branches remain intact for provenance. Do not squash them yet; squash/rewrite history only at the final merge boundary after the remaining production surfaces pass live acceptance.
 
 ---
 
@@ -42,10 +75,10 @@ The plan is allowed to change the exact final count based on benchmark gates, bu
 ```text
 FILES / SHELL
   read
-  apply_patch     # if experiment wins
-  write
-  bash
-  edit            # retained only if patch does not clearly replace it
+  edit            # guarded simple exact replacement
+  apply_patch     # retained for multi-file / structural mutation
+  write           # create-oriented
+  bash            # always native Bash; RTK is never an automatic layer
 
 TERMINAL
   terminal_open
@@ -54,12 +87,21 @@ TERMINAL
   terminal_resize
   terminal_list
   terminal_close
-  # any wait/resume action exists only if the post-Terminal sub-spec qualifies it
+  # wait/resume actions exist only if Task 8's focused sub-spec qualifies them
 
 CODE
-  code(...)                         # candidate A
-  # OR a small explicit facade      # candidate B
-  code_search / code_context / code_symbol
+  code_search
+  code_context
+  code_symbol
+```
+
+Qualified decisions already frozen:
+
+```text
+apply_patch verdict     BOTH_EARN_PLACE
+Code facade verdict     CODE_SMALL_EXPLICIT_FACADE
+Terminal backend        TMUX_BROKER_WINS
+RTK harness integration REJECTED_WITH_EVIDENCE
 ```
 
 The goal is not "four actions forever." The goal is four obvious capability domains with native representations and the smallest practical schemas.
@@ -73,8 +115,8 @@ The goal is not "four actions forever." The goal is four obvious capability doma
 - Modify: `providers/pi-dev/server.mjs` — private path mode, optional `apply_patch`, final personal tool registration.
 - Modify: `providers/pi-dev/boundary.mjs` — add unrestricted-user path resolution without weakening public workspace confinement.
 - Modify: `providers/pi-dev/files.mjs` — route public/private path policies and retain strict-edit/create semantics.
-- Modify: `providers/pi-dev/shell.mjs` — private absolute/relative cwd semantics and later optional RTK policy.
-- Modify: `providers/pi-dev/render.mjs` — patch/RTK result rendering only when required.
+- Modify: `providers/pi-dev/shell.mjs` — private absolute/relative cwd semantics; native Bash remains the only harness execution policy.
+- Modify: `providers/pi-dev/render.mjs` — native Bash/edit/patch rendering; no RTK-specific production rendering.
 - Create: `providers/pi-dev/patch.mjs` — Codex-style patch parser/preflight/apply engine.
 - Create: `providers/pi-dev/test/patch.test.mjs`.
 - Modify: existing Pi tests under `providers/pi-dev/test/`.
@@ -868,6 +910,8 @@ git commit -m "feat: add durable tmux terminal broker"
 
 ### Task 6.5: Benchmark Herdr Against the Qualified tmux/Broker Baseline
 
+**Status:** **COMPLETE.** Final Terminal verdict: `TMUX_BROKER_WINS`. Await/resume verdict: `HERDR_MAKES_CUSTOM_AWAIT_UNNECESSARY = PARTIALLY`. Herdr remains benchmark/reference evidence only; do not reopen the backend decision during Phase 2 without new contradictory evidence.
+
 **Files:**
 - Create: `experiments/herdr/` — disposable benchmark/prototype scripts only.
 - Create: `docs/benchmarks/herdr-terminal-comparison.md`.
@@ -1103,6 +1147,58 @@ If the experiment needs small helper code, it remains under `experiments/herdr/*
 
 ---
 
+### Task 6.6: Harden Reconciliation for Retained Dead tmux Panes
+
+**Status:** **COMPLETE ON INTEGRATION BRANCH.** Source commit `3ade00f`; integrated as `44000c6`.
+
+**Files:**
+- Modify: `providers/terminal/tmux.mjs`.
+- Modify: `providers/terminal/test/broker.test.mjs`.
+
+**Interfaces:**
+- Consumes: Task 6 tmux/broker session metadata and `remain-on-exit` panes.
+- Produces: broker restart/reconciliation that treats exited retained panes as valid inspectable sessions instead of trying to reinstall a transcript pipe on a dead pane.
+
+Required invariant:
+
+```text
+live pane
+  -> reconcile transcript pipe
+  -> same tmux / PTY lifetime
+  -> transcript continues
+
+dead remain-on-exit pane
+  -> DO NOT reinstall pipe-pane
+  -> preserve final transcript
+  -> preserve exact pane exit status
+  -> remain readable/listable until close/retention
+```
+
+Acceptance corpus:
+
+```text
+A = live and producing output
+B = exited:0 remain-on-exit
+C = exited:7 remain-on-exit
+restart broker
+restart broker a second time
+```
+
+Pass criteria:
+
+```text
+A keeps the same tmux server and PTY PID and continues output
+B remains readable/listable with exit 0
+C remains readable/listable with exit 7
+logical cursors do not silently reset or renumber
+second restart is idempotent
+immediate-output and CURSOR_EXPIRED/CURSOR_AHEAD behavior remain intact
+```
+
+Fresh integrated tests pass 18/18 in `providers/terminal`.
+
+---
+
 ### Task 7: Add Human Takeover and the Terminal MCP Surface
 
 **Files:**
@@ -1119,20 +1215,21 @@ If the experiment needs small helper code, it remains under `experiments/herdr/*
 - Modify: `tests/harness.sh`
 
 **Interfaces:**
-- Consumes: the Task 6.5 Terminal-backend verdict plus the winning backend contract.
-- Produces: six MCP tools and a human attach CLI unless an approved Herdr/hybrid design amendment explicitly changes that surface.
+- Consumes: the selected tmux/broker backend plus the completed Task 6.6 retained-dead-pane reconciliation fix.
+- Produces: exactly six MCP tools plus the `wsl-term` human attach CLI.
 
-- [ ] **Step 0: Apply the Task 6.5 gate before coding**
+- [ ] **Step 0: Verify the now-frozen Terminal prerequisites**
+
+Before coding, prove the integration base contains:
 
 ```text
-TMUX_BROKER_WINS | HERDR_NOT_MATERIAL
-  -> execute the tmux/broker steps below as written.
-
-HERDR_WINS | HYBRID_WINS
-  -> STOP. Do not adapt these tmux-specific steps ad hoc.
-  -> write/review the focused Terminal design amendment required by Task 6.5.
-  -> revise this task's implementation details while preserving the qualified model-facing goals.
+Task 6.5 verdict = TMUX_BROKER_WINS
+Task 6.6 mixed live/dead reconciliation test passes
+broker restart preserves tmux/PTY lifetime
+immediate-output first-byte test passes
 ```
+
+Herdr is not a Task-7 runtime dependency and no backend redesign gate remains.
 
 - [ ] **Step 1: Write failing MCP schema tests**
 
@@ -1299,8 +1396,8 @@ git commit -m "feat: expose persistent terminal sessions"
 - Conditional provider files only after that focused sub-spec is reviewed and approved.
 
 **Interfaces:**
-- Consumes: real ChatGPT -> Cloudflare -> OAuth -> 1MCP -> Terminal latency/read/poll behavior from Task 7 product acceptance **and** the Task 6.5 Herdr wait/lifecycle verdict.
-- Produces: `NO_WAIT_TOOL_NEEDED` or an approved focused wait/resume design. This task does **not** predeclare a `terminal_wait` API.
+- Consumes: real ChatGPT -> Cloudflare -> OAuth -> 1MCP -> Terminal latency/read/poll behavior from Task 7 product acceptance plus Task 6.5's reference evidence that Herdr-style coding-agent lifecycle waits are useful but do not cover generic local readiness.
+- Produces: `NO_WAIT_TOOL_NEEDED` or an approved focused wait/resume design. This task does **not** predeclare a `terminal_wait` API and does **not** introduce Herdr as a runtime dependency.
 
 - [ ] **Step 1: Measure real polling debt before designing another subsystem**
 
@@ -1338,7 +1435,7 @@ Do not add hypothetical conditions merely to make the first abstraction look gen
 Compare:
 
 ```text
-winning Terminal backend's native wait/event primitives
+our tmux/broker transcript/process state
 ```
 
 against:
@@ -1347,17 +1444,17 @@ against:
 Terminal-specific harness waiting
 ```
 
-and, only for condition classes the Terminal backend cannot own cleanly:
+and, only for condition classes Terminal cannot own cleanly:
 
 ```text
 generic local condition/wait service
 ```
 
-If Task 6.5 returned `HERDR_MAKES_CUSTOM_AWAIT_UNNECESSARY = YES`, begin by proving whether Herdr's native event-driven wait/lifecycle semantics satisfy the real Task 7 product-path needs through a thin adapter. Do not invent a parallel generic waiter unless that proof fails.
+Task 6.5's `PARTIALLY` verdict means Herdr is reference design evidence, not an available backend primitive. Borrow the concept of explicit coding-agent states (`working`, `idle`, `blocked`, `done`, `unknown`) only if real Task-7 usage shows that local coding-agent lifecycle polling is material. Do not add Herdr as a dependency just to obtain those states.
 
-If the Task 6.5 answer is `PARTIALLY`, the focused sub-spec must name only the missing condition classes rather than reimplementing Herdr-supported waits.
+For output waiting, prefer the already-durable transcript/cursor data source over snapshot polling. For broader conditions such as process exit, port readiness, file change, HTTP health, or systemd state, design only the minimal condition ownership that Task-7 evidence actually requires.
 
-Use observed request lifetime, reconnect semantics, state ownership, cancellation, polling cost, and context cost as criteria. If normal incremental reads or the winning backend's native waits are sufficient, record `NO_WAIT_TOOL_NEEDED` and stop.
+Use observed request lifetime, reconnect semantics, state ownership, cancellation, polling cost, and context cost as criteria. If normal incremental reads are sufficient, record `NO_WAIT_TOOL_NEEDED` and stop.
 
 - [ ] **Step 4: If a wait abstraction is justified, write a focused sub-spec before code**
 
@@ -1400,6 +1497,8 @@ If `NO_WAIT_TOOL_NEEDED`, commit evidence with a `docs:` commit. If implementati
 ---
 
 ### Task 9: Build the Multi-Repository Rooted CodeDB Router
+
+**Status:** **COMPLETE.** Source commit `d010aaf`; integrated as `46fcb48`. The router uses one correctly rooted CodeDB 0.2.5840 child per canonical Git root, rejects per-call `project=` switching, and uses an explicit maximum of four active/pending repositories with no implicit eviction.
 
 **Files:**
 - Create: `providers/code-router/package.json`
@@ -1476,6 +1575,8 @@ git commit -m "feat: add rooted multi-repo CodeDB router"
 ---
 
 ### Task 10: Expose a Small Code Domain and Re-Benchmark Its Value
+
+**Status:** **COMPLETE.** Final verdict `CODE_SMALL_EXPLICIT_FACADE`. Source commit `fa46650`; integrated as `a04cf41`. The retained model-facing Code surface is exactly `code_search`, `code_context`, and `code_symbol`; raw CodeDB tools remain hidden.
 
 **Files:**
 - Modify: `providers/code-router/server.mjs`
@@ -1568,83 +1669,40 @@ git commit -m "feat: expose routed code intelligence"
 
 ---
 
-### Task 11: Run Selective RTK as an Optional Bash Output Experiment
+### Task 11: Decide RTK's Place Under Native Bash
 
-**Files:**
-- Modify: `providers/pi-dev/shell.mjs`
-- Modify: `providers/pi-dev/server.mjs`
-- Modify: `providers/pi-dev/test/shell.test.mjs`
-- Create/Modify: `docs/benchmarks/rtk.md`
-- Modify: `config/profiles/personal.env` only if the experiment wins.
+**Status:** **COMPLETE. No production RTK integration.** Evidence commits `e099b62` and `56d1551` are integrated as `202f4d6` and `aac4f3f`.
 
-**Interfaces:**
-- Consumes: proven raw Pi Bash.
-- Produces: `RTK_KEEP` or `RTK_REMOVE`; raw execution remains permanently available.
-
-- [ ] **Step 1: Install/verify one stable RTK binary for the experiment**
-
-Record exact version/checksum in `docs/benchmarks/rtk.md` before integration. Do not install client hooks into unrelated agents.
-
-- [ ] **Step 2: Add RED tests for optional policy**
-
-Internal policy modes:
+**Final harness policy:**
 
 ```text
-raw
-rtk-auto
+normal executor          native one-shot Bash command string
+normal output            native Bash output
+automatic RTK rewrite    none
+harness RTK classifier   none
+new MCP actions          none
+new Bash schema fields   none
+
+explicit optional use    rtk test / rtk err when deliberately selected
+raw recovery             native Bash or RTK full-output log
 ```
 
-If `rtk-auto` is active, use RTK's rewrite mechanism only for commands it explicitly recognizes. Unsupported commands execute unchanged.
+RTK 0.45 real-development-flow evidence showed a 13.2% aggregate result-token reduction across three workflows, almost entirely from `rtk test`. Routine repository navigation saved 0%; `rtk rg` did not materially beat native `rg`; native `sed -n` remained better for focused source ranges; `git diff --check` still removed remediation evidence; and `git diff --name-only` still damaged its machine-readable contract.
 
-- [ ] **Step 3: Preserve an explicit raw bypass**
-
-Add optional Bash input:
+Therefore:
 
 ```text
-raw?: boolean
+RTK automatic/selective harness shaping  REJECTED_WITH_EVIDENCE
+RTK explicit local CLI helper             OPTIONAL_OUTSIDE_HARNESS_ARCHITECTURE
 ```
 
-`raw=true` always executes the original native Bash command without RTK rewriting.
-
-- [ ] **Step 4: Benchmark at least 20 real commands**
-
-Include:
-
-```text
-git status
-git diff
-git log
-rg
-pnpm/npm test
-cargo/go/python test if available in real repos
-pipelines
-redirections
-failing tests
-commands where exact raw diagnostics matter
-```
-
-Measure correctness first, then context reduction. Any silent semantic change or lost debugging evidence is a blocker for default-on use.
-
-- [ ] **Step 5: Apply verdict**
-
-```text
-RTK_KEEP   -> personal profile may default to rtk-auto, raw bypass remains
-RTK_REMOVE -> remove integration; raw Pi Bash remains unchanged
-```
-
-- [ ] **Step 6: Commit**
-
-```bash
-(cd providers/pi-dev && npm test)
-git add providers/pi-dev docs/benchmarks/rtk.md config/profiles/personal.env
-git commit -m "feat: decide selective RTK output policy"
-```
-
-Use a `docs:` commit if RTK is removed and only benchmark evidence remains.
+Do not spend further Phase-2 engineering effort on RTK unless a future version materially changes these failure contracts. Native Bash remains the source of truth.
 
 ---
 
 ### Task 12: Run Concurrency Regression and Keep Stronger CAS Deferred Unless Its Trigger Fires
+
+**Status:** **COMPLETE; TRIGGER FIRED.** Source commit `c01e52b`; integrated as `61ae4af`. Repeated real same-file patch/patch, patch/edit, and delete/update races produced `SILENT_LOST_UPDATE`. The focused design is `docs/superpowers/specs/2026-08-15-personal-files-cas-trigger-design.md`. Model-visible hashes are **not** approved by this result.
 
 **Files:**
 - Modify: `providers/pi-dev/test/files.test.mjs`
@@ -1695,6 +1753,115 @@ If a silent lost update is reproducibly demonstrated, capture the minimal reprod
 git add providers/pi-dev/test docs/benchmarks/personal-harness-phase-2.md
 git commit -m "test: preserve personal harness mutation conflict safety"
 ```
+
+---
+
+### Task 12.5: Make Same-Path Files Mutations Atomic for Cooperating Harness Calls
+
+**Status:** **NEXT FILES HARDENING TASK.** This task implements the already-reviewed focused design; it does not redesign the model-facing Files schemas.
+
+**Files:**
+- Create: `providers/pi-dev/mutation-coordinator.mjs`.
+- Create: `providers/pi-dev/test/mutation-coordinator.test.mjs`.
+- Modify: `providers/pi-dev/files.mjs`.
+- Modify: `providers/pi-dev/patch.mjs`.
+- Modify: `providers/pi-dev/test/files.test.mjs`.
+- Modify: `providers/pi-dev/test/patch.test.mjs`.
+- Modify: `docs/benchmarks/personal-harness-phase-2.md`.
+
+**Interfaces:**
+- Consumes: existing implicit whole-file snapshot checks used by `edit` and `apply_patch`.
+- Produces: provider-internal exclusive mutation serialization keyed by canonical absolute path. The exclusive critical section must cover the final snapshot read/compare **and** the corresponding write/unlink/create transition for cooperating Files mutations.
+- Produces **no new MCP arguments** and no model-visible hash/revision field.
+
+- [ ] **Step 1: Turn the four Task-12 trigger TODOs into failing regression tests**
+
+Require repeated real primitive runs for:
+
+```text
+overlapping patch/patch, same region
+disjoint patch/patch, same file
+patch/edit, same file
+delete/update, same snapshot
+```
+
+Before implementation these tests must reproduce the current failure class: both operations may report success while one valid change disappears or contradicts the other.
+
+- [ ] **Step 2: Add coordinator unit tests**
+
+Define an internal coordinator keyed by canonical absolute target path. Tests must prove:
+
+```text
+same path -> mutation critical sections do not overlap
+different paths -> operations may proceed concurrently
+multiple-path acquisition -> stable canonical ordering prevents deadlock
+release occurs on success and thrown failure
+```
+
+Do not use one global mutation mutex.
+
+- [ ] **Step 3: Route exact edit through the coordinator**
+
+For an existing-file edit, hold the path lease across:
+
+```text
+final read
+snapshot comparison
+write
+```
+
+Retain exact/ambiguous-match behavior and the current native diff result.
+
+- [ ] **Step 4: Route patch mutations through the same coordinator**
+
+Update/delete must share the exact same path coordinator as `edit`.
+
+For Move, acquire source and destination in stable canonical-path order and hold both across destination validation/exclusive create and source recheck/removal.
+
+Add/create remains exclusive-create and must not regress its existing `wx` conflict behavior.
+
+Multi-file patch remains non-transactional. `PATCH_PARTIAL` is still required if an earlier target committed and a later target fails.
+
+- [ ] **Step 5: Prove the Task-12 failures are gone without serializing disjoint paths**
+
+Run at least the original stress counts:
+
+```text
+50x overlapping patch/patch
+50x disjoint patch/patch on same file
+50x patch/edit on same file
+50x delete/update
+30x independent mutations on different files
+```
+
+Pass criterion:
+
+```text
+0 SILENT_LOST_UPDATE
+same-path operations either preserve both valid disjoint effects or reject one explicitly
+disjoint-path concurrency still succeeds without global serialization
+```
+
+- [ ] **Step 6: Preserve the native Bash boundary honestly**
+
+Document that arbitrary native Bash/external writers do not participate in the in-process coordinator. Keep the existing stale-snapshot detection for changes visible before the final comparison; do not claim universal cross-process CAS.
+
+- [ ] **Step 7: Re-evaluate model-visible revision/hash fields only after atomic enforcement passes**
+
+If real stale-read workflows remain painful after this fix, open a separate evidence gate for a compact revision token enforced inside the same critical section. Otherwise keep model-visible hashes absent.
+
+- [ ] **Step 8: Run the complete Pi regression gate and commit**
+
+```bash
+(cd providers/pi-dev && npm test)
+bash tests/harness.sh
+bash tests/publication.sh
+bash tests/lifecycle.sh
+node --check providers/pi-dev/*.mjs
+git diff --check
+```
+
+Commit only the coordinator, affected Files/Patch code/tests, and updated evidence.
 
 ---
 
@@ -1765,7 +1932,7 @@ Any codec implementation, if triggered, belongs to the focused follow-up project
 - Modify: `tests/lifecycle.sh` only where new private services require it.
 
 **Interfaces:**
-- Consumes: verdicts from Tasks 4, 8, 10, 11, 12, and 13, including any approved focused await/CAS/format follow-up work.
+- Consumes: frozen Task-4/6.5/10/11/12 verdicts plus the implemented Task 12.5 consistency fix, Task 7 live Terminal acceptance, Task 8 wait/resume decision, and Task 13 format-trigger audit.
 - Produces: final private `personal` profile and documented Codex-like workflow.
 
 - [ ] **Step 1: Remove losing experimental actions/providers**
@@ -1775,9 +1942,9 @@ No losing tool remains advertised merely because it was implemented during an ex
 Expected final domains:
 
 ```text
-Dev       -> read, write, bash, plus apply_patch/edit according to PATCH_WINS | BOTH_EARN_PLACE | EDIT_WINS
+Dev       -> read, edit, apply_patch, write, bash
 Terminal  -> six persistent PTY actions, plus only the wait/resume actions approved by the Task 8 focused sub-spec
-Code      -> only the Task 10 winning facade shape
+Code      -> code_search, code_context, code_symbol
 ```
 
 - [ ] **Step 2: Measure the final catalog**
@@ -1877,17 +2044,21 @@ Every capability below must remain in one explicit state so it cannot silently d
 
 | Capability | Phase-2 status |
 |---|---|
-| Personal unrestricted WSL Files/Bash | IMPLEMENT_THIS_PHASE |
-| Codex-style apply_patch | EXPERIMENT_THIS_PHASE |
-| Native CLI toolbox / ast-grep | IMPLEMENT_THIS_PHASE |
-| Persistent tmux Terminal baseline | IMPLEMENTED_BASELINE: Task 6 qualification |
-| Herdr Terminal/await challenger | EXPERIMENT_THIS_PHASE: Task 6.5 before Task 7 backend freeze |
-| Human PTY takeover | IMPLEMENT_THIS_PHASE: implementation depends on Task 6.5 winner |
-| Terminal wait/resume | DEFERRED_PENDING_TERMINAL_EVIDENCE: Task 6.5 + Task 7 -> Task 8 focused sub-spec gate |
-| Multi-repo rooted CodeDB router | EXPERIMENT_THIS_PHASE |
-| Small Code facade | EXPERIMENT_THIS_PHASE |
-| Selective RTK | EXPERIMENT_THIS_PHASE |
-| Stronger model-visible CAS | DEFERRED_WITH_TRIGGER: repeated real or reproducible silent lost-update evidence |
+| Personal unrestricted WSL Files/Bash | IMPLEMENTED + INTEGRATED |
+| Codex-style apply_patch | IMPLEMENTED + INTEGRATED: `BOTH_EARN_PLACE` with `edit` |
+| Native CLI toolbox / ast-grep | IMPLEMENTED + INTEGRATED |
+| Persistent tmux Terminal baseline | IMPLEMENTED + INTEGRATED |
+| Herdr Terminal backend / hybrid | REJECTED_WITH_EVIDENCE: `TMUX_BROKER_WINS` |
+| Herdr coding-agent lifecycle concept | DEFERRED_WITH_TRIGGER: real local coding-agent lifecycle polling becomes material |
+| Retained dead-pane reconciliation | IMPLEMENTED ON INTEGRATION BRANCH: Task 6.6 |
+| Human PTY takeover | IMPLEMENT_THIS_PHASE: Task 7 next Terminal production task |
+| Terminal wait/resume | DEFERRED_PENDING_TERMINAL_EVIDENCE: Task 7 -> Task 8 focused sub-spec gate |
+| Multi-repo rooted CodeDB router | IMPLEMENTED ON INTEGRATION BRANCH |
+| Small Code facade | IMPLEMENTED ON INTEGRATION BRANCH: `code_search`, `code_context`, `code_symbol` |
+| Automatic/selective RTK harness integration | REJECTED_WITH_EVIDENCE |
+| Explicit `rtk test` / `rtk err` helper | OPTIONAL_OUTSIDE_HARNESS_ARCHITECTURE |
+| Same-path mutation atomicity | IMPLEMENT_THIS_PHASE: Task 12.5 triggered by reproducible silent lost updates |
+| Model-visible revision/hash field | DEFERRED_WITH_TRIGGER: only after Task 12.5 if real stale-read ergonomics still require it |
 | TOON | REJECTED_WITH_EVIDENCE: not material on current payloads |
 | GCF generic | DEFERRED_WITH_TRIGGER: real structured payload where best native text loses |
 | GCF graph | DEFERRED_WITH_TRIGGER: natural graph-shaped model-facing payload |
@@ -1903,16 +2074,15 @@ Every capability below must remain in one explicit state so it cannot silently d
 Do not execute all tasks concurrently. Recommended waves:
 
 ```text
-Wave 0  Task 1 current private baseline + capability ledger
-Wave 1  Tasks 2-3 private path/profile foundation
-Wave 2  Task 4 apply_patch + Task 5 CLI toolbox (parallel-safe with file ownership)
-Wave 3  Task 6 qualified tmux/broker Terminal core
-Wave 3.5  Task 6.5 Herdr vs tmux/broker vs hybrid challenger benchmark
-Wave 4  Task 7 winning Terminal backend -> MCP/human attach
-Wave 5  Task 8 evidence-driven await/resume sub-spec decision using Terminal + Herdr evidence
-Wave 6  Tasks 9-10 Code router + facade
-Wave 7  Tasks 11-13 RTK / concurrency / structured-format decisions
-Wave 8  Task 14 final integration/live acceptance
+Wave 0-3.5  COMPLETE: Tasks 1-6.5
+Wave 3.6      COMPLETE ON INTEGRATION BRANCH: Task 6.6 dead-pane reconciliation
+Wave 4        NEXT TERMINAL PATH: Task 7 tmux/broker MCP + human takeover + real ChatGPT acceptance
+Wave 5        Task 8 evidence-driven await/resume sub-spec decision
+Wave 6        COMPLETE ON INTEGRATION BRANCH: Tasks 9-10 Code router + explicit facade
+Wave 7A       COMPLETE: Task 11 RTK decision — no harness integration
+Wave 7B       COMPLETE TRIGGER / NEXT FIX: Task 12 -> Task 12.5 atomic same-path mutation enforcement
+Wave 7C       Task 13 structured-format trigger audit
+Wave 8        Task 14 final integration/live acceptance
 ```
 
 Only use parallel agents when owned paths do not overlap. A designated integrator owns `config/templates/*`, `scripts/render-config.mjs`, `tests/harness.sh`, the live deployment, and Git staging/commits whenever two lanes converge.
@@ -1928,15 +2098,16 @@ Before execution begins, verify:
 - [ ] `/home/hamza` default and unrestricted personal path semantics are represented in Tasks 2-3.
 - [ ] `apply_patch` uses the three-way `PATCH_WINS | BOTH_EARN_PLACE | EDIT_WINS` gate and does not silently replace proven edit/write semantics.
 - [ ] tmux owns PTY lifetime in the qualified Task 6 baseline; broker/MCP do not, and the production two-unit systemd restart test proves broker restart preserves tmux and PTY PIDs.
-- [ ] Herdr v0.8.0 is evaluated as a same-workload Terminal/await challenger before Task 7 backend freeze, with explicit durability, context, human-takeover, wait/lifecycle, and ownership-cost evidence.
-- [ ] `HERDR_WINS` or `HYBRID_WINS` forces a focused Terminal design amendment before production migration; Task 7 never silently mutates the frozen architecture from benchmark results alone.
+- [x] Herdr v0.8.0 was evaluated as a same-workload Terminal/await challenger; `TMUX_BROKER_WINS` and Herdr is not a production dependency.
+- [x] Retained dead `remain-on-exit` panes reconcile without broker-start failure; the mixed live/dead double-restart regression passes.
 - [ ] Human takeover is single-writer and sudo passwords are never broker-logged.
 - [ ] Terminal model-cursor state is broker-owned per session, bounded/recoverable, and never silently reinterprets rotated bytes or becomes a hidden global cursor.
 - [ ] `await` follows real Terminal product-path evidence plus the Herdr wait/lifecycle verdict, and no `terminal_wait` signature is frozen before a focused sub-spec.
-- [ ] CodeDB children are rooted per repo; no per-call `project=` architecture returns.
-- [ ] CodeDB raw 10-tool surface is not exposed directly.
-- [ ] RTK is optional with raw bypass.
-- [ ] Stronger CAS and structured codecs remain evidence-triggered.
+- [x] CodeDB children are rooted per repo; no per-call `project=` architecture returns.
+- [x] CodeDB raw 10-tool surface is hidden; the qualified facade is `code_search`, `code_context`, `code_symbol`.
+- [x] Automatic RTK integration is rejected; native Bash remains the harness path and explicit RTK helpers stay optional outside the architecture.
+- [x] The mutation-consistency trigger fired and a focused atomic same-path design exists; Task 12.5 implements it before any model-visible hash field is considered.
+- [ ] Structured codecs remain evidence-triggered and Task 13 still has to audit the final payloads.
 - [ ] Final live restart happens outside the MCP process tree being replaced.
 - [ ] ChatGPT Actions Refresh + fresh-session acceptance is a mandatory gate after provider changes.
 
