@@ -2,7 +2,41 @@
 
 **Date:** 2026-08-15
 **Authority:** `docs/superpowers/plans/2026-08-15-personal-wsl-codex-harness-phase-2.md`
-**Execution shape:** Hybrid — three independent Wave-1 branches/worktrees, dependency-driven follow-up missions, then integration gates before shared production surfaces change.
+**Execution shape:** Hybrid — independent task worktrees with one integration branch and explicit convergence gates.
+
+## Current frontier — 2026-08-15
+
+The original Wave-1 split below is retained as execution history. The authoritative current state is:
+
+```text
+INTEGRATION BRANCH
+feat/personal-harness-wave1-integration
+current assembled head: ed67415
+combined automated gate: PASS after installing pinned code-router dependencies
+
+COMPLETE / INTEGRATED
+Tasks 1-5   personal Files/Bash + apply_patch + toolbox
+Task 6      durable tmux/broker core
+Task 6.5    Herdr benchmark -> TMUX_BROKER_WINS
+Task 6.6    retained dead-pane reconciliation
+Task 9      rooted CodeDB router
+Task 10     code_search / code_context / code_symbol facade
+Task 11     RTK decision -> no harness integration; explicit helper only
+Task 12     concurrency trigger -> SILENT_LOST_UPDATE reproduced; focused design opened
+
+NEXT PARALLEL FRONTIER
+Task 7      Terminal MCP + wsl-term + single-writer human takeover
+Task 12.5   atomic same-path Files mutation serialization
+Task 13     structured-format trigger audit (may run after final Terminal/Code payload shapes are stable)
+
+AFTER TASK 7
+Task 8      evidence-driven await/resume decision
+
+FINAL
+Task 14     consolidated live ChatGPT acceptance
+```
+
+Do not reopen the Herdr backend or automatic RTK decisions during Phase 2 without materially contradictory new evidence. Do not add model-visible CAS/hash fields before Task 12.5 proves atomic enforcement of the existing implicit snapshot precondition.
 
 ## Why three agents can start now
 
@@ -162,31 +196,25 @@ Task 6.5 is intentionally read-only with respect to production `providers/termin
 
 ## Current integration and decision gates
 
-Task 4 is already unblocked by the completed Agent-1 personal path contract and may proceed independently on its own branch.
+The completed task commits have been assembled on `feat/personal-harness-wave1-integration` through `ed67415`. The combined automated gate is green after installing the Code provider's pinned dependencies in that worktree.
 
-The Wave-1 integrator will:
-
-1. review/integrate Agent 1 foundation first;
-2. integrate Agent 2 toolbox and wire its focused portable test into shared root verification;
-3. integrate Agent 3 Terminal core;
-4. run the full combined baseline;
-5. publish the integrated HEAD for follow-up production missions.
-
-**Task 7 must not start merely because Wave-1 integration is green.** It also waits for Task 6.5.
-
-Task-7 gate:
+Current decisions:
 
 ```text
-Task 6.5 = TMUX_BROKER_WINS | HERDR_NOT_MATERIAL
-  -> Task 7 may use the current tmux/broker production plan.
-
-Task 6.5 = HERDR_WINS | HYBRID_WINS
-  -> STOP production Terminal integration.
-  -> write/review focused Terminal design amendment.
-  -> only then open the revised Task-7 mission.
+apply_patch                     BOTH_EARN_PLACE
+Terminal backend                TMUX_BROKER_WINS
+Herdr runtime/hybrid            REJECTED_WITH_EVIDENCE
+Code facade                     CODE_SMALL_EXPLICIT_FACADE
+RTK automatic harness shaping   REJECTED_WITH_EVIDENCE
+RTK explicit helper             optional outside harness architecture
+CAS/consistency trigger         FIRED -> Task 12.5
 ```
 
-Task 8 waits for the winning Terminal backend's real ChatGPT product-path acceptance plus the Herdr wait/lifecycle verdict.
+**Task 7 is now unblocked** because Task 6.6 fixed retained dead-pane reconciliation and the tmux/broker backend decision is frozen.
+
+Task 8 still waits for Task 7's real ChatGPT product-path evidence. Herdr's lifecycle states are reference evidence only; Herdr is not a runtime dependency.
+
+Task 12.5 can run in parallel with Task 7 because it owns Pi mutation internals/tests while Task 7 owns Terminal/provider integration. Task 13 should audit only the actual final model-facing payload classes and should not reopen codecs by default.
 
 ## Required handoff format for every agent
 
