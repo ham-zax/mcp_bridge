@@ -157,6 +157,42 @@ EOF
     ' _ "$ROOT" "$fake_root" "$state" "$runtime"
 }
 
+
+test_common_derives_user_home_when_home_missing() {
+  local sandbox="$TMP/missing-home-state"
+  local fakebin="$sandbox/fakebin"
+  local fake_root="$sandbox/repo"
+  local fake_home="$sandbox/home"
+  local state="$fake_home/.local/state/mcp-dev-bridge"
+  local runtime="$sandbox/runtime"
+  mkdir -p "$fakebin" "$fake_root" "$state/1mcp" "$runtime"
+  printf '{}\n' > "$state/1mcp/mcp.json"
+  cat > "$state/bridge.env" <<EOF
+MCP_BRIDGE_PROFILE='trusted-dev'
+MCP_WORKSPACE_ROOT='/tmp/workspace'
+MCP_PUBLIC_URL='https://example.test'
+MCP_TUNNEL_NAME=''
+MCP_BRIDGE_ROOT='$fake_root'
+BRIDGE_STATE_DIR='$state'
+EOF
+  cat > "$fakebin/getent" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = passwd ] || exit 1
+printf 'fixture:x:%s:%s::%s:/bin/bash\n' "$(id -u)" "$(id -g)" "$FAKE_HOME"
+EOF
+  chmod +x "$fakebin/getent"
+
+  env -u HOME -u XDG_STATE_HOME -u BRIDGE_STATE_DIR -u BRIDGE_CONFIG_DIR -u BRIDGE_RUN_DIR \
+    PATH="$fakebin:$PATH" FAKE_HOME="$fake_home" BRIDGE_ROOT="$fake_root" XDG_RUNTIME_DIR="$runtime" \
+    bash -c '
+      source "$1/lib/bridge/common.sh"
+      [ "$BRIDGE_STATE_DIR" = "$2" ] &&
+      [ "$BRIDGE_CONFIG_DIR" = "$2/1mcp" ] &&
+      [ "$BRIDGE_RUN_DIR" = "$3/mcp-dev-bridge" ] &&
+      [ "$TUNNEL_URL" = "https://example.test" ]
+    ' _ "$ROOT" "$state" "$runtime"
+}
+
 test_legacy_deployment_keeps_repo_state() {
   local sandbox="$TMP/legacy-state"
   local fake_root="$sandbox/repo"
@@ -182,6 +218,7 @@ test_explicit_state_overrides_win() {
 }
 
 run_test 'generated deployment uses external XDG state' test_generated_deployment_uses_external_state
+run_test 'lifecycle derives the service user home when HOME is missing' test_common_derives_user_home_when_home_missing
 run_test 'legacy deployment keeps repository state paths' test_legacy_deployment_keeps_repo_state
 run_test 'explicit runtime/config overrides win' test_explicit_state_overrides_win
 

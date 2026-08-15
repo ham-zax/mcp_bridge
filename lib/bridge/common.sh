@@ -5,8 +5,16 @@
 BRIDGE_ROOT="${BRIDGE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 BRIDGE_PROC_ROOT="${BRIDGE_PROC_ROOT:-/proc}"
 
-BRIDGE_STATE_BASE="${XDG_STATE_HOME:-${HOME:-}/.local/state}"
-if [ -z "${HOME:-}" ] && [ -z "${XDG_STATE_HOME:-}" ]; then
+BRIDGE_USER_HOME="${HOME:-}"
+if [ -z "$BRIDGE_USER_HOME" ] && [ -z "${XDG_STATE_HOME:-}" ] && command -v getent >/dev/null 2>&1; then
+  BRIDGE_USER_HOME="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)"
+fi
+
+if [ -n "${XDG_STATE_HOME:-}" ]; then
+  BRIDGE_STATE_BASE="$XDG_STATE_HOME"
+elif [ -n "$BRIDGE_USER_HOME" ]; then
+  BRIDGE_STATE_BASE="$BRIDGE_USER_HOME/.local/state"
+else
   BRIDGE_STATE_BASE="/tmp"
 fi
 BRIDGE_STATE_DIR="${BRIDGE_STATE_DIR:-$BRIDGE_STATE_BASE/mcp-dev-bridge}"
