@@ -26,16 +26,17 @@ MCP_WORKSPACE_ROOT=/tmp/example-workspace
 MCP_PUBLIC_URL=https://mcp.example.test
 MCP_TUNNEL_NAME=
 ENV
+  mkdir -p "$tmp/runtime"
   for profile in restricted trusted-dev personal; do
-    node "$ROOT/scripts/render-config.mjs" \
+    XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
       --profile "$profile" \
       --env-file "$tmp/deployment.env" \
       --state-dir "$tmp/$profile" \
       --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
   done
-  node - "$tmp/restricted/1mcp/mcp.json" "$tmp/trusted-dev/1mcp/mcp.json" "$tmp/personal/1mcp/mcp.json" "$tmp/personal/bridge.env" "$ROOT" <<'NODE2'
+  node - "$tmp/restricted/1mcp/mcp.json" "$tmp/trusted-dev/1mcp/mcp.json" "$tmp/personal/1mcp/mcp.json" "$tmp/personal/bridge.env" "$ROOT" "$tmp/runtime" <<'NODE2'
 const fs = require('fs');
-const [restrictedFile, trustedFile, personalFile, personalEnvFile, root] = process.argv.slice(2);
+const [restrictedFile, trustedFile, personalFile, personalEnvFile, root, runtimeDir] = process.argv.slice(2);
 const restricted = JSON.parse(fs.readFileSync(restrictedFile, 'utf8'));
 const trusted = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
 const personal = JSON.parse(fs.readFileSync(personalFile, 'utf8'));
@@ -43,8 +44,9 @@ const personalEnv = fs.readFileSync(personalEnvFile, 'utf8');
 const keys = cfg => Object.keys(cfg.mcpServers ?? {}).sort();
 if (JSON.stringify(keys(restricted)) !== JSON.stringify(['dev', 'shell'])) process.exit(1);
 if (JSON.stringify(keys(trusted)) !== JSON.stringify(['dev'])) process.exit(1);
-if (JSON.stringify(keys(personal)) !== JSON.stringify(['code', 'dev'])) process.exit(1);
+if (JSON.stringify(keys(personal)) !== JSON.stringify(['code', 'dev', 'terminal'])) process.exit(1);
 if (restricted.mcpServers?.code || trusted.mcpServers?.code) process.exit(1);
+if (restricted.mcpServers?.terminal || trusted.mcpServers?.terminal) process.exit(1);
 if (restricted.mcpServers?.codedb || trusted.mcpServers?.codedb || personal.mcpServers?.codedb) process.exit(1);
 if (restricted.mcpServers?.filesystem || trusted.mcpServers?.filesystem || personal.mcpServers?.filesystem) process.exit(1);
 if (restricted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'allowlist') process.exit(1);
@@ -59,6 +61,10 @@ if (personal.mcpServers.dev.env.MCP_DEV_WORKSPACE_ROOT !== undefined) process.ex
 if (personal.mcpServers.code.command !== 'node') process.exit(1);
 if (!personal.mcpServers.code.args.includes(root + '/providers/code-router/server.mjs')) process.exit(1);
 if (personal.mcpServers.code.env.MCP_CODE_DEFAULT_CWD !== personalHome) process.exit(1);
+if (personal.mcpServers.terminal.command !== 'node') process.exit(1);
+if (!personal.mcpServers.terminal.args.includes(root + '/providers/terminal/mcp-server.mjs')) process.exit(1);
+if (personal.mcpServers.terminal.env.MCP_TERMINAL_SOCKET !== runtimeDir + '/wsl-agent-terminal.sock') process.exit(1);
+if (personal.mcpServers.terminal.env.MCP_TERMINAL_READ_MAX_BYTES !== '65536') process.exit(1);
 if (!personalEnv.includes("MCP_BRIDGE_PROFILE='personal'")) process.exit(1);
 NODE2
   local rc=$?
@@ -76,7 +82,7 @@ test_personal_smoke_validation() {
 MCP_PUBLIC_URL=https://mcp.example.test
 MCP_TUNNEL_NAME=
 ENV
-  node "$ROOT/scripts/render-config.mjs" \
+  HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
     --profile personal \
     --env-file "$tmp/deployment.env" \
     --state-dir "$tmp/state" \
@@ -121,7 +127,7 @@ test_legacy_filesystem_dependency_removed() {
 }
 
 run_test 'raw CodeDB surface stays removed from public composition' test_raw_codedb_surface_removed
-run_test 'final rendered composition adds only the qualified Code facade to personal mode' test_final_rendered_composition
+run_test 'final rendered composition adds Code and Terminal only to personal mode' test_final_rendered_composition
 run_test 'personal smoke validation accepts the private provider contract' test_personal_smoke_validation
 run_test 'personal toolbox contract passes' bash "$ROOT/tests/personal-toolbox.sh"
 run_test 'Pi dev provider pins and structure are complete' test_pi_provider_structure

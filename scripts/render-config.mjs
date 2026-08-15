@@ -88,6 +88,8 @@ export async function renderConfig(options) {
   const home = process.env.HOME || os.homedir();
   const defaultStateBase = process.env.XDG_STATE_HOME || path.join(home, '.local', 'state');
   const stateDir = path.resolve(options.stateDir ?? process.env.MCP_BRIDGE_STATE_DIR ?? path.join(defaultStateBase, 'mcp-dev-bridge'));
+  const runtimeDir = process.env.XDG_RUNTIME_DIR
+    || (typeof process.getuid === 'function' ? `/run/user/${process.getuid()}` : null);
   const envFile = path.resolve(options.envFile ?? path.join(repoRoot, '.env'));
 
   const deployment = {
@@ -106,6 +108,9 @@ export async function renderConfig(options) {
   const isPersonal = profile === 'personal';
   let personalDefaultCwd = null;
   if (isPersonal) {
+    if (!runtimeDir || !path.isAbsolute(runtimeDir)) {
+      throw new Error('personal profile requires an absolute XDG_RUNTIME_DIR or a user runtime directory');
+    }
     if (profileValues.MCP_DEV_PATH_MODE !== 'user') {
       throw new Error('profile personal must set MCP_DEV_PATH_MODE=user');
     }
@@ -146,6 +151,7 @@ export async function renderConfig(options) {
     __SHELL_MODE__: shellMode,
     __DEV_STATE_DIR__: path.join(stateDir, 'dev'),
     __DEV_MAX_OUTPUT_BYTES__: String(devMaxOutputBytes),
+    __TERMINAL_SOCKET__: runtimeDir ? path.join(runtimeDir, 'wsl-agent-terminal.sock') : '',
   });
 
   if (isPersonal) {

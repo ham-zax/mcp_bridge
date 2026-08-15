@@ -13,14 +13,32 @@ const [configFile, repoRoot, profile] = process.argv.slice(2);
 const cfg = JSON.parse(fs.readFileSync(configFile, 'utf8'));
 const dev = cfg.mcpServers?.dev;
 const code = cfg.mcpServers?.code;
+const terminal = cfg.mcpServers?.terminal;
 if (cfg.mcpServers?.filesystem) throw new Error('filesystem provider must be absent after Pi cutover');
 if (cfg.mcpServers?.codedb) throw new Error('raw codedb provider must remain hidden behind the Code facade');
 if (profile) {
   const actual = Object.keys(cfg.mcpServers ?? {}).sort();
-  const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : profile === 'personal' ? ['code', 'dev'] : null;
+  const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : profile === 'personal' ? ['code', 'dev', 'terminal'] : null;
   if (!expected || JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`unexpected final provider set for ${profile || 'unknown'}: ${actual.join(',')}`);
   }
+}
+if (terminal) {
+  if (profile !== 'personal') throw new Error('Terminal provider is private to the personal profile');
+  if (terminal.command !== 'node') throw new Error('Terminal provider must run with node');
+  const expectedServer = path.join(repoRoot, 'providers', 'terminal', 'mcp-server.mjs');
+  if (JSON.stringify(terminal.args ?? []) !== JSON.stringify([expectedServer])) throw new Error('unexpected Terminal provider server path');
+  const env = terminal.env ?? {};
+  if (!path.isAbsolute(env.MCP_TERMINAL_SOCKET ?? '')) throw new Error('MCP_TERMINAL_SOCKET must be absolute');
+  if (path.basename(env.MCP_TERMINAL_SOCKET) !== 'wsl-agent-terminal.sock') throw new Error('unexpected Terminal broker socket name');
+  if (env.MCP_TERMINAL_READ_MAX_BYTES !== '65536') throw new Error('unexpected Terminal read limit');
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'terminal', 'package.json'), 'utf8'));
+  if (pkg.dependencies?.['@modelcontextprotocol/sdk'] !== '1.30.0') throw new Error('unexpected Terminal MCP SDK pin');
+  if (pkg.dependencies?.zod !== '4.4.3') throw new Error('unexpected Terminal zod pin');
+  const installedSdk = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'terminal', 'node_modules', '@modelcontextprotocol', 'sdk', 'package.json'), 'utf8'));
+  if (installedSdk.version !== '1.30.0') throw new Error(`unexpected installed Terminal MCP SDK version: ${installedSdk.version}`);
+  const installedZod = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'terminal', 'node_modules', 'zod', 'package.json'), 'utf8'));
+  if (installedZod.version !== '4.4.3') throw new Error(`unexpected installed Terminal zod version: ${installedZod.version}`);
 }
 if (code) {
   if (profile !== 'personal') throw new Error('Code facade is private to the personal profile');
@@ -64,4 +82,4 @@ curl -sf -m 5 -X POST "$URL" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1.0.0"}}}'
 echo
 echo
-echo "(connectivity check only; inspect dev plus restricted-only shell for public profiles, or dev + qualified Code facade for personal composition)"
+echo "(connectivity check only; inspect dev plus restricted-only shell for public profiles, or dev + qualified Code and Terminal providers for personal composition)"

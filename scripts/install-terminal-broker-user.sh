@@ -58,6 +58,10 @@ if [ "${TERMINAL_SYSTEMD_DRY_RUN:-0}" = "1" ]; then
   exit 0
 fi
 
+NPM_BIN="${TERMINAL_NPM_BIN:-$(command -v npm || true)}"
+[ -x "$NPM_BIN" ] || { echo "npm is required to install the private Terminal provider dependencies" >&2; exit 1; }
+"$NPM_BIN" --prefix "$ROOT/providers/terminal" ci --omit=dev
+
 command -v systemctl >/dev/null 2>&1 || { echo "systemctl is required" >&2; exit 1; }
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
