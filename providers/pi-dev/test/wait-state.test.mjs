@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
+import { fork, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { WaitStore } from '../wait-state.mjs';
+
+const LOCK_WORKER = fileURLToPath(new URL('./wait-lock-worker.mjs', import.meta.url));
 
 async function fixtureStore(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wait-store-test-'));
@@ -30,6 +35,52 @@ function pendingRecord(name = 'build-ready') {
   };
 }
 
+function startLockWorker(t, {
+  stateDir,
+  name,
+  holdMs = 0,
+  maxWaitMs = 1000,
+  abortAfterMs = 0,
+  onMessage,
+}) {
+  const child = fork(LOCK_WORKER, [
+    stateDir,
+    name,
+    String(holdMs),
+    String(maxWaitMs),
+    String(abortAfterMs),
+  ], {
+    stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
+  });
+  const messages = [];
+  child.on('message', (message) => {
+    messages.push(message);
+    onMessage?.(message);
+  });
+  t.after(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  });
+  return { child, messages };
+}
+
+async function waitForWorkerMessage(worker, predicate, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const found = worker.messages.find(predicate);
+    if (found) return found;
+    if (worker.child.exitCode !== null || worker.child.signalCode !== null) {
+      throw new Error(`lock worker exited before expected message: ${JSON.stringify(worker.messages)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for lock worker message: ${JSON.stringify(worker.messages)}`);
+}
+
+async function waitForWorkerExit(worker) {
+  if (worker.child.exitCode !== null || worker.child.signalCode !== null) return;
+  await once(worker.child, 'exit');
+}
+
 test('wait store writes versioned private state atomically', async (t) => {
   const store = await fixtureStore(t);
   await store.create(pendingRecord());
@@ -48,7 +99,7 @@ test('wait store rejects invalid names and corrupt state', async (t) => {
   await assert.rejects(() => store.read('broken'), (error) => error.code === 'WAIT_STATE_CORRUPT');
 });
 
-test('same-name filesystem lock serializes concurrent writers', async (t) => {
+test('same-name kernel lock serializes concurrent writers', async (t) => {
   const store = await fixtureStore(t);
   let releaseHolder;
   const holderGate = new Promise((resolve) => { releaseHolder = resolve; });
@@ -108,4 +159,132 @@ test('same-name contention fast-fails with WAIT_BUSY instead of joining a long h
   assert.ok(Date.now() - started < 250);
   releaseHolder();
   await holder;
+});
+
+test('separate processes get WAIT_BUSY while a live owner holds the same wait and acquire after owner death', async (t) => {
+  const store = await fixtureStore(t);
+  const owner = startLockWorker(t, { stateDir: store.stateDir, name: 'process-death', holdMs: -1 });
+  await waitForWorkerMessage(owner, (message) => message.type === 'entered');
+
+  const blocked = startLockWorker(t, {
+    stateDir: store.stateDir,
+    name: 'process-death',
+    holdMs: 0,
+    maxWaitMs: 80,
+  });
+  const blockedResult = await waitForWorkerMessage(blocked, (message) => message.type === 'error');
+  assert.equal(blockedResult.code, 'WAIT_BUSY');
+  assert.equal(blocked.messages.some((message) => message.type === 'entered'), false);
+  await waitForWorkerExit(blocked);
+
+  owner.child.kill('SIGKILL');
+  await waitForWorkerExit(owner);
+
+  const successor = startLockWorker(t, { stateDir: store.stateDir, name: 'process-death', holdMs: 0 });
+  await waitForWorkerMessage(successor, (message) => message.type === 'entered');
+  const successorResult = await waitForWorkerMessage(successor, (message) => message.type === 'result');
+  assert.equal(successorResult.status, 'ok');
+  await waitForWorkerExit(successor);
+});
+
+test('two separate recovery contenders never execute the same-name callback concurrently after owner death', async (t) => {
+  const store = await fixtureStore(t);
+  for (let round = 0; round < 5; round += 1) {
+    const name = `recovery-${round}`;
+    const owner = startLockWorker(t, { stateDir: store.stateDir, name, holdMs: -1 });
+    await waitForWorkerMessage(owner, (message) => message.type === 'entered');
+    owner.child.kill('SIGKILL');
+    await waitForWorkerExit(owner);
+
+    let active = 0;
+    let maxActive = 0;
+    const observe = (message) => {
+      if (message.type === 'entered') {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+      } else if (message.type === 'leaving') {
+        active -= 1;
+      }
+    };
+    const a = startLockWorker(t, {
+      stateDir: store.stateDir, name, holdMs: 80, maxWaitMs: 1000, onMessage: observe,
+    });
+    const b = startLockWorker(t, {
+      stateDir: store.stateDir, name, holdMs: 80, maxWaitMs: 1000, onMessage: observe,
+    });
+    const [aResult, bResult] = await Promise.all([
+      waitForWorkerMessage(a, (message) => message.type === 'result' || message.type === 'error'),
+      waitForWorkerMessage(b, (message) => message.type === 'result' || message.type === 'error'),
+    ]);
+    assert.equal(aResult.type, 'result', JSON.stringify(a.messages));
+    assert.equal(bResult.type, 'result', JSON.stringify(b.messages));
+    assert.equal(maxActive, 1, `same-name callbacks overlapped in round ${round}`);
+    assert.equal(active, 0);
+    await Promise.all([waitForWorkerExit(a), waitForWorkerExit(b)]);
+  }
+});
+
+test('different wait names remain concurrent across separate processes', async (t) => {
+  const store = await fixtureStore(t);
+  const a = startLockWorker(t, { stateDir: store.stateDir, name: 'parallel-a', holdMs: -1 });
+  const b = startLockWorker(t, { stateDir: store.stateDir, name: 'parallel-b', holdMs: -1 });
+  await Promise.all([
+    waitForWorkerMessage(a, (message) => message.type === 'entered'),
+    waitForWorkerMessage(b, (message) => message.type === 'entered'),
+  ]);
+  assert.equal(a.messages.some((message) => message.type === 'leaving'), false);
+  assert.equal(b.messages.some((message) => message.type === 'leaving'), false);
+  a.child.send({ type: 'release' });
+  b.child.send({ type: 'release' });
+  await Promise.all([waitForWorkerExit(a), waitForWorkerExit(b)]);
+});
+
+test('separate-process cancellation while waiting never enters after the holder releases', async (t) => {
+  const store = await fixtureStore(t);
+  const owner = startLockWorker(t, { stateDir: store.stateDir, name: 'process-cancel', holdMs: -1 });
+  await waitForWorkerMessage(owner, (message) => message.type === 'entered');
+
+  const canceled = startLockWorker(t, {
+    stateDir: store.stateDir,
+    name: 'process-cancel',
+    holdMs: 0,
+    maxWaitMs: 1000,
+    abortAfterMs: 60,
+  });
+  const canceledResult = await waitForWorkerMessage(canceled, (message) => message.type === 'error');
+  assert.equal(canceledResult.code, 'WAIT_ABORTED');
+  await waitForWorkerExit(canceled);
+  owner.child.send({ type: 'release' });
+  await waitForWorkerExit(owner);
+  assert.equal(canceled.messages.some((message) => message.type === 'entered'), false);
+});
+
+test('legacy stale lock metadata naming an unrelated live PID cannot block ownership forever', async (t) => {
+  const store = await fixtureStore(t);
+  const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  t.after(() => {
+    if (unrelated.exitCode === null && unrelated.signalCode === null) unrelated.kill('SIGKILL');
+  });
+
+  const legacyLockDir = path.join(store.rootDir, '.locks');
+  await mkdir(legacyLockDir, { recursive: true, mode: 0o700 });
+  await writeFile(
+    path.join(legacyLockDir, 'pid-ambiguity.lock'),
+    `${JSON.stringify({ pid: unrelated.pid, createdAtMs: Date.now() - 60000 })}\n`,
+    { mode: 0o600 },
+  );
+
+  const contender = startLockWorker(t, {
+    stateDir: store.stateDir,
+    name: 'pid-ambiguity',
+    holdMs: 0,
+    maxWaitMs: 100,
+  });
+  const result = await waitForWorkerMessage(
+    contender,
+    (message) => message.type === 'entered' || message.type === 'error',
+  );
+  assert.equal(result.type, 'entered', JSON.stringify(contender.messages));
+  await waitForWorkerMessage(contender, (message) => message.type === 'result');
+  await waitForWorkerExit(contender);
 });

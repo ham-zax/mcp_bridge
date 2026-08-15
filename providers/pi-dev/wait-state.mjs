@@ -4,15 +4,15 @@ import {
   mkdir,
   open,
   readFile,
+  realpath,
   rename,
-  stat,
   unlink,
 } from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
 
 const WAIT_NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const DEFAULT_LOCK_WAIT_MS = 250;
-const STALE_UNKNOWN_LOCK_MS = 15000;
 const DEFAULT_RETENTION_MS = 24 * 60 * 60 * 1000;
 const TERMINAL_STATUSES = new Set(['matched', 'timeout', 'cancelled', 'failed']);
 
@@ -36,16 +36,82 @@ function throwIfAborted(signal) {
   if (signal?.aborted) throw new WaitError('WAIT_ABORTED', 'wait request was aborted');
 }
 
-function processExists(pid) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (error?.code === 'ESRCH') return false;
-    if (error?.code === 'EPERM') return true;
-    throw error;
+function lockAddress(rootDir, name) {
+  if (process.platform !== 'linux') {
+    throw new WaitError('INVALID_WAIT_CONFIG', 'cross-process wait locks require Linux abstract Unix sockets');
   }
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 'unknown';
+  const digest = crypto.createHash('sha256')
+    .update(`${uid}\0${rootDir}\0${validateName(name)}`)
+    .digest('hex');
+  return `\0mcp-dev-wait-${digest}`;
+}
+
+function closeLockServer(server) {
+  if (!server.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+function tryBindLock(address, signal) {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const server = net.createServer((socket) => socket.destroy());
+    let settled = false;
+    let aborted = false;
+
+    const cleanup = () => {
+      signal?.removeEventListener('abort', onAbort);
+      server.removeListener('error', onError);
+      server.removeListener('listening', onListening);
+    };
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn(value);
+    };
+    const abortError = () => new WaitError('WAIT_ABORTED', 'wait request was aborted');
+    const onAbort = () => {
+      aborted = true;
+      if (server.listening) {
+        void closeLockServer(server).then(
+          () => finish(reject, abortError()),
+          (error) => finish(reject, error),
+        );
+      }
+    };
+    const onError = (error) => {
+      if (aborted || signal?.aborted) {
+        finish(reject, abortError());
+        return;
+      }
+      if (error?.code === 'EADDRINUSE') {
+        finish(resolve, null);
+        return;
+      }
+      finish(reject, new WaitError('WAIT_LOCK_ERROR', `wait lock bind failed: ${error.message}`));
+    };
+    const onListening = () => {
+      if (aborted || signal?.aborted) {
+        void closeLockServer(server).then(
+          () => finish(reject, abortError()),
+          (error) => finish(reject, error),
+        );
+        return;
+      }
+      finish(resolve, server);
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(address);
+  });
 }
 
 function delay(ms, signal) {
@@ -73,22 +139,17 @@ export class WaitStore {
     }
     this.stateDir = stateDir;
     this.rootDir = path.join(stateDir, 'waits');
-    this.lockDir = path.join(this.rootDir, '.locks');
+    this.lockNamespaceRoot = null;
   }
 
   fileFor(name) {
     return path.join(this.rootDir, `${validateName(name)}.json`);
   }
 
-  lockFileFor(name) {
-    return path.join(this.lockDir, `${validateName(name)}.lock`);
-  }
-
   async ensureRoot() {
     await mkdir(this.rootDir, { recursive: true, mode: 0o700 });
     await chmod(this.rootDir, 0o700);
-    await mkdir(this.lockDir, { recursive: true, mode: 0o700 });
-    await chmod(this.lockDir, 0o700);
+    this.lockNamespaceRoot = await realpath(this.rootDir);
   }
 
   async read(name) {
@@ -137,23 +198,6 @@ export class WaitStore {
     return this.write(record);
   }
 
-  async lockIsStale(file) {
-    try {
-      const [raw, info] = await Promise.all([readFile(file, 'utf8'), stat(file)]);
-      let owner;
-      try {
-        owner = JSON.parse(raw);
-      } catch {
-        owner = null;
-      }
-      if (owner && Number.isSafeInteger(owner.pid) && owner.pid > 0) return !processExists(owner.pid);
-      return Date.now() - info.mtimeMs > STALE_UNKNOWN_LOCK_MS;
-    } catch (error) {
-      if (error?.code === 'ENOENT') return false;
-      throw error;
-    }
-  }
-
   async acquire(name, { signal, maxWaitMs = DEFAULT_LOCK_WAIT_MS } = {}) {
     validateName(name);
     if (!Number.isSafeInteger(maxWaitMs) || maxWaitMs < 0) {
@@ -161,41 +205,25 @@ export class WaitStore {
     }
     await this.ensureRoot();
     throwIfAborted(signal);
-    const file = this.lockFileFor(name);
+    const address = lockAddress(this.lockNamespaceRoot, name);
     const deadline = Date.now() + maxWaitMs;
 
     while (true) {
       throwIfAborted(signal);
-      try {
-        const handle = await open(file, 'wx', 0o600);
+      const server = await tryBindLock(address, signal);
+      if (server) {
         try {
-          await handle.writeFile(`${JSON.stringify({ pid: process.pid, createdAtMs: Date.now() })}\n`);
-          await handle.sync();
-        } finally {
-          await handle.close();
+          throwIfAborted(signal);
+        } catch (error) {
+          await closeLockServer(server);
+          throw error;
         }
-        throwIfAborted(signal);
         let released = false;
         return async () => {
           if (released) return;
           released = true;
-          await unlink(file).catch((error) => {
-            if (error?.code !== 'ENOENT') throw error;
-          });
+          await closeLockServer(server);
         };
-      } catch (error) {
-        if (error instanceof WaitError) {
-          await unlink(file).catch(() => {});
-          throw error;
-        }
-        if (error?.code !== 'EEXIST') throw error;
-      }
-
-      if (await this.lockIsStale(file)) {
-        await unlink(file).catch((error) => {
-          if (error?.code !== 'ENOENT') throw error;
-        });
-        continue;
       }
       if (Date.now() >= deadline) {
         throw new WaitError('WAIT_BUSY', `wait ${name} is busy`);
