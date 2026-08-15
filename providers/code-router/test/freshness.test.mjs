@@ -5,6 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
   CODEDB_SHA256,
   CODEDB_VERSION,
@@ -90,6 +93,26 @@ async function waitFor(predicate, { timeoutMs = 5000, intervalMs = 25 } = {}) {
   }
 }
 
+function processExists(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === 'ESRCH') return false;
+    throw error;
+  }
+}
+
+async function rootedChildPids(root) {
+  const bin = defaultCodeDbBin();
+  const { stdout } = await execFileAsync('ps', ['-eo', 'pid=,args='], { maxBuffer: 4 * 1024 * 1024 });
+  return stdout.split(/\n/).flatMap(line => {
+    const match = line.trim().match(/^(\d+)\s+(.*)$/);
+    if (!match) return [];
+    return match[2].includes(bin) && match[2].includes(`${root} mcp`) ? [Number(match[1])] : [];
+  });
+}
+
 test('verifies the pinned CodeDB 0.2.5840 binary and checksum', async () => {
   const verified = await verifyCodeDbBinary(defaultCodeDbBin());
   assert.equal(verified.version, CODEDB_VERSION);
@@ -159,6 +182,40 @@ test('router keeps two rooted watchers independent and follows create then modif
   assert.equal(children.length, 2);
   assert.notEqual(children[0].pid, children[1].pid);
   assert.ok(children.every(child => child.alive));
+});
+
+test('stdio facade reaps rooted CodeDB children when the client closes stdin', async t => {
+  const marker = 'TASK10_STDIO_SHUTDOWN_MARKER';
+  const root = await stateRepo(t, 'facade-close-', { 'src/close.ts': `export const ${marker} = true;\n` });
+  await indexRepo(root);
+  const serverPath = fileURLToPath(new URL('../server.mjs', import.meta.url));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [serverPath],
+    env: { ...process.env, MCP_CODE_DEFAULT_CWD: root },
+    stderr: 'pipe'
+  });
+  const client = new Client({ name: 'code-facade-close-test', version: '1.0.0' });
+  let closed = false;
+  let childPid = null;
+  t.after(async () => {
+    if (!closed) await client.close().catch(() => {});
+    if (childPid && processExists(childPid)) {
+      try { process.kill(childPid, 'SIGKILL'); } catch {}
+    }
+  });
+
+  await client.connect(transport);
+  const result = await client.callTool({ name: 'code_search', arguments: { query: marker, cwd: root, limit: 10 } });
+  assert.match(textOf(result), new RegExp(marker));
+  const pids = await rootedChildPids(root);
+  assert.equal(pids.length, 1);
+  [childPid] = pids;
+
+  await client.close();
+  closed = true;
+  await new Promise(resolve => setTimeout(resolve, 250));
+  assert.equal(processExists(childPid), false);
 });
 
 test('router replaces a crashed real CodeDB child and reuses the same repository route', async t => {

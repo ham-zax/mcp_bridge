@@ -17,6 +17,18 @@
       "tags": [
         "dev"
       ]
+    },
+    "code": {
+      "command": "node",
+      "args": [
+        "__REPO_ROOT__/providers/code-router/server.mjs"
+      ],
+      "env": {
+        "MCP_CODE_DEFAULT_CWD": "/home/hamza"
+      },
+      "tags": [
+        "code"
+      ]
     }
   }
 }

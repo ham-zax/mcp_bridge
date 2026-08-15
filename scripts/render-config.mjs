@@ -152,6 +152,7 @@ export async function renderConfig(options) {
     rendered.mcpServers.dev.env.MCP_DEV_SHELL_MODE = shellMode;
     rendered.mcpServers.dev.env.MCP_DEV_PATH_MODE = profileValues.MCP_DEV_PATH_MODE;
     rendered.mcpServers.dev.env.MCP_DEV_DEFAULT_CWD = personalDefaultCwd;
+    rendered.mcpServers.code.env.MCP_CODE_DEFAULT_CWD = personalDefaultCwd;
   } else {
     rendered.mcpServers.dev.env.MCP_DEV_PATH_MODE = 'workspace';
     if (profile === 'trusted-dev') delete rendered.mcpServers.shell;

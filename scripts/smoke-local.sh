@@ -12,13 +12,28 @@ const path = require('path');
 const [configFile, repoRoot, profile] = process.argv.slice(2);
 const cfg = JSON.parse(fs.readFileSync(configFile, 'utf8'));
 const dev = cfg.mcpServers?.dev;
+const code = cfg.mcpServers?.code;
 if (cfg.mcpServers?.filesystem) throw new Error('filesystem provider must be absent after Pi cutover');
+if (cfg.mcpServers?.codedb) throw new Error('raw codedb provider must remain hidden behind the Code facade');
 if (profile) {
   const actual = Object.keys(cfg.mcpServers ?? {}).sort();
-  const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : profile === 'personal' ? ['dev'] : null;
+  const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : profile === 'personal' ? ['code', 'dev'] : null;
   if (!expected || JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`unexpected final provider set for ${profile || 'unknown'}: ${actual.join(',')}`);
   }
+}
+if (code) {
+  if (profile !== 'personal') throw new Error('Code facade is private to the personal profile');
+  if (code.command !== 'node') throw new Error('Code facade must run with node');
+  const expectedServer = path.join(repoRoot, 'providers', 'code-router', 'server.mjs');
+  if (JSON.stringify(code.args ?? []) !== JSON.stringify([expectedServer])) throw new Error('unexpected Code facade server path');
+  const env = code.env ?? {};
+  if (!path.isAbsolute(env.MCP_CODE_DEFAULT_CWD ?? '')) throw new Error('personal MCP_CODE_DEFAULT_CWD must be absolute');
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'code-router', 'package.json'), 'utf8'));
+  if (pkg.dependencies?.['@modelcontextprotocol/sdk'] !== '1.30.0') throw new Error('unexpected Code facade MCP SDK pin');
+  if (pkg.dependencies?.zod !== '4.4.3') throw new Error('unexpected Code facade zod pin');
+  const installedSdk = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'code-router', 'node_modules', '@modelcontextprotocol', 'sdk', 'package.json'), 'utf8'));
+  if (installedSdk.version !== '1.30.0') throw new Error(`unexpected installed Code facade MCP SDK version: ${installedSdk.version}`);
 }
 if (dev) {
   const pkgFile = path.join(repoRoot, 'providers', 'pi-dev', 'node_modules', '@earendil-works', 'pi-coding-agent', 'package.json');
@@ -49,4 +64,4 @@ curl -sf -m 5 -X POST "$URL" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1.0.0"}}}'
 echo
 echo
-echo "(connectivity check only; inspect dev plus restricted-only shell for public profiles, or dev-only personal composition)"
+echo "(connectivity check only; inspect dev plus restricted-only shell for public profiles, or dev + qualified Code facade for personal composition)"

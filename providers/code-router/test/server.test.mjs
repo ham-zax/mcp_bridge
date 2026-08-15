@@ -5,8 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { RepoChildPool } from '../pool.mjs';
-import { CodeRouter } from '../server.mjs';
+import * as serverModule from '../server.mjs';
+
+const { CodeRouter } = serverModule;
 
 const execFileAsync = promisify(execFile);
 
@@ -35,6 +40,182 @@ function recordingFactory() {
   };
   return { factory, children };
 }
+
+test('winning model-facing facade exposes only code_search, code_context, and code_symbol', async t => {
+  assert.equal(typeof serverModule.createCodeFacadeServer, 'function');
+
+  const router = {
+    async call() {
+      return { repoRoot: '/repo', result: { content: [{ type: 'text', text: 'unused' }] } };
+    }
+  };
+  const server = serverModule.createCodeFacadeServer({ router, defaultCwd: '/home/hamza' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'code-facade-catalog-test', version: '1.0.0' });
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  const { tools } = await client.listTools();
+
+  assert.deepEqual(tools.map(tool => tool.name).sort(), ['code_context', 'code_search', 'code_symbol']);
+  assert.ok(tools.every(tool => !tool.name.startsWith('codedb_')));
+  assert.ok(tools.every(tool => tool.name !== 'code'));
+});
+
+test('code_search maps one native request to rooted codedb_search and returns lean TextContent', async t => {
+  const calls = [];
+  const router = {
+    async call(call) {
+      calls.push(call);
+      return {
+        repoRoot: '/repo',
+        result: { content: [{ type: 'text', text: "1 results for 'needle':\n  src/search.ts:7: needle" }] }
+      };
+    }
+  };
+  const server = serverModule.createCodeFacadeServer({ router, defaultCwd: '/home/hamza' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'code-facade-search-test', version: '1.0.0' });
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  const result = await client.callTool({
+    name: 'code_search',
+    arguments: { query: 'needle', cwd: '/repo/src', limit: 7 }
+  });
+
+  assert.deepEqual(calls, [{
+    cwd: '/repo/src',
+    tool: 'codedb_search',
+    arguments: { query: 'needle', scope: true, compact: true, max_results: 7 }
+  }]);
+  assert.deepEqual(result.content, [{ type: 'text', text: "1 results for 'needle':\n  src/search.ts:7: needle" }]);
+  assert.equal(result.structuredContent, undefined);
+  assert.equal(result.isError, undefined);
+});
+
+test('code_context uses the configured default cwd and maps limit to a compact CodeDB token budget', async t => {
+  const calls = [];
+  const router = {
+    async call(call) {
+      calls.push(call);
+      return {
+        repoRoot: '/repo',
+        result: { content: [{ type: 'text', text: '# Task\ncompact context' }] }
+      };
+    }
+  };
+  const server = serverModule.createCodeFacadeServer({ router, defaultCwd: '/repo' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'code-facade-context-test', version: '1.0.0' });
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  const result = await client.callTool({
+    name: 'code_context',
+    arguments: { task: 'Prepare a bounded change context', limit: 1200 }
+  });
+
+  assert.deepEqual(calls, [{
+    cwd: '/repo',
+    tool: 'codedb_context',
+    arguments: { task: 'Prepare a bounded change context', detail: 'compact', max_tokens: 1200 }
+  }]);
+  assert.deepEqual(result.content, [{ type: 'text', text: '# Task\ncompact context' }]);
+});
+
+test('code_symbol maps a known definition lookup without exposing project switching', async t => {
+  const calls = [];
+  const router = {
+    async call(call) {
+      calls.push(call);
+      return {
+        repoRoot: '/repo',
+        result: { content: [{ type: 'text', text: "1 results for 'Thing':\n  src/thing.ts:4 Thing" }] }
+      };
+    }
+  };
+  const server = serverModule.createCodeFacadeServer({ router, defaultCwd: '/home/hamza' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'code-facade-symbol-test', version: '1.0.0' });
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  const result = await client.callTool({
+    name: 'code_symbol',
+    arguments: { name: 'Thing', cwd: '/repo/src' }
+  });
+
+  assert.deepEqual(calls, [{
+    cwd: '/repo/src',
+    tool: 'codedb_symbol',
+    arguments: { name: 'Thing', body: false }
+  }]);
+  assert.deepEqual(result.content, [{ type: 'text', text: "1 results for 'Thing':\n  src/thing.ts:4 Thing" }]);
+  assert.equal(Object.hasOwn(calls[0].arguments, 'project'), false);
+});
+
+test('model-facing facade preserves CodeDB isError results as native TextContent failures', async t => {
+  const router = {
+    async call() {
+      return {
+        repoRoot: '/repo',
+        result: {
+          isError: true,
+          content: [{ type: 'text', text: 'CODEDB_BACKEND_FAILURE: ranked search unavailable' }]
+        }
+      };
+    }
+  };
+  const server = serverModule.createCodeFacadeServer({ router, defaultCwd: '/repo' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'code-facade-error-test', version: '1.0.0' });
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  const result = await client.callTool({ name: 'code_search', arguments: { query: 'needle' } });
+
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.content, [{ type: 'text', text: 'CODEDB_BACKEND_FAILURE: ranked search unavailable' }]);
+  assert.equal(result.structuredContent, undefined);
+});
+
+test('server.mjs stdio entrypoint exposes only the winning Code facade catalog', async t => {
+  const serverPath = path.resolve('server.mjs');
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [serverPath],
+    env: { ...process.env, MCP_CODE_DEFAULT_CWD: '/home/hamza' },
+    stderr: 'pipe'
+  });
+  const client = new Client({ name: 'code-facade-stdio-test', version: '1.0.0' });
+  t.after(() => client.close());
+
+  await client.connect(transport);
+  const { tools } = await client.listTools();
+
+  assert.deepEqual(tools.map(tool => tool.name).sort(), ['code_context', 'code_search', 'code_symbol']);
+});
 
 test('routes nested cwd calls to one canonical rooted child and returns the chosen root', async t => {
   const root = await gitRepo(t, 'code-router-server-');
