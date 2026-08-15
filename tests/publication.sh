@@ -20,6 +20,8 @@ is_public_path() {
     docs/superpowers/* | \
     docs/personal/* | \
     docs/benchmarks/terminal-preflight.md | \
+    docs/benchmarks/herdr-terminal-comparison.md | \
+    experiments/herdr/* | \
     config/profiles/personal.env | \
     config/templates/mcp-personal.json | \
     providers/terminal/* | \
@@ -91,6 +93,8 @@ test_private_only_paths_are_not_public() {
     config/templates/mcp-personal.json \
     docs/personal/example \
     docs/benchmarks/terminal-preflight.md \
+    docs/benchmarks/herdr-terminal-comparison.md \
+    experiments/herdr/example \
     providers/terminal/example \
     scripts/install-terminal-broker-user.sh \
     systemd/wsl-agent-tmux.service.in \
