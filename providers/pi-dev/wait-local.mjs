@@ -16,6 +16,7 @@ const LOCAL_KINDS = new Set([
 ]);
 const SYSTEMD_UNIT_RE = /^[A-Za-z0-9@_.:-]{1,256}$/;
 const SYSTEMD_STATES = new Set(['active', 'inactive', 'failed']);
+const SYSTEMD_PROBE_TIMEOUT_MS = 2000;
 
 function waitError(code, message, details) {
   const error = new Error(message);
@@ -72,6 +73,24 @@ async function fingerprint(file) {
 
 function sameFingerprint(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function systemdUserEnvironment(baseEnv) {
+  const env = { ...baseEnv };
+  let runtimeDir = typeof env.XDG_RUNTIME_DIR === 'string' && env.XDG_RUNTIME_DIR.length > 0
+    ? env.XDG_RUNTIME_DIR
+    : null;
+  if (!runtimeDir) {
+    if (typeof process.getuid !== 'function') {
+      throw waitError('WAIT_SOURCE_UNAVAILABLE', 'cannot derive user runtime directory on this platform');
+    }
+    runtimeDir = `/run/user/${process.getuid()}`;
+    env.XDG_RUNTIME_DIR = runtimeDir;
+  }
+  if (typeof env.DBUS_SESSION_BUS_ADDRESS !== 'string' || env.DBUS_SESSION_BUS_ADDRESS.length === 0) {
+    env.DBUS_SESSION_BUS_ADDRESS = `unix:path=${runtimeDir}/bus`;
+  }
+  return env;
 }
 
 function tcpProbe(host, port, signal) {
@@ -163,6 +182,7 @@ export class LocalWaitSources {
     fetchImpl = globalThis.fetch,
     systemctlBin = 'systemctl',
     execFileImpl = execFileAsync,
+    env = process.env,
     now = () => Date.now(),
   } = {}) {
     if (typeof defaultCwd !== 'string' || defaultCwd.length === 0) {
@@ -175,6 +195,7 @@ export class LocalWaitSources {
     this.fetchImpl = fetchImpl;
     this.systemctlBin = systemctlBin;
     this.execFileImpl = execFileImpl;
+    this.env = env;
     this.now = now;
   }
 
@@ -293,18 +314,26 @@ export class LocalWaitSources {
           '--property=ActiveState',
           '--property=SubState',
           '--value',
-        ], { encoding: 'utf8' });
+        ], {
+          encoding: 'utf8',
+          env: systemdUserEnvironment(this.env),
+          signal,
+          timeout: SYSTEMD_PROBE_TIMEOUT_MS,
+        });
         const [activeState = '', subState = ''] = String(stdout).trimEnd().split('\n');
         return activeState === expectedState
           ? { status: 'matched', baseline, evidence: `systemd_user=${condition.unit} state=${activeState} sub=${subState}` }
           : { status: 'pending', baseline };
       } catch (error) {
-        return {
-          status: 'failed',
-          baseline,
-          code: 'WAIT_SOURCE_UNAVAILABLE',
-          details: { message: error?.message ?? String(error) },
-        };
+        if (signal?.aborted || error?.name === 'AbortError' || error?.code === 'ABORT_ERR') {
+          throw waitError('WAIT_ABORTED', 'wait request was aborted');
+        }
+        if (error?.code === 'WAIT_SOURCE_UNAVAILABLE') throw error;
+        throw waitError(
+          'WAIT_SOURCE_UNAVAILABLE',
+          `systemd user source unavailable: ${error?.message ?? String(error)}`,
+          { message: error?.message ?? String(error) },
+        );
       }
     }
 

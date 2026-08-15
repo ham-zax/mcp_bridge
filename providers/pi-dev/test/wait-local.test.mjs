@@ -181,28 +181,63 @@ test('http_ready rejects URL credentials and does not follow redirects', async (
   assert.equal(targetHits, 0);
 });
 
-test('systemd_user invokes systemctl with an argument array and matches requested state', async () => {
+test('systemd_user derives missing user-bus env, preserves supplied env, and bounds the execFile probe', async () => {
   const calls = [];
-  const execFileImpl = async (file, args) => {
-    calls.push({ file, args });
+  const execFileImpl = async (file, args, options) => {
+    calls.push({ file, args, options });
     return { stdout: 'active\nrunning\n', stderr: '' };
   };
+  const controller = new AbortController();
   const source = new LocalWaitSources({
     defaultCwd: process.cwd(),
     systemctlBin: '/usr/bin/systemctl',
     execFileImpl,
+    env: { PATH: '/custom/bin', KEEP_ME: 'yes' },
   });
   const condition = { kind: 'systemd_user', unit: 'demo@one.service' };
   const armed = await source.arm(condition);
-  const result = await source.check(record(condition, armed.baseline));
+  const result = await source.check(record(condition, armed.baseline), controller.signal);
   assert.equal(result.status, 'matched');
-  assert.deepEqual(calls, [{
-    file: '/usr/bin/systemctl',
-    args: ['--user', 'show', 'demo@one.service', '--property=ActiveState', '--property=SubState', '--value'],
-  }]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].file, '/usr/bin/systemctl');
+  assert.deepEqual(calls[0].args, [
+    '--user', 'show', 'demo@one.service', '--property=ActiveState', '--property=SubState', '--value',
+  ]);
+  assert.equal(calls[0].options.encoding, 'utf8');
+  assert.equal(calls[0].options.timeout, 2000);
+  assert.equal(calls[0].options.signal, controller.signal);
+  assert.equal(calls[0].options.env.PATH, '/custom/bin');
+  assert.equal(calls[0].options.env.KEEP_ME, 'yes');
+  assert.equal(calls[0].options.env.XDG_RUNTIME_DIR, `/run/user/${process.getuid()}`);
+  assert.equal(
+    calls[0].options.env.DBUS_SESSION_BUS_ADDRESS,
+    `unix:path=/run/user/${process.getuid()}/bus`,
+  );
 });
 
-test('systemd_user reports command or bus failures as WAIT_SOURCE_UNAVAILABLE', async () => {
+test('systemd_user preserves explicit runtime and bus environment values', async () => {
+  let options;
+  const source = new LocalWaitSources({
+    defaultCwd: process.cwd(),
+    env: {
+      PATH: '/custom/bin',
+      XDG_RUNTIME_DIR: '/explicit/runtime',
+      DBUS_SESSION_BUS_ADDRESS: 'unix:path=/explicit/bus',
+    },
+    execFileImpl: async (_file, _args, receivedOptions) => {
+      options = receivedOptions;
+      return { stdout: 'inactive\ndead\n', stderr: '' };
+    },
+  });
+  const condition = { kind: 'systemd_user', unit: 'demo.service', state: 'inactive' };
+  const armed = await source.arm(condition);
+  const result = await source.check(record(condition, armed.baseline));
+  assert.equal(result.status, 'matched');
+  assert.equal(options.env.XDG_RUNTIME_DIR, '/explicit/runtime');
+  assert.equal(options.env.DBUS_SESSION_BUS_ADDRESS, 'unix:path=/explicit/bus');
+});
+
+test('systemd_user propagates command or bus failures as transient WAIT_SOURCE_UNAVAILABLE', async () => {
   const source = new LocalWaitSources({
     defaultCwd: process.cwd(),
     execFileImpl: async () => {
@@ -211,7 +246,59 @@ test('systemd_user reports command or bus failures as WAIT_SOURCE_UNAVAILABLE', 
   });
   const condition = { kind: 'systemd_user', unit: 'demo.service', state: 'active' };
   const armed = await source.arm(condition);
-  const result = await source.check(record(condition, armed.baseline));
-  assert.equal(result.status, 'failed');
-  assert.equal(result.code, 'WAIT_SOURCE_UNAVAILABLE');
+  await assert.rejects(
+    () => source.check(record(condition, armed.baseline)),
+    (error) => error?.code === 'WAIT_SOURCE_UNAVAILABLE' && /Failed to connect to bus/.test(error.message),
+  );
+});
+
+test('systemd_user aborts an in-flight systemctl subprocess as WAIT_ABORTED', async (t) => {
+  const dir = await tempDir(t);
+  const pidFile = path.join(dir, 'systemctl.pid');
+  const fakeSystemctl = path.join(dir, 'systemctl-stall');
+  await fs.writeFile(fakeSystemctl, [
+    '#!/usr/bin/env node',
+    "import fs from 'node:fs';",
+    `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+    'setInterval(() => {}, 1000);',
+    '',
+  ].join('\n'));
+  await fs.chmod(fakeSystemctl, 0o755);
+
+  const source = new LocalWaitSources({
+    defaultCwd: process.cwd(),
+    systemctlBin: fakeSystemctl,
+  });
+  const condition = { kind: 'systemd_user', unit: 'demo.service', state: 'active' };
+  const armed = await source.arm(condition);
+  const controller = new AbortController();
+  const pending = source.check(record(condition, armed.baseline), controller.signal);
+
+  let childPid;
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    try {
+      childPid = Number(await fs.readFile(pidFile, 'utf8'));
+      if (Number.isSafeInteger(childPid) && childPid > 0) break;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(Number.isSafeInteger(childPid) && childPid > 0, 'fake systemctl child did not start');
+
+  controller.abort();
+  await assert.rejects(pending, (error) => error?.code === 'WAIT_ABORTED');
+
+  const exitDeadline = Date.now() + 2000;
+  while (Date.now() < exitDeadline) {
+    try {
+      process.kill(childPid, 0);
+    } catch (error) {
+      if (error?.code === 'ESRCH') return;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(`aborted systemctl child ${childPid} remained alive`);
 });

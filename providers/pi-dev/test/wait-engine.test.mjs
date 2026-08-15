@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { WaitEngine } from '../wait-engine.mjs';
+import { LocalWaitSources } from '../wait-local.mjs';
 import { WaitStore } from '../wait-state.mjs';
 
 async function fixture(t) {
@@ -135,4 +136,39 @@ test('request canceled while queued for wait lock never checks or mutates later'
   const resumed = await fx.engine.run({ name: 'abort-queued', hold_seconds: 0 });
   assert.equal(resumed.status, 'pending');
   assert.ok(fx.checks() > beforeChecks);
+});
+
+test('transient systemd unavailability leaves the same durable wait pending for recovery resume', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-systemd-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const stateDir = path.join(root, 'state');
+  const store = new WaitStore({ stateDir });
+  let unavailable = true;
+  const local = new LocalWaitSources({
+    defaultCwd: root,
+    env: { PATH: process.env.PATH ?? '' },
+    execFileImpl: async () => {
+      if (unavailable) throw new Error('Failed to connect to bus');
+      return { stdout: 'active\nrunning\n', stderr: '' };
+    },
+  });
+  const engine = new WaitEngine({ store, sources: { systemd_user: local } });
+  const condition = { kind: 'systemd_user', unit: 'demo.service', state: 'active' };
+
+  await assert.rejects(
+    () => engine.run({ name: 'systemd-recovery', condition, timeout_seconds: 30, hold_seconds: 0 }),
+    (error) => error?.code === 'WAIT_SOURCE_UNAVAILABLE',
+  );
+  const pending = await store.read('systemd-recovery');
+  assert.equal(pending.status, 'pending');
+  assert.equal(pending.condition.kind, 'systemd_user');
+  const originalDeadline = pending.deadlineAtMs;
+  const originalBaseline = structuredClone(pending.baseline);
+
+  unavailable = false;
+  const matched = await engine.run({ name: 'systemd-recovery', hold_seconds: 0 });
+  assert.equal(matched.status, 'matched');
+  const recovered = await store.read('systemd-recovery');
+  assert.equal(recovered.deadlineAtMs, originalDeadline);
+  assert.deepEqual(recovered.baseline, originalBaseline);
 });
