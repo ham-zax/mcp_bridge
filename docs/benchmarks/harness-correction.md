@@ -41,7 +41,25 @@ The temporary A/B deployment is evaluation state only. Product source still carr
 
 ## Pi correction
 
-The corrected Pi experiment has not yet executed. The prior Pi verdict remains provisional until the best-incumbent ranged-read baseline is corrected and fresh ChatGPT-path `read`, `bash`, `write`, and `edit` calls pass.
+### Observed facts
+
+- The corrected one-call ranged baseline is legacy Shell `bash -c` + `sed`, not the generic filesystem whole-file fallback.
+- Legacy Shell range request/result: 35 / 329 estimated `o200k_base` tokens; direct wall time 7.53 ms.
+- Pi `dev.read` range request/result: 22 / 344 estimated tokens; direct wall time 5.85 ms.
+- Pi therefore reduces request tokens by 37.1% on this task but returns 15 more result tokens because it includes a continuation hint.
+- The historical `25,155 -> 344` result remains valid only as generic Files whole-file fallback vs Pi ranged read, not as the best complete incumbent-harness comparison.
+- Fresh real ChatGPT-path calls passed for `dev.read`, `dev.bash`, `dev.write`, and `dev.edit`.
+- The public-path result shapes were native text: source + continuation hint, terminal-like Bash text, concise create acknowledgement, and one compact edit diff.
+- Verification read returned the edited content; cleanup succeeded; no recovery call was needed.
+- No unexpected JSON execution record, embedded resource, or duplicated structured representation was observed.
+
+### Inference
+
+The corrected range result removes the strongest token-saving claim for `dev.read`, but Pi still materially simplifies the model-facing tool/schema surface and request language while preserving execution failures/truncation evidence that the legacy Shell loses.
+
+### Policy decision
+
+**Pi = CUTOVER_CONFIRMED.** The decision rests on the complete corrected evidence set: 21/21 mandatory semantics, 78% schema-token reduction, smaller/native requests, better shell evidence, no duplicated Files structured results, and successful real ChatGPT-path read/bash/write/edit behavior.
 
 ## CodeDB requalification
 
