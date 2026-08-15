@@ -2,7 +2,7 @@
 # Shared lifecycle primitives for the Cloudflare OAuth Bridge.
 # This file is sourced by start/stop/status/watchdog scripts.
 
-BRIDGE_ROOT="${BRIDGE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+BRIDGE_ROOT="${BRIDGE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 BRIDGE_PROC_ROOT="${BRIDGE_PROC_ROOT:-/proc}"
 
 BRIDGE_STATE_BASE="${XDG_STATE_HOME:-${HOME:-}/.local/state}"
@@ -324,19 +324,19 @@ bridge_start_cloudflared() {
 }
 
 bridge_stop_watchdog() {
-  bridge_stop_pidfile "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/scripts/watchdog.sh"
+  bridge_stop_pidfile "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/lib/bridge/watchdog.sh"
 }
 
 bridge_start_watchdog() {
-  if bridge_pidfile_alive "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/scripts/watchdog.sh"; then
+  if bridge_pidfile_alive "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/lib/bridge/watchdog.sh"; then
     return 0
   fi
   rm -f "$BRIDGE_WATCHDOG_PID_FILE"
   TUNNEL_NAME="${TUNNEL_NAME:-}" TUNNEL_URL="${TUNNEL_URL:-}" \
-    setsid bash "$BRIDGE_ROOT/scripts/watchdog.sh" 9>&- >>"$BRIDGE_RUN_DIR/watchdog.log" 2>&1 </dev/null &
+    setsid bash "$BRIDGE_ROOT/lib/bridge/watchdog.sh" 9>&- >>"$BRIDGE_RUN_DIR/watchdog.log" 2>&1 </dev/null &
   printf '%s\n' "$!" > "$BRIDGE_WATCHDOG_PID_FILE"
   sleep 0.2
-  if ! bridge_pidfile_alive "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/scripts/watchdog.sh"; then
+  if ! bridge_pidfile_alive "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/lib/bridge/watchdog.sh"; then
     echo "watchdog exited during startup" >&2
     rm -f "$BRIDGE_WATCHDOG_PID_FILE"
     return 1

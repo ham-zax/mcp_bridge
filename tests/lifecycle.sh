@@ -21,14 +21,15 @@ contains() { grep -Eq "$2" "$1"; }
 
 test_scripts_are_executable() {
   local script
-  for script in setup.sh start.sh stop.sh status.sh tunnel-up.sh tunnel-down.sh watchdog.sh; do
+  for script in setup.sh start.sh stop.sh status.sh tunnel-up.sh tunnel-down.sh; do
     [ -x "$ROOT/scripts/$script" ] || return 1
   done
-  [ -x "$ROOT/tests/lifecycle.sh" ]
+  [ -x "$ROOT/bin/start" ] && [ -x "$ROOT/bin/status" ] && [ -x "$ROOT/bin/stop" ] && \
+    [ -x "$ROOT/lib/bridge/watchdog.sh" ] && [ -x "$ROOT/tests/lifecycle.sh" ]
 }
 
 test_no_global_process_matching() {
-  ! grep -R -nE '\b(pkill|pgrep)\b' "$ROOT/scripts" >/dev/null
+  ! grep -R -nE '\b(pkill|pgrep)\b' "$ROOT/bin" "$ROOT/lib/bridge" "$ROOT/scripts" >/dev/null
 }
 
 test_dependencies_are_pinned() {
@@ -44,40 +45,43 @@ test_cloudflare_oauth_is_canonical() {
 }
 
 test_start_is_canonical_entrypoint() {
-  contains "$ROOT/scripts/start.sh" 'Cloudflare OAuth Bridge' && \
-  ! contains "$ROOT/scripts/start.sh" 'mcp\.hamza\.my\.id' && \
-  contains "$ROOT/scripts/start.sh" 'bridge_reconcile_1mcp' && \
-  contains "$ROOT/scripts/start.sh" 'bridge_start_cloudflared' && \
-  contains "$ROOT/scripts/start.sh" 'bridge_start_watchdog'
+  contains "$ROOT/bin/start" 'MCP Development Bridge' && \
+  ! contains "$ROOT/bin/start" 'mcp\.hamza\.my\.id' && \
+  contains "$ROOT/bin/start" 'bridge_reconcile_1mcp' && \
+  contains "$ROOT/bin/start" 'bridge_start_cloudflared' && \
+  contains "$ROOT/bin/start" 'bridge_start_watchdog'
 }
 
 test_no_internal_1mcp_background_supervisor() {
-  ! grep -R -nE 'serve --background' "$ROOT/scripts" >/dev/null
+  ! grep -R -nE 'serve --background' "$ROOT/bin" "$ROOT/lib/bridge" "$ROOT/scripts" >/dev/null
 }
 
 test_start_orders_origin_before_watchdog() {
   local origin_line watchdog_line
-  origin_line="$(grep -n 'bridge_reconcile_1mcp' "$ROOT/scripts/start.sh" | head -n1 | cut -d: -f1)"
-  watchdog_line="$(grep -n 'bridge_start_watchdog' "$ROOT/scripts/start.sh" | head -n1 | cut -d: -f1)"
+  origin_line="$(grep -n 'bridge_reconcile_1mcp' "$ROOT/bin/start" | head -n1 | cut -d: -f1)"
+  watchdog_line="$(grep -n 'bridge_start_watchdog' "$ROOT/bin/start" | head -n1 | cut -d: -f1)"
   [ -n "$origin_line" ] && [ -n "$watchdog_line" ] && [ "$origin_line" -lt "$watchdog_line" ]
 }
 
 test_watchdog_starts_only_after_public_health() {
   local health_line watchdog_line
-  health_line="$(grep -n 'bridge_wait_url .*health/ready' "$ROOT/scripts/start.sh" | head -n1 | cut -d: -f1)"
-  watchdog_line="$(grep -n 'bridge_start_watchdog' "$ROOT/scripts/start.sh" | head -n1 | cut -d: -f1)"
+  health_line="$(grep -n 'bridge_wait_url .*health/ready' "$ROOT/bin/start" | head -n1 | cut -d: -f1)"
+  watchdog_line="$(grep -n 'bridge_start_watchdog' "$ROOT/bin/start" | head -n1 | cut -d: -f1)"
   [ -n "$health_line" ] && [ -n "$watchdog_line" ] && [ "$health_line" -lt "$watchdog_line" ]
 }
 
 test_compatibility_wrappers_are_thin() {
+  contains "$ROOT/scripts/start.sh" 'exec .*bin/start' && \
+  contains "$ROOT/scripts/status.sh" 'exec .*bin/status' && \
+  contains "$ROOT/scripts/stop.sh" 'exec .*bin/stop' && \
   contains "$ROOT/scripts/tunnel-up.sh" 'exec .*scripts/start\.sh' && \
   contains "$ROOT/scripts/tunnel-down.sh" 'exec .*scripts/stop\.sh'
 }
 
 test_status_has_core_diagnostics() {
-  contains "$ROOT/scripts/status.sh" 'Cloudflare OAuth Bridge' && \
-  contains "$ROOT/scripts/status.sh" 'duplicate 1MCP' && \
-  contains "$ROOT/scripts/status.sh" 'PID/listener mismatch'
+  contains "$ROOT/bin/status" 'MCP Development Bridge' && \
+  contains "$ROOT/bin/status" 'duplicate 1MCP' && \
+  contains "$ROOT/bin/status" 'PID/listener mismatch'
 }
 
 test_systemd_user_autostart_contract() {
@@ -95,10 +99,10 @@ test_systemd_installer_handles_missing_home() {
 }
 
 test_lifecycle_lock_is_used_everywhere() {
-  contains "$ROOT/scripts/bridge-common.sh" 'bridge_lock_acquire' && \
-  contains "$ROOT/scripts/start.sh" 'bridge_lock_acquire' && \
-  contains "$ROOT/scripts/stop.sh" 'bridge_lock_acquire' && \
-  contains "$ROOT/scripts/watchdog.sh" 'bridge_lock_acquire'
+  contains "$ROOT/lib/bridge/common.sh" 'bridge_lock_acquire' && \
+  contains "$ROOT/bin/start" 'bridge_lock_acquire' && \
+  contains "$ROOT/bin/stop" 'bridge_lock_acquire' && \
+  contains "$ROOT/lib/bridge/watchdog.sh" 'bridge_lock_acquire'
 }
 
 run_test 'lifecycle entrypoint scripts remain executable' test_scripts_are_executable
@@ -135,7 +139,7 @@ EOF
   env -u BRIDGE_RUN_DIR -u BRIDGE_CONFIG_DIR \
     BRIDGE_ROOT="$fake_root" HOME="$sandbox/home" XDG_STATE_HOME="$sandbox/state" XDG_RUNTIME_DIR="$runtime" \
     bash -c '
-      source "$1/scripts/bridge-common.sh"
+      source "$1/lib/bridge/common.sh"
       [ "$BRIDGE_STATE_DIR" = "$3" ] &&
       [ "$BRIDGE_CONFIG_DIR" = "$3/1mcp" ] &&
       [ "$BRIDGE_RUN_DIR" = "$4/mcp-dev-bridge" ] &&
@@ -153,7 +157,7 @@ test_legacy_deployment_keeps_repo_state() {
   env -u BRIDGE_RUN_DIR -u BRIDGE_CONFIG_DIR \
     BRIDGE_ROOT="$fake_root" HOME="$sandbox/home" XDG_STATE_HOME="$sandbox/state" XDG_RUNTIME_DIR="$sandbox/runtime" \
     bash -c '
-      source "$1/scripts/bridge-common.sh"
+      source "$1/lib/bridge/common.sh"
       [ "$BRIDGE_CONFIG_DIR" = "$2/config" ] && [ "$BRIDGE_RUN_DIR" = "$2/run" ]
     ' _ "$ROOT" "$fake_root"
 }
@@ -163,7 +167,7 @@ test_explicit_state_overrides_win() {
   mkdir -p "$sandbox/run" "$sandbox/config"
   env BRIDGE_ROOT="$sandbox/root" BRIDGE_RUN_DIR="$sandbox/run" BRIDGE_CONFIG_DIR="$sandbox/config" \
     bash -c '
-      source "$1/scripts/bridge-common.sh"
+      source "$1/lib/bridge/common.sh"
       [ "$BRIDGE_RUN_DIR" = "$2" ] && [ "$BRIDGE_CONFIG_DIR" = "$3" ]
     ' _ "$ROOT" "$sandbox/run" "$sandbox/config"
 }
@@ -174,13 +178,13 @@ run_test 'explicit runtime/config overrides win' test_explicit_state_overrides_w
 
 # ---------- Shared lifecycle behavior ----------
 
-COMMON="$ROOT/scripts/bridge-common.sh"
+COMMON="$ROOT/lib/bridge/common.sh"
 
 test_stop_pidfile_is_exact() {
   local sandbox="$TMP/pid"
   mkdir -p "$sandbox/run" "$sandbox/config"
   env BRIDGE_RUN_DIR="$sandbox/run" BRIDGE_CONFIG_DIR="$sandbox/config" bash -c '
-    source "$1/scripts/bridge-common.sh"
+    source "$1/lib/bridge/common.sh"
     sleep 30 & owned=$!
     sleep 30 & unrelated=$!
     printf "%s\n" "$owned" > "$BRIDGE_RUN_DIR/owned.pid"
@@ -208,7 +212,7 @@ test_stop_pidfile_stops_owned_process_group() {
   child="$(cat "$sandbox/child.pid")"
 
   env BRIDGE_RUN_DIR="$sandbox/run" BRIDGE_CONFIG_DIR="$sandbox/config" bash -c '
-    source "$1/scripts/bridge-common.sh"
+    source "$1/lib/bridge/common.sh"
     bridge_stop_pidfile "$BRIDGE_RUN_DIR/group.pid" "bash -c sleep 30"
   ' _ "$ROOT" || { kill -KILL "$leader" "$child" 2>/dev/null || true; return 1; }
 
@@ -228,7 +232,7 @@ test_scoped_1mcp_discovery_and_oauth_match() {
   printf '%s\0' node /x/@1mcp/agent/build/index.js serve --config-dir "$config" --enable-auth --external-url https://test.example > "$fake_proc/101/cmdline"
   printf '%s\0' node /x/@1mcp/agent/build/index.js serve --config-dir /other/config --enable-auth --external-url https://other.example > "$fake_proc/202/cmdline"
   env BRIDGE_PROC_ROOT="$fake_proc" BRIDGE_CONFIG_DIR="$config" BRIDGE_RUN_DIR="$sandbox/run" bash -c '
-    source "$1/scripts/bridge-common.sh"
+    source "$1/lib/bridge/common.sh"
     found="$(bridge_find_1mcp_pids | tr "\n" " " | sed "s/[[:space:]]*$//")"
     [ "$found" = 101 ] && bridge_1mcp_matches 101 https://test.example
   ' _ "$ROOT"
@@ -239,7 +243,7 @@ test_lifecycle_lock_is_exclusive() {
   local sandbox="$TMP/lock"
   mkdir -p "$sandbox/run" "$sandbox/config"
   env BRIDGE_RUN_DIR="$sandbox/run" BRIDGE_CONFIG_DIR="$sandbox/config" bash -c '
-    source "$1/scripts/bridge-common.sh"
+    source "$1/lib/bridge/common.sh"
     bridge_lock_acquire 1 || exit 1
     sleep 2
     bridge_lock_release
@@ -248,7 +252,7 @@ test_lifecycle_lock_is_exclusive() {
   sleep 0.2
   set +e
   env BRIDGE_RUN_DIR="$sandbox/run" BRIDGE_CONFIG_DIR="$sandbox/config" \
-    bash -c 'source "$1/scripts/bridge-common.sh"; bridge_lock_acquire 0' _ "$ROOT" >/dev/null 2>&1
+    bash -c 'source "$1/lib/bridge/common.sh"; bridge_lock_acquire 0' _ "$ROOT" >/dev/null 2>&1
   local contender_rc=$?
   set -e
   wait "$holder" || return 1
@@ -276,7 +280,7 @@ EOF
     BRIDGE_WORKSPACE_ROOT="$sandbox/workspace" BRIDGE_ONE_MCP_ENTRY="$entry" \
     BRIDGE_LOCAL_HEALTH_ATTEMPTS=1 BRIDGE_LOCAL_HEALTH_INTERVAL=0 \
     bash -c '
-      source "$1/scripts/bridge-common.sh"
+      source "$1/lib/bridge/common.sh"
       set +e
       bridge_start_1mcp https://test.example >/dev/null 2>&1
       rc=$?
@@ -386,7 +390,7 @@ test_full_stack_start_stop() {
   [ -s "$sandbox/run/cloudflared.pid" ] || return 1
   [ -s "$sandbox/run/watchdog.pid" ] || return 1
   local count
-  count="$(run_stack_env "$sandbox" bash -c 'source "$1/scripts/bridge-common.sh"; bridge_1mcp_count' _ "$ROOT")"
+  count="$(run_stack_env "$sandbox" bash -c 'source "$1/lib/bridge/common.sh"; bridge_1mcp_count' _ "$ROOT")"
   [ "$count" = 1 ] || return 1
 
   run_stack_env "$sandbox" "$ROOT/scripts/stop.sh" >"$sandbox/stop.log" 2>&1 || { cat "$sandbox/stop.log" >&2; return 1; }
@@ -394,7 +398,7 @@ test_full_stack_start_stop() {
   [ ! -e "$sandbox/run/one-mcp.pid" ] || return 1
   [ ! -e "$sandbox/run/cloudflared.pid" ] || return 1
   [ ! -e "$sandbox/run/watchdog.pid" ] || return 1
-  count="$(run_stack_env "$sandbox" bash -c 'source "$1/scripts/bridge-common.sh"; bridge_1mcp_count' _ "$ROOT")"
+  count="$(run_stack_env "$sandbox" bash -c 'source "$1/lib/bridge/common.sh"; bridge_1mcp_count' _ "$ROOT")"
   [ "$count" = 0 ]
 }
 
@@ -407,7 +411,7 @@ test_failed_cloudflared_start_rolls_back() {
   set -e
   [ "$rc" -ne 0 ] || return 1
   local count
-  count="$(run_stack_env "$sandbox" bash -c 'source "$1/scripts/bridge-common.sh"; bridge_1mcp_count' _ "$ROOT")"
+  count="$(run_stack_env "$sandbox" bash -c 'source "$1/lib/bridge/common.sh"; bridge_1mcp_count' _ "$ROOT")"
   [ "$count" = 0 ] && [ ! -e "$sandbox/run/cloudflare-oauth.enabled" ] && \
     [ ! -e "$sandbox/run/one-mcp.pid" ] && [ ! -e "$sandbox/run/cloudflared.pid" ] && \
     [ ! -e "$sandbox/run/watchdog.pid" ] && [ ! -e "$sandbox/run/tunnel.url" ]
@@ -422,7 +426,7 @@ test_failed_public_health_rolls_back() {
   set -e
   [ "$rc" -ne 0 ] || return 1
   local count
-  count="$(run_stack_env "$sandbox" bash -c 'source "$1/scripts/bridge-common.sh"; bridge_1mcp_count' _ "$ROOT")"
+  count="$(run_stack_env "$sandbox" bash -c 'source "$1/lib/bridge/common.sh"; bridge_1mcp_count' _ "$ROOT")"
   [ "$count" = 0 ] && [ ! -e "$sandbox/run/cloudflare-oauth.enabled" ] && \
     [ ! -e "$sandbox/run/one-mcp.pid" ] && [ ! -e "$sandbox/run/cloudflared.pid" ] && \
     [ ! -e "$sandbox/run/watchdog.pid" ] && [ ! -e "$sandbox/run/tunnel.url" ]
@@ -434,7 +438,7 @@ test_watchdog_recovers_both_daemons() {
   run_stack_env "$sandbox" "$ROOT/scripts/start.sh" >"$sandbox/start.log" 2>&1 || return 1
 
   # Stop the long-running watchdog so this test controls exactly one cycle.
-  run_stack_env "$sandbox" bash -c 'source "$1/scripts/bridge-common.sh"; bridge_lock_acquire 2; bridge_stop_watchdog; bridge_lock_release' _ "$ROOT" || return 1
+  run_stack_env "$sandbox" bash -c 'source "$1/lib/bridge/common.sh"; bridge_lock_acquire 2; bridge_stop_watchdog; bridge_lock_release' _ "$ROOT" || return 1
 
   local old_mcp old_cf
   old_mcp="$(cat "$sandbox/run/one-mcp.pid")"
@@ -443,12 +447,12 @@ test_watchdog_recovers_both_daemons() {
   rm -f "$sandbox/local-ready" "$sandbox/public-ready" "$sandbox/config/server.pid"
   sleep 0.1
 
-  run_stack_env "$sandbox" env BRIDGE_WATCHDOG_ONCE=1 "$ROOT/scripts/watchdog.sh" >"$sandbox/recovery.log" 2>&1 || { cat "$sandbox/recovery.log" >&2; return 1; }
+  run_stack_env "$sandbox" env BRIDGE_WATCHDOG_ONCE=1 "$ROOT/lib/bridge/watchdog.sh" >"$sandbox/recovery.log" 2>&1 || { cat "$sandbox/recovery.log" >&2; return 1; }
 
   local new_mcp new_cf count
   new_mcp="$(cat "$sandbox/run/one-mcp.pid")"
   new_cf="$(cat "$sandbox/run/cloudflared.pid")"
-  count="$(run_stack_env "$sandbox" bash -c 'source "$1/scripts/bridge-common.sh"; bridge_1mcp_count' _ "$ROOT")"
+  count="$(run_stack_env "$sandbox" bash -c 'source "$1/lib/bridge/common.sh"; bridge_1mcp_count' _ "$ROOT")"
   local ok=0
   if [ "$new_mcp" != "$old_mcp" ] && [ "$new_cf" != "$old_cf" ] && [ "$count" = 1 ] && \
      [ -f "$sandbox/local-ready" ] && [ -f "$sandbox/public-ready" ]; then

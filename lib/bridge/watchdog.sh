@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -uo pipefail
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=bridge-common.sh
-source "$DIR/scripts/bridge-common.sh"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=common.sh
+source "$DIR/lib/bridge/common.sh"
 
 LOG="$BRIDGE_RUN_DIR/watchdog.log"
 TUNNEL_NAME="${TUNNEL_NAME:-}"
