@@ -354,7 +354,7 @@ The branch is ready for merge review only when:
 5. no public tracked source/config/doc contains personal deployment identity.
 6. a temporary clean-home fixture can render valid local config for both profiles.
 7. `trusted-dev` is explicitly documented and testably unrestricted.
-8. the current main checkout and live installed service have not been modified by worktree development.
+8. after the prerequisite `.worktrees/` ignore commit, no runtime/refactor files in the main checkout and no live installed service have been modified by worktree development.
 9. merge instructions include the safe local config + generic systemd migration sequence.
 
 ## Deferred decisions
