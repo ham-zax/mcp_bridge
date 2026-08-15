@@ -1,8 +1,8 @@
 # Personal Harness Phase 2 Baseline and Carry-Forward Ledger
 
-**Date:** 2026-08-15  
-**Baseline commit:** `8ff5db7a2b78559f52e5c4e8e3c8580ebf15cbb9`  
-**Tokenizer:** `tiktoken==0.13.0`, `o200k_base` via `uv run`  
+**Date:** 2026-08-15
+**Baseline commit:** `8ff5db7a2b78559f52e5c4e8e3c8580ebf15cbb9`
+**Tokenizer:** `tiktoken==0.13.0`, `o200k_base` via `uv run`
 **Scope:** pre-Phase-2 private harness evidence before Tasks 2-3 mutate profile or path semantics
 
 ## Baseline
