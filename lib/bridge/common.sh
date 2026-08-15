@@ -2,11 +2,60 @@
 # Shared lifecycle primitives for the Cloudflare OAuth Bridge.
 # This file is sourced by start/stop/status/watchdog scripts.
 
-BRIDGE_ROOT="${BRIDGE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-BRIDGE_RUN_DIR="${BRIDGE_RUN_DIR:-$BRIDGE_ROOT/run}"
-BRIDGE_CONFIG_DIR="${BRIDGE_CONFIG_DIR:-$BRIDGE_ROOT/config}"
+BRIDGE_ROOT="${BRIDGE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 BRIDGE_PROC_ROOT="${BRIDGE_PROC_ROOT:-/proc}"
-BRIDGE_WORKSPACE_ROOT="${BRIDGE_WORKSPACE_ROOT:-/home/hamza/repo}"
+
+BRIDGE_USER_HOME="${HOME:-}"
+if [ -z "$BRIDGE_USER_HOME" ] && [ -z "${XDG_STATE_HOME:-}" ] && command -v getent >/dev/null 2>&1; then
+  BRIDGE_USER_HOME="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)"
+fi
+
+if [ -n "${XDG_STATE_HOME:-}" ]; then
+  BRIDGE_STATE_BASE="$XDG_STATE_HOME"
+elif [ -n "$BRIDGE_USER_HOME" ]; then
+  BRIDGE_STATE_BASE="$BRIDGE_USER_HOME/.local/state"
+else
+  BRIDGE_STATE_BASE="/tmp"
+fi
+BRIDGE_STATE_DIR="${BRIDGE_STATE_DIR:-$BRIDGE_STATE_BASE/mcp-dev-bridge}"
+BRIDGE_ENV_FILE="${BRIDGE_ENV_FILE:-$BRIDGE_STATE_DIR/bridge.env}"
+
+if [ -r "$BRIDGE_ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$BRIDGE_ENV_FILE"
+  set +a
+fi
+
+BRIDGE_EXTERNAL_CONFIG_DIR="$BRIDGE_STATE_DIR/1mcp"
+BRIDGE_LEGACY_CONFIG_DIR="$BRIDGE_ROOT/config"
+BRIDGE_LEGACY_RUN_DIR="$BRIDGE_ROOT/run"
+
+if [ -z "${BRIDGE_CONFIG_DIR:-}" ]; then
+  if [ -f "$BRIDGE_EXTERNAL_CONFIG_DIR/mcp.json" ]; then
+    BRIDGE_CONFIG_DIR="$BRIDGE_EXTERNAL_CONFIG_DIR"
+  elif [ -f "$BRIDGE_LEGACY_CONFIG_DIR/mcp.json" ]; then
+    BRIDGE_CONFIG_DIR="$BRIDGE_LEGACY_CONFIG_DIR"
+  else
+    BRIDGE_CONFIG_DIR="$BRIDGE_EXTERNAL_CONFIG_DIR"
+  fi
+fi
+
+BRIDGE_RUNTIME_BASE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [ -z "${BRIDGE_RUN_DIR:-}" ]; then
+  if [ -f "$BRIDGE_ENV_FILE" ] || [ -f "$BRIDGE_EXTERNAL_CONFIG_DIR/mcp.json" ]; then
+    BRIDGE_RUN_DIR="$BRIDGE_RUNTIME_BASE/mcp-dev-bridge"
+  elif [ -d "$BRIDGE_LEGACY_RUN_DIR" ] || [ "$BRIDGE_CONFIG_DIR" = "$BRIDGE_LEGACY_CONFIG_DIR" ]; then
+    BRIDGE_RUN_DIR="$BRIDGE_LEGACY_RUN_DIR"
+  else
+    BRIDGE_RUN_DIR="$BRIDGE_RUNTIME_BASE/mcp-dev-bridge"
+  fi
+fi
+
+BRIDGE_WORKSPACE_ROOT="${BRIDGE_WORKSPACE_ROOT:-${MCP_WORKSPACE_ROOT:-}}"
+TUNNEL_URL="${TUNNEL_URL:-${MCP_PUBLIC_URL:-}}"
+TUNNEL_NAME="${TUNNEL_NAME:-${MCP_TUNNEL_NAME:-}}"
+
 BRIDGE_ENABLED_FILE="$BRIDGE_RUN_DIR/cloudflare-oauth.enabled"
 BRIDGE_LOCK_FILE="$BRIDGE_RUN_DIR/lifecycle.lock"
 BRIDGE_ONE_MCP_PID_FILE="$BRIDGE_RUN_DIR/one-mcp.pid"
@@ -215,7 +264,7 @@ bridge_start_1mcp() {
 
   rm -f "$BRIDGE_ONE_MCP_PID_FILE"
   (
-    cd "$BRIDGE_WORKSPACE_ROOT"
+    cd "${BRIDGE_WORKSPACE_ROOT:-$BRIDGE_ROOT}"
     setsid node "$entry" serve \
       --config-dir "$BRIDGE_CONFIG_DIR" \
       --enable-auth \
@@ -283,19 +332,19 @@ bridge_start_cloudflared() {
 }
 
 bridge_stop_watchdog() {
-  bridge_stop_pidfile "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/scripts/watchdog.sh"
+  bridge_stop_pidfile "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/lib/bridge/watchdog.sh"
 }
 
 bridge_start_watchdog() {
-  if bridge_pidfile_alive "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/scripts/watchdog.sh"; then
+  if bridge_pidfile_alive "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/lib/bridge/watchdog.sh"; then
     return 0
   fi
   rm -f "$BRIDGE_WATCHDOG_PID_FILE"
-  TUNNEL_NAME="${TUNNEL_NAME:-}" TUNNEL_URL="${TUNNEL_URL:-https://mcp.hamza.my.id}" \
-    setsid bash "$BRIDGE_ROOT/scripts/watchdog.sh" 9>&- >>"$BRIDGE_RUN_DIR/watchdog.log" 2>&1 </dev/null &
+  TUNNEL_NAME="${TUNNEL_NAME:-}" TUNNEL_URL="${TUNNEL_URL:-}" \
+    setsid bash "$BRIDGE_ROOT/lib/bridge/watchdog.sh" 9>&- >>"$BRIDGE_RUN_DIR/watchdog.log" 2>&1 </dev/null &
   printf '%s\n' "$!" > "$BRIDGE_WATCHDOG_PID_FILE"
   sleep 0.2
-  if ! bridge_pidfile_alive "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/scripts/watchdog.sh"; then
+  if ! bridge_pidfile_alive "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/lib/bridge/watchdog.sh"; then
     echo "watchdog exited during startup" >&2
     rm -f "$BRIDGE_WATCHDOG_PID_FILE"
     return 1
