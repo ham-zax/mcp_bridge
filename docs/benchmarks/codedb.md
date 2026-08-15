@@ -4,15 +4,20 @@
 **Candidate:** CodeDB `0.2.5840` (`core`, lean MCP, telemetry disabled)  
 **Project:** `$HOME/repo/satori` at `719335c56305b6ce4ba91de1b410398049b069ac`
 
-## Verdict
+## Correction verdict
 
-**CodeDB = REMOVE**
+```text
+Previous verdict: REMOVE
+Correction classification: adapter / architecture mismatch
+Rooted watcher: PASS
+Current product verdict: RETEST_REQUIRED pending Pi-era value comparison
+```
 
-CodeDB produced materially smaller task evidence, but it failed the required post-edit freshness/reliability gate. The persistent MCP index did not automatically observe either new files or edits to an already-indexed tracked source file. An explicit `codedb_read` of the changed file refreshed the index, after which `codedb_search` immediately found the new content, but that recovery call is not the watcher behavior promised by the architecture.
+The original context benchmark remains useful, but its freshness gate launched one neutral-root MCP process and used the optional per-call `project=<other-project>` switch for the Satori repository. The correction phase independently reproduced that alternate-project path as a snapshot-style adapter path that did not follow external changes. That result is not evidence that CodeDB's primary rooted watcher is defective.
 
-Because KEEP requires baseline correctness/reliability **and** a material navigation/context benefit, the context win does not override the failed freshness requirement.
+With the exact same pinned `0.2.5840` binary launched as `codedb <repository-root> mcp`, ordinary calls omitted `project` and automatic freshness passed for an external edit, a newly created file, a Pi `dev.edit`, and a Pi restore. No explicit `codedb_read` was used to refresh the index.
 
-The candidate has therefore been removed from the tracked MCP template and source scripts. Raw evidence remains outside Git; this report remains in Git.
+The tracked CodeDB product integration remains absent while Task 5 evaluates whether the correctly rooted Code domain adds enough value over the Pi-era four-tool `dev` surface. Raw evidence remains outside Git; this report records the corrected classification.
 
 ## Pin and local startup evidence
 
@@ -126,58 +131,59 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/benchmarks/task2-controlled
 
 ## Freshness / watcher gate
 
-Freshness failed independently of the context benchmark.
+### Original experiment: alternate-project adapter path
 
-The original Satori checkout disappeared during an early probe and was then freshly cloned back to the same HEAD. To rule out a stale cache from the removed checkout, the CodeDB external index was explicitly rebuilt:
+The original experiment rebuilt the Satori index but ran CodeDB MCP from a neutral root and supplied the Satori path through the optional per-call `project` field. In that configuration, passive edit/new-file probes stayed stale and an explicit `codedb_read` could refresh a changed file. Those observations remain valid for that adapter shape.
 
-```text
-codedb $HOME/repo/satori index
-✓ index ready 1058 files
-```
+The correction phase reproduced the distinction directly. A CodeDB process rooted at a different normal directory queried an indexed fixture using `project=<fixture-root>`. After an external edit, the alternate-project status sequence remained unchanged (`2 -> 2`), the new marker count stayed `0`, and the old marker count stayed `1` during the polling window. Classification: **adapter / alternate-project behavior**.
 
-After that rebuild, fresh MCP processes repeatedly reported:
+### Corrected experiment: primary rooted watcher
 
-```text
-scan: loading_snapshot
-```
-
-and the sequence did not advance during passive edit probes.
-
-Three automatic-freshness probes were attempted:
-
-1. new Git-ignored file under `piolium/tmp/` — not discovered by `codedb_search`;
-2. new non-ignored file under `packages/mcp/src/` — not discovered by `codedb_search`;
-3. guarded edit to existing indexed `packages/mcp/src/core/search-retrieval-order.ts` — new unique content not discovered by `codedb_search` during the polling window.
-
-For the tracked-file probe, exact original bytes were backed up first and restoration was hash-guarded so a concurrent external edit could not be overwritten. The file was restored exactly and `git status` returned clean for that path.
-
-A final diagnostic proved the distinction between stale search index and raw file access:
+The corrected gate launched the exact pinned binary as:
 
 ```text
-edit existing indexed file with a unique token
-codedb_search(unique token)       -> missing
-codedb_read(changed file range)   -> returned current changed bytes
-codedb_search(unique token)       -> found immediately
+codedb <fixture-repository> mcp
 ```
 
-Therefore CodeDB can refresh a changed file when it is explicitly read, but the tested MCP configuration did **not** provide the required automatic watcher/index freshness after external Pi-style edits.
+Ordinary `codedb_status` and `codedb_search` calls used no `project` field. Starting from one indexed file:
 
-## Why REMOVE despite context savings
+```text
+initial seq:              1
+initial files:            1
+initial old marker count: 1
+```
 
-Positive evidence:
+While the same MCP process remained alive, the existing file was externally changed and a second source file was created. Without calling `codedb_read`, polling converged to:
 
-- 46.5% fewer model-visible result tokens on the controlled trace;
-- 34.2% lower combined schema+request+result token accounting;
+```text
+final seq:                3
+final files:              2
+edited-new marker count:  1
+old marker count:         0
+created-new marker count: 1
+```
+
+A separate Pi-integration fixture then changed a rooted file through `dev.edit`. CodeDB advanced `seq 1 -> 2`, found the Pi-produced new marker, and stopped returning the old marker. Restoring through `dev.edit` advanced `seq 2 -> 3`, restored the original marker, and removed the temporary one from search. Again, no per-call `project` and no `codedb_read` refresh were used.
+
+Observed fact: **ROOTED_FRESHNESS_PASS**. The previous stale result came from the alternate-project architecture, not the primary rooted watcher.
+
+## Why the previous REMOVE verdict is reopened
+
+Positive evidence that still stands:
+
+- 46.5% fewer model-visible result tokens on the original controlled trace;
+- 34.2% lower combined schema+request+result token accounting against the old harness;
 - 22.4% fewer request tokens and shallower request objects;
 - useful bounded reads, caller discovery, and task-shaped context;
-- correct semantic-search call chain recovered.
+- correct semantic-search call chain recovered;
+- corrected rooted watcher freshness now passes, including after Pi edits.
 
-Blocking evidence:
+Evidence that must be re-evaluated against the current product rather than reused mechanically:
 
-- post-edit search freshness failed after a fresh clone and explicit index rebuild;
-- `codedb_status` remained in `loading_snapshot` state on persistent MCP runs;
-- an explicit `codedb_read` was required to make changed content searchable;
-- CodeDB added 22.8% more advertised schema tokens than the old filesystem+shell surface;
-- the controlled trace did not reduce call count and was 21.2% slower through the same temporary 1MCP path.
+- CodeDB's visible schema cost, because the relevant baseline is now four-tool Pi `dev`, not the obsolete 15-tool filesystem+shell surface;
+- call count and wall time on the repository-orientation task;
+- whether one fixed repository root is sufficient for the intended multi-repository workspace.
 
-The freshness failure is a correctness/reliability failure for the planned `Code -> Files edit -> Code re-check` loop, so the independent decision is **REMOVE**.
+Inference: the reliability blocker used for the previous removal was an architecture/adapter mismatch. It no longer justifies `REMOVE`.
+
+Policy decision: **CodeDB remains RETEST_REQUIRED until Task 5 compares Pi-only development with Pi + correctly rooted CodeDB.**

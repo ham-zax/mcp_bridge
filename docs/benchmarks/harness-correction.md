@@ -63,7 +63,21 @@ The corrected range result removes the strongest token-saving claim for `dev.rea
 
 ## CodeDB requalification
 
-The rooted CodeDB requalification has not yet executed. The prior stale alternate-project result remains classified `RETEST_REQUIRED`, not a final CodeDB removal verdict.
+### Observed facts
+
+- Exact binary verified: CodeDB `0.2.5840`, SHA-256 `f784c931b053031ca9928173828130c504f769c9e94bf5c2666ab71091747966`.
+- Corrected launch shape: `codedb <repository-root> mcp`; ordinary calls omitted `project`.
+- Rooted external edit/new-file gate passed: sequence `1 -> 3`, files `1 -> 2`, new edit/create markers found, replaced old marker absent, no `codedb_read` refresh.
+- Pi integration gate passed: Pi `dev.edit` advanced rooted CodeDB `seq 1 -> 2`; Pi restore advanced `2 -> 3`; search followed both transitions without `project` or explicit refresh reads.
+- Alternate-project diagnostic reproduced the earlier failure shape: sequence stayed `2 -> 2`, changed marker count `0`, old marker count `1`.
+
+### Classification
+
+The old stale-index failure is **adapter / architecture mismatch** evidence for neutral-root + per-call alternate-project routing. It is not evidence against the primary rooted watcher.
+
+### Current product verdict
+
+**CodeDB = RETEST_REQUIRED pending Pi-era value comparison.** Rooted freshness is now `PASS`; Task 5 must decide whether the extra Code domain is worth its incremental schema/context cost and whether one fixed repository root is sufficient.
 
 ## GCF correction
 
