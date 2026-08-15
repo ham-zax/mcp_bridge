@@ -189,6 +189,91 @@ test_systemd_installer_renders_without_live_manager() {
   rm -rf "$tmp"
 }
 
+
+test_legacy_oauth_state_migration() {
+  local tmp legacy state src_server dest_server now future expired cli session transport code request
+  tmp="$(mktemp -d)" || return 1
+  legacy="$tmp/legacy/config"
+  state="$tmp/state/mcp-dev-bridge"
+  src_server="$legacy/sessions/sessions/server"
+  dest_server="$state/1mcp/sessions/sessions/server"
+  mkdir -p "$src_server" "$legacy/sessions/sessions/transport" "$legacy/sessions/sessions/client"
+  printf '{}\n' > "$legacy/mcp.json"
+
+  now="$(date +%s000)"
+  future="$((now + 3600000))"
+  expired="$((now - 1000))"
+  cli='session_cli_11111111-1111-4111-8111-111111111111.json'
+  session='session_sess-22222222-2222-4222-8222-222222222222.json'
+  transport='streamable_session_stream-33333333-3333-4333-8333-333333333333.json'
+  code='auth_code_code-44444444-4444-4444-8444-444444444444.json'
+  request='auth_request_code-55555555-5555-4555-8555-555555555555.json'
+
+  printf '{"client_id":"keep","expires":%s}\n' "$future" > "$src_server/$cli"
+  printf '{"clientId":"keep","scopes":["tag:filesystem"],"expires":%s}\n' "$future" > "$src_server/$session"
+  printf '{"client_id":"expired","expires":%s}\n' "$expired" > "$src_server/session_cli_66666666-6666-4666-8666-666666666666.json"
+  printf '{"expires":%s}\n' "$future" > "$src_server/$code"
+  printf '{"expires":%s}\n' "$future" > "$src_server/$request"
+  printf '{"expires":%s}\n' "$future" > "$legacy/sessions/sessions/transport/$transport"
+  printf '{"serverName":"upstream","expires":%s}\n' "$future" > "$legacy/sessions/sessions/client/oauth_upstream.json"
+
+  "$ROOT/scripts/migrate-legacy-oauth-state.sh" --from-config-dir "$legacy" --state-dir "$state" >/dev/null || { rm -rf "$tmp"; return 1; }
+
+  [ -f "$dest_server/$cli" ] && \
+  [ -f "$dest_server/$session" ] && \
+  [ ! -e "$dest_server/session_cli_66666666-6666-4666-8666-666666666666.json" ] && \
+  [ ! -e "$dest_server/$code" ] && \
+  [ ! -e "$dest_server/$request" ] && \
+  [ ! -e "$state/1mcp/sessions/sessions/transport/$transport" ] && \
+  [ ! -e "$state/1mcp/sessions/sessions/client/oauth_upstream.json" ] && \
+  [ "$(stat -c '%a' "$dest_server")" = 700 ] && \
+  [ "$(stat -c '%a' "$dest_server/$cli")" = 600 ] && \
+  [ "$(stat -c '%a' "$dest_server/$session")" = 600 ] || { rm -rf "$tmp"; return 1; }
+
+  # Idempotent when destination records are byte-identical.
+  "$ROOT/scripts/migrate-legacy-oauth-state.sh" --from-config-dir "$legacy" --state-dir "$state" >/dev/null || { rm -rf "$tmp"; return 1; }
+
+  # Refuse conflicting destination auth state rather than overwriting it.
+  printf '{"client_id":"different","expires":%s}\n' "$future" > "$dest_server/$cli"
+  if "$ROOT/scripts/migrate-legacy-oauth-state.sh" --from-config-dir "$legacy" --state-dir "$state" >/dev/null 2>&1; then
+    rm -rf "$tmp"
+    return 1
+  fi
+  grep -Fq 'different' "$dest_server/$cli" || { rm -rf "$tmp"; return 1; }
+
+  rm -rf "$tmp"
+}
+
+
+test_legacy_oauth_migration_noop_and_repo_guard() {
+  local tmp legacy state
+  tmp="$(mktemp -d)" || return 1
+  legacy="$tmp/legacy/config"
+  state="$tmp/state/mcp-dev-bridge"
+  mkdir -p "$legacy"
+  printf '{}\n' > "$legacy/mcp.json"
+
+  # A legitimate legacy config with no OAuth state is a clean no-op.
+  "$ROOT/scripts/migrate-legacy-oauth-state.sh" --from-config-dir "$legacy" --state-dir "$state" >/dev/null || { rm -rf "$tmp"; return 1; }
+  [ ! -e "$state/1mcp/sessions/sessions/server" ] || { rm -rf "$tmp"; return 1; }
+
+  # Credential state must never be redirected into the source checkout.
+  if "$ROOT/scripts/migrate-legacy-oauth-state.sh" --from-config-dir "$legacy" --state-dir "$ROOT/.migration-fixture" >/dev/null 2>&1; then
+    rm -rf "$tmp"
+    return 1
+  fi
+  [ ! -e "$ROOT/.migration-fixture" ] || { rm -rf "$tmp"; return 1; }
+
+  rm -rf "$tmp"
+}
+
+test_migration_guide_preserves_oauth_and_external_cutover() {
+  local doc="$ROOT/docs/migration-from-local-bridge.md"
+  grep -Fq 'migrate-legacy-oauth-state.sh' "$doc" && \
+  grep -Eq 'direct WSL terminal|outside.*MCP|outside.*1MCP' "$doc" && \
+  grep -Eq 'transport session|streamable' "$doc"
+}
+
 run_test 'public bin entrypoints exist and are executable' test_public_entrypoints
 run_test 'publication directory structure exists' test_public_structure
 run_test 'setup requires explicit trust profile' test_explicit_profile_contract
@@ -201,6 +286,9 @@ run_test 'lifecycle selects an actually rendered external deployment' test_rende
 run_test 'public tracked files contain no personal deployment identity' test_no_personal_identity_in_public_files
 run_test 'generic systemd template targets public bin entrypoints' test_generic_systemd_template
 run_test 'systemd installer renders a valid fixture without live manager' test_systemd_installer_renders_without_live_manager
+run_test 'legacy OAuth continuity migrates without transient transport state' test_legacy_oauth_state_migration
+run_test 'legacy OAuth migration is a clean no-op and never targets Git state' test_legacy_oauth_migration_noop_and_repo_guard
+run_test 'migration guide preserves OAuth and requires external cutover control' test_migration_guide_preserves_oauth_and_external_cutover
 
 printf '\n%s tests, %s failures\n' "$TESTS" "$FAILURES"
 [ "$FAILURES" -eq 0 ]

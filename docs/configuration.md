@@ -49,6 +49,8 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/1mcp/mcp.json
 
 The containing 1MCP directory is writable because 1MCP stores runtime/auth state beneath its config root.
 
+When migrating an existing OAuth-connected bridge to a different 1MCP `--config-dir`, preserve inbound OAuth continuity explicitly with `scripts/migrate-legacy-oauth-state.sh` before starting the replacement service. Do not copy Streamable HTTP transport sessions as credential state; see `docs/migration-from-local-bridge.md`.
+
 Tests and unusual deployments may override `--state-dir`, `BRIDGE_STATE_DIR`, `XDG_STATE_HOME`, and `XDG_RUNTIME_DIR`.
 
 ## Compatibility
