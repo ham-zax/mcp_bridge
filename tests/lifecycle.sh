@@ -32,9 +32,9 @@ test_no_global_process_matching() {
 }
 
 test_dependencies_are_pinned() {
-  contains "$ROOT/scripts/setup.sh" '@1mcp/agent@0\.34\.4' && \
-  contains "$ROOT/config/mcp.json" '@modelcontextprotocol/server-filesystem@2026\.7\.10' && \
-  contains "$ROOT/config/mcp.json" 'mcp-shell-server==1\.1\.8'
+  contains "$ROOT/scripts/setup.sh" 'ONE_MCP_VERSION="0\.34\.4"' && \
+  contains "$ROOT/config/templates/mcp.json" '@modelcontextprotocol/server-filesystem@2026\.7\.10' && \
+  contains "$ROOT/config/templates/mcp.json" 'mcp-shell-server==1\.1\.8'
 }
 
 test_cloudflare_oauth_is_canonical() {
@@ -45,7 +45,7 @@ test_cloudflare_oauth_is_canonical() {
 
 test_start_is_canonical_entrypoint() {
   contains "$ROOT/scripts/start.sh" 'Cloudflare OAuth Bridge' && \
-  contains "$ROOT/scripts/start.sh" 'TUNNEL_URL:-https://mcp\.hamza\.my\.id' && \
+  ! contains "$ROOT/scripts/start.sh" 'mcp\.hamza\.my\.id' && \
   contains "$ROOT/scripts/start.sh" 'bridge_reconcile_1mcp' && \
   contains "$ROOT/scripts/start.sh" 'bridge_start_cloudflared' && \
   contains "$ROOT/scripts/start.sh" 'bridge_start_watchdog'
@@ -114,6 +114,63 @@ run_test 'status keeps duplicate and PID/listener diagnostics' test_status_has_c
 run_test 'systemd user unit autostarts the canonical bridge' test_systemd_user_autostart_contract
 run_test 'systemd installer derives user home when HOME is missing' test_systemd_installer_handles_missing_home
 run_test 'manual lifecycle and watchdog share an exclusive lock' test_lifecycle_lock_is_used_everywhere
+
+# ---------- Runtime/state selection ----------
+
+test_generated_deployment_uses_external_state() {
+  local sandbox="$TMP/external-state"
+  local fake_root="$sandbox/repo"
+  local state="$sandbox/state/mcp-dev-bridge"
+  local runtime="$sandbox/runtime"
+  mkdir -p "$fake_root" "$state/1mcp" "$runtime"
+  printf '{}\n' > "$state/1mcp/mcp.json"
+  cat > "$state/bridge.env" <<EOF
+MCP_BRIDGE_PROFILE='trusted-dev'
+MCP_WORKSPACE_ROOT='/tmp/workspace'
+MCP_PUBLIC_URL='https://example.test'
+MCP_TUNNEL_NAME=''
+MCP_BRIDGE_ROOT='$fake_root'
+BRIDGE_STATE_DIR='$state'
+EOF
+  env -u BRIDGE_RUN_DIR -u BRIDGE_CONFIG_DIR \
+    BRIDGE_ROOT="$fake_root" HOME="$sandbox/home" XDG_STATE_HOME="$sandbox/state" XDG_RUNTIME_DIR="$runtime" \
+    bash -c '
+      source "$1/scripts/bridge-common.sh"
+      [ "$BRIDGE_STATE_DIR" = "$3" ] &&
+      [ "$BRIDGE_CONFIG_DIR" = "$3/1mcp" ] &&
+      [ "$BRIDGE_RUN_DIR" = "$4/mcp-dev-bridge" ] &&
+      [ "$TUNNEL_URL" = "https://example.test" ] &&
+      [ "$BRIDGE_WORKSPACE_ROOT" = "/tmp/workspace" ]
+    ' _ "$ROOT" "$fake_root" "$state" "$runtime"
+}
+
+test_legacy_deployment_keeps_repo_state() {
+  local sandbox="$TMP/legacy-state"
+  local fake_root="$sandbox/repo"
+  mkdir -p "$fake_root/config" "$fake_root/run"
+  printf '{}\n' > "$fake_root/config/mcp.json"
+  : > "$fake_root/run/cloudflare-oauth.enabled"
+  env -u BRIDGE_RUN_DIR -u BRIDGE_CONFIG_DIR \
+    BRIDGE_ROOT="$fake_root" HOME="$sandbox/home" XDG_STATE_HOME="$sandbox/state" XDG_RUNTIME_DIR="$sandbox/runtime" \
+    bash -c '
+      source "$1/scripts/bridge-common.sh"
+      [ "$BRIDGE_CONFIG_DIR" = "$2/config" ] && [ "$BRIDGE_RUN_DIR" = "$2/run" ]
+    ' _ "$ROOT" "$fake_root"
+}
+
+test_explicit_state_overrides_win() {
+  local sandbox="$TMP/override-state"
+  mkdir -p "$sandbox/run" "$sandbox/config"
+  env BRIDGE_ROOT="$sandbox/root" BRIDGE_RUN_DIR="$sandbox/run" BRIDGE_CONFIG_DIR="$sandbox/config" \
+    bash -c '
+      source "$1/scripts/bridge-common.sh"
+      [ "$BRIDGE_RUN_DIR" = "$2" ] && [ "$BRIDGE_CONFIG_DIR" = "$3" ]
+    ' _ "$ROOT" "$sandbox/run" "$sandbox/config"
+}
+
+run_test 'generated deployment uses external XDG state' test_generated_deployment_uses_external_state
+run_test 'legacy deployment keeps repository state paths' test_legacy_deployment_keeps_repo_state
+run_test 'explicit runtime/config overrides win' test_explicit_state_overrides_win
 
 # ---------- Shared lifecycle behavior ----------
 
@@ -242,6 +299,7 @@ make_fake_stack() {
   local fakebin="$sandbox/fakebin"
   mkdir -p "$fakebin" "$sandbox/run" "$sandbox/config" "$sandbox/workspace" "$sandbox/global/@1mcp/agent/build"
   : > "$sandbox/global/@1mcp/agent/build/index.js"
+  printf '{}\n' > "$sandbox/config/mcp.json"
 
   cat > "$fakebin/node" <<'EOF'
 #!/usr/bin/env bash

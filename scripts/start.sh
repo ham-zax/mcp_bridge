@@ -5,8 +5,17 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$DIR/scripts/bridge-common.sh"
 
 TUNNEL_NAME="${TUNNEL_NAME:-}"
-TUNNEL_URL="${TUNNEL_URL:-https://mcp.hamza.my.id}"
+TUNNEL_URL="${TUNNEL_URL:-}"
 export TUNNEL_NAME TUNNEL_URL
+
+[ -n "$TUNNEL_URL" ] || {
+  echo "public URL is not configured; run scripts/setup.sh --profile restricted|trusted-dev first" >&2
+  exit 2
+}
+[ -f "$BRIDGE_CONFIG_DIR/mcp.json" ] || {
+  echo "1MCP config is missing at $BRIDGE_CONFIG_DIR/mcp.json; run scripts/setup.sh with an explicit profile" >&2
+  exit 2
+}
 
 for cmd in node npm cloudflared curl flock; do
   command -v "$cmd" >/dev/null 2>&1 || {

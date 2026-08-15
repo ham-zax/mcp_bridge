@@ -15,11 +15,11 @@ if bridge_enabled; then
 else
   DESIRED="stopped"
 fi
-PUBLIC_URL="$(cat "$BRIDGE_TUNNEL_URL_FILE" 2>/dev/null || printf '%s' "${TUNNEL_URL:-https://mcp.hamza.my.id}")"
+PUBLIC_URL="$(cat "$BRIDGE_TUNNEL_URL_FILE" 2>/dev/null || printf '%s' "${TUNNEL_URL:-}")"
 
 echo "== Cloudflare OAuth Bridge =="
 echo "desired state: $DESIRED"
-echo "public URL:    $PUBLIC_URL"
+echo "public URL:    ${PUBLIC_URL:-unconfigured}"
 
 echo
 echo "== 1MCP OAuth origin =="
@@ -60,7 +60,7 @@ else
   echo "local health: unreachable"
 fi
 
-if [ "$MCP_COUNT" -eq 1 ] && ! bridge_1mcp_matches "${MCP_PIDS[0]}" "$PUBLIC_URL"; then
+if [ "$MCP_COUNT" -eq 1 ] && [ -n "$PUBLIC_URL" ] && ! bridge_1mcp_matches "${MCP_PIDS[0]}" "$PUBLIC_URL"; then
   warn "1MCP process ${MCP_PIDS[0]} is not running with OAuth/external URL $PUBLIC_URL"
 fi
 
@@ -75,11 +75,13 @@ echo "cloudflared: $([ "$CLOUDFLARED_UP" = true ] && echo running || echo stoppe
 echo "watchdog:    $([ "$WATCHDOG_UP" = true ] && echo running || echo stopped)"
 
 PUBLIC_READY=false
-if curl -sf -m 5 "$PUBLIC_URL/health/ready" -o /dev/null; then
+if [ -n "$PUBLIC_URL" ] && curl -sf -m 5 "$PUBLIC_URL/health/ready" -o /dev/null; then
   PUBLIC_READY=true
   echo "public health: ok"
-else
+elif [ -n "$PUBLIC_URL" ]; then
   echo "public health: unreachable"
+else
+  echo "public health: unconfigured"
 fi
 
 if [ "$DESIRED" = "running" ]; then
@@ -96,7 +98,7 @@ fi
 
 echo
 echo "== overview =="
-echo "  MCP endpoint: $PUBLIC_URL/mcp"
+echo "  MCP endpoint: ${PUBLIC_URL:+$PUBLIC_URL/mcp}"
 echo "  local origin: http://127.0.0.1:3050/mcp"
 echo "  issues:       $ISSUES"
 
