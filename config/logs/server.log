@@ -1,0 +1,31 @@
+2026-08-15T00:31:41.566Z [INFO] Configuration loaded successfully with environment variable substitution
+2026-08-15T00:31:41.568Z [INFO] Started watching configuration directory: /home/hamza/repo/satori_bridge/config for file: mcp.json
+2026-08-15T00:31:41.568Z [INFO] ConfigManager initialized
+2026-08-15T00:31:41.568Z [INFO] ConfigChangeHandler initialized
+2026-08-15T00:31:41.578Z [INFO] PresetManager initialized successfully {"presetsLoaded":0,"configPath":"/home/hamza/repo/satori_bridge/config/presets.json"}
+2026-08-15T00:31:41.578Z [INFO] Preset management system initialized successfully
+2026-08-15T00:31:41.579Z [WARN] Transport type is missing for filesystem, inferring type...
+2026-08-15T00:31:41.579Z [INFO] Inferred transport type for filesystem as stdio
+2026-08-15T00:31:41.581Z [WARN] Transport type is missing for shell, inferring type...
+2026-08-15T00:31:41.581Z [INFO] Inferred transport type for shell as stdio
+2026-08-15T00:31:41.581Z [INFO] Created 2 static transports (template servers will be created per-client)
+2026-08-15T00:31:41.581Z [INFO] Using legacy synchronous loading mode - waiting for all MCP servers before starting HTTP server
+2026-08-15T00:31:41.582Z [INFO] Instruction aggregator initialized
+2026-08-15T00:31:41.583Z [INFO] Creating client for filesystem
+2026-08-15T00:31:41.595Z [INFO] Creating client for shell
+2026-08-15T00:31:42.080Z [WARN] Backend stderr {"serverName":"shell","source":"backend-stderr","line":"INFO:mcp-shell-server:Starting MCP shell server v1.1.8"}
+2026-08-15T00:31:42.088Z [INFO] Successfully connected to shell with server mcp-shell-server version 1.29.0
+2026-08-15T00:31:42.088Z [INFO] Client created for shell
+2026-08-15T00:31:43.032Z [WARN] Backend stderr {"serverName":"filesystem","source":"backend-stderr","line":"npm notice run npx"}
+2026-08-15T00:31:43.033Z [WARN] Backend stderr {"serverName":"filesystem","source":"backend-stderr","line":"npm notice run 'mcp-server-filesystem' /home/hamza/repo/satori /home/hamza/repo/trufflehog"}
+2026-08-15T00:31:43.250Z [WARN] Backend stderr {"serverName":"filesystem","source":"backend-stderr","line":"Secure MCP Filesystem Server running on stdio"}
+2026-08-15T00:31:43.261Z [INFO] Successfully connected to filesystem with server secure-filesystem-server version 0.2.0
+2026-08-15T00:31:43.261Z [INFO] Client created for filesystem
+2026-08-15T00:31:43.261Z [INFO] Connected to 2 MCP servers synchronously
+2026-08-15T00:31:43.262Z [INFO] Synchronous server setup completed - all MCP servers connected
+2026-08-15T00:31:43.267Z [INFO] Configuration loaded successfully with environment variable substitution
+2026-08-15T00:31:43.283Z [INFO] Authentication disabled - all endpoints accessible without auth
+2026-08-15T00:31:43.286Z [INFO] PID file written: /home/hamza/repo/satori_bridge/config/server.pid
+2026-08-15T00:31:43.293Z [INFO] Server is running on port 3050 with HTTP/SSE and Streamable HTTP transport without authentication
+2026-08-15T00:31:43.293Z [INFO] 📋 OAuth Management Dashboard: http://127.0.0.1:3050/oauth
+2026-08-15T00:31:43.295Z [WARN] Backend stderr {"serverName":"filesystem","source":"backend-stderr","line":"Failed to request initial roots from client: MCP error -32601: Method not found"}

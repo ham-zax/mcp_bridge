@@ -1,0 +1,21 @@
+# tunnel-client profile: ChatGPT Business -> Secure MCP Tunnel -> 1MCP (localhost:3050)
+# Generated equivalent: tunnel-client init --sample sample_mcp_with_dcr --profile hamza-local-dev
+#   --tunnel-id <ID> --mcp-server-url http://127.0.0.1:3050/mcp
+# Secrets: CONTROL_PLANE_API_KEY (Runtime API key) via env, never in this file.
+config_version: 1
+control_plane:
+  base_url: https://api.openai.com
+  tunnel_id: tunnel_REPLACE_ME_32_HEX
+  api_key: env:CONTROL_PLANE_API_KEY
+mcp:
+  server_urls:
+    - channel: main
+      url: http://127.0.0.1:3050/mcp
+  startup_wait_timeout: 60s
+health:
+  listen_addr: 127.0.0.1:8080
+process:
+  pid_file: /home/hamza/repo/satori_bridge/run/tunnel-client.pid
+log:
+  level: info
+  format: struct-text
