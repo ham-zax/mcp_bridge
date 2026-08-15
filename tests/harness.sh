@@ -53,11 +53,14 @@ if (restricted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'allowlist') process.ex
 if (trusted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'unrestricted') process.exit(1);
 if (restricted.mcpServers.dev.env.MCP_DEV_PATH_MODE !== 'workspace') process.exit(1);
 if (trusted.mcpServers.dev.env.MCP_DEV_PATH_MODE !== 'workspace') process.exit(1);
+if (restricted.mcpServers.dev.env.MCP_DEV_TERMINAL_SOCKET !== undefined) process.exit(1);
+if (trusted.mcpServers.dev.env.MCP_DEV_TERMINAL_SOCKET !== undefined) process.exit(1);
 if (personal.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'unrestricted') process.exit(1);
 if (personal.mcpServers.dev.env.MCP_DEV_PATH_MODE !== 'user') process.exit(1);
 const personalHome = '/home/' + 'hamza';
 if (personal.mcpServers.dev.env.MCP_DEV_DEFAULT_CWD !== personalHome) process.exit(1);
 if (personal.mcpServers.dev.env.MCP_DEV_WORKSPACE_ROOT !== undefined) process.exit(1);
+if (personal.mcpServers.dev.env.MCP_DEV_TERMINAL_SOCKET !== runtimeDir + '/wsl-agent-terminal.sock') process.exit(1);
 if (personal.mcpServers.code.command !== 'node') process.exit(1);
 if (!personal.mcpServers.code.args.includes(root + '/providers/code-router/server.mjs')) process.exit(1);
 if (personal.mcpServers.code.env.MCP_CODE_DEFAULT_CWD !== personalHome) process.exit(1);

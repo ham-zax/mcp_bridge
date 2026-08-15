@@ -7,6 +7,11 @@ import { runRead, runEdit, runWrite } from './files.mjs';
 import { runPatch } from './patch.mjs';
 import { runBash } from './shell.mjs';
 import { renderBashText, renderEditText, renderPatchText, renderWriteText } from './render.mjs';
+import { WaitEngine } from './wait-engine.mjs';
+import { LocalWaitSources } from './wait-local.mjs';
+import { waitInputSchema } from './wait-schema.mjs';
+import { WaitStore } from './wait-state.mjs';
+import { TerminalWaitSource } from './wait-terminal.mjs';
 
 const mode = process.env.MCP_DEV_SHELL_MODE;
 if (!['allowlist', 'unrestricted'].includes(mode)) {
@@ -42,6 +47,31 @@ if (!Number.isInteger(maxOutputBytes) || maxOutputBytes <= 0 || maxOutputBytes >
   process.exit(2);
 }
 
+let waitEngine = null;
+if (pathMode === 'user') {
+  const terminalSocketPath = process.env.MCP_DEV_TERMINAL_SOCKET;
+  if (typeof terminalSocketPath !== 'string' || !path.isAbsolute(terminalSocketPath)) {
+    console.error('MCP_DEV_TERMINAL_SOCKET must be an absolute path in user mode');
+    process.exit(2);
+  }
+  const { BrokerClient } = await import('../terminal/broker-client.mjs');
+  const terminalSource = new TerminalWaitSource({ client: new BrokerClient({ socketPath: terminalSocketPath }) });
+  const localSource = new LocalWaitSources({ defaultCwd });
+  waitEngine = new WaitEngine({
+    store: new WaitStore({ stateDir }),
+    sources: {
+      terminal_output: terminalSource,
+      terminal_exit: terminalSource,
+      process_exit: localSource,
+      tcp_listen: localSource,
+      file_exists: localSource,
+      file_changed: localSource,
+      http_ready: localSource,
+      systemd_user: localSource,
+    },
+  });
+}
+
 const server = new McpServer({ name: 'pi-dev', version: '0.1.0' });
 const modelPath = pathMode === 'user'
   ? z.string().min(1).describe('Path; relative paths resolve from the configured default cwd and absolute paths are accepted')
@@ -60,6 +90,30 @@ async function invoke(fn) {
       content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }]
     };
   }
+}
+
+async function invokeWait(fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    const code = typeof error?.code === 'string' ? `${error.code}: ` : '';
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `${code}${error instanceof Error ? error.message : String(error)}` }],
+    };
+  }
+}
+
+function renderWaitResult(result) {
+  if (result.status === 'pending') {
+    return `pending ${result.name} deadline=${new Date(result.deadlineAtMs).toISOString()}`;
+  }
+  if (result.status === 'matched') {
+    return `matched ${result.name}${result.evidence === undefined ? '' : ` ${String(result.evidence)}`}`;
+  }
+  if (result.status === 'timeout') return `timeout ${result.name}`;
+  if (result.status === 'cancelled') return `cancelled ${result.name}`;
+  return `${result.code ?? 'WAIT_FAILED'}: ${result.name}${result.evidence === undefined ? '' : ` ${String(result.evidence)}`}`;
 }
 
 server.registerTool('read', {
@@ -103,6 +157,20 @@ server.registerTool('write', {
 }));
 
 if (pathMode === 'user') {
+  server.registerTool('wait', {
+    description: 'Create, resume, or cancel one durable named local wait; Terminal output matches only new transcript output after the wait is armed',
+    inputSchema: waitInputSchema,
+  }, async (args, extra) => invokeWait(async () => {
+    const result = await waitEngine.run(args, extra.signal);
+    if (result.status === 'failed') {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: renderWaitResult(result) }],
+      };
+    }
+    return { content: [{ type: 'text', text: renderWaitResult(result) }] };
+  }));
+
   server.registerTool('apply_patch', {
     description: 'Apply one exact-context Codex-style patch for multi-file structural changes across WSL-user-accessible text files; preflights all targets before mutation, but a later runtime failure can report partial application',
     inputSchema: {

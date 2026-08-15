@@ -65,10 +65,13 @@ if (dev) {
     if (env.MCP_DEV_PATH_MODE !== 'user') throw new Error('personal MCP_DEV_PATH_MODE must be user');
     if (!path.isAbsolute(env.MCP_DEV_DEFAULT_CWD ?? '')) throw new Error('personal MCP_DEV_DEFAULT_CWD must be absolute');
     if (env.MCP_DEV_WORKSPACE_ROOT !== undefined) throw new Error('personal dev provider must not use MCP_DEV_WORKSPACE_ROOT');
+    if (!path.isAbsolute(env.MCP_DEV_TERMINAL_SOCKET ?? '')) throw new Error('personal MCP_DEV_TERMINAL_SOCKET must be absolute');
+    if (path.basename(env.MCP_DEV_TERMINAL_SOCKET) !== 'wsl-agent-terminal.sock') throw new Error('unexpected personal dev Terminal broker socket name');
   } else {
     if (env.MCP_DEV_PATH_MODE !== 'workspace') throw new Error('public MCP_DEV_PATH_MODE must be workspace');
     if (!path.isAbsolute(env.MCP_DEV_WORKSPACE_ROOT ?? '')) throw new Error('MCP_DEV_WORKSPACE_ROOT must be absolute');
     if (env.MCP_DEV_DEFAULT_CWD !== undefined) throw new Error('public dev provider must not set MCP_DEV_DEFAULT_CWD');
+    if (env.MCP_DEV_TERMINAL_SOCKET !== undefined) throw new Error('public dev provider must not set MCP_DEV_TERMINAL_SOCKET');
   }
 }
 NODE

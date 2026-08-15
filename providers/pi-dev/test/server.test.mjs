@@ -7,6 +7,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { BrokerClient } from '../../terminal/broker-client.mjs';
+import { makeSandbox, startBroker } from '../../terminal/test/helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const server = path.resolve(here, '..', 'server.mjs');
@@ -33,15 +35,16 @@ async function userFixture(maxBytes = '1048576') {
     MCP_DEV_PATH_MODE: 'user',
     MCP_DEV_DEFAULT_CWD: defaultCwd,
     MCP_DEV_STATE_DIR: stateDir,
-    MCP_DEV_MAX_OUTPUT_BYTES: maxBytes
+    MCP_DEV_MAX_OUTPUT_BYTES: maxBytes,
+    MCP_DEV_TERMINAL_SOCKET: path.join(stateDir, 'wsl-agent-terminal.sock')
   };
   return { defaultCwd, stateDir, env };
 }
 
-async function withClient(env, fn) {
+async function withClientAt(serverPath, env, fn) {
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [server],
+    args: [serverPath],
     env: { ...process.env, ...env },
     stderr: 'pipe'
   });
@@ -49,6 +52,10 @@ async function withClient(env, fn) {
   await client.connect(transport);
   try { return await fn(client); }
   finally { await client.close(); }
+}
+
+function withClient(env, fn) {
+  return withClientAt(server, env, fn);
 }
 
 function textOf(result) {
@@ -129,7 +136,7 @@ test('personal user mode exposes apply_patch alongside edit with user-path descr
   const { env } = await userFixture();
   await withClient(env, async client => {
     const listed = await client.listTools();
-    assert.deepEqual(listed.tools.map(x => x.name).sort(), ['apply_patch', 'bash', 'edit', 'read', 'write']);
+    assert.deepEqual(listed.tools.map(x => x.name).sort(), ['apply_patch', 'bash', 'edit', 'read', 'wait', 'write']);
     const read = listed.tools.find(x => x.name === 'read');
     assert.match(read.description, /absolute paths.*accepted/i);
     assert.match(read.inputSchema.properties.path.description, /relative.*default.*absolute/i);
@@ -144,6 +151,162 @@ test('personal user mode exposes apply_patch alongside edit with user-path descr
     assert.match(applyPatch.description, /partial/i);
     assert.match(applyPatch.inputSchema.properties.patch.description, /\*\*\* Move to:/i);
     assert.match(applyPatch.inputSchema.properties.cwd.description, /relative.*default.*absolute/i);
+  });
+});
+
+test('wait schema enforces create, resume, and cancel modes plus exact first-phase condition kinds', async () => {
+  const { waitInputSchema } = await import('../wait-schema.mjs');
+  const validKinds = [
+    { kind: 'terminal_output', session: 'term', literal: 'READY' },
+    { kind: 'terminal_exit', session: 'term' },
+    { kind: 'process_exit', pid: 123 },
+    { kind: 'tcp_listen', port: 4321 },
+    { kind: 'file_exists', path: 'ready.flag' },
+    { kind: 'file_changed', path: 'watched.txt' },
+    { kind: 'http_ready', url: 'http://127.0.0.1:8080/health' },
+    { kind: 'systemd_user', unit: 'demo.service' },
+  ];
+  for (const condition of validKinds) {
+    assert.equal(waitInputSchema.safeParse({ name: `wait-${condition.kind}`, condition }).success, true, condition.kind);
+  }
+  assert.equal(waitInputSchema.safeParse({ name: 'resume' }).success, true);
+  assert.equal(waitInputSchema.safeParse({ name: 'cancel', cancel: true }).success, true);
+  assert.equal(waitInputSchema.safeParse({ name: 'bad', condition: validKinds[0], cancel: true }).success, false);
+  assert.equal(waitInputSchema.safeParse({ name: 'bad', cancel: true, timeout_seconds: 10 }).success, false);
+  assert.equal(waitInputSchema.safeParse({
+    name: 'regex', condition: { kind: 'terminal_output', session: 'term', literal: 'READY', regex: '.*' },
+  }).success, false);
+  assert.equal(waitInputSchema.safeParse({
+    name: 'empty', condition: { kind: 'terminal_output', session: 'term', literal: '' },
+  }).success, false);
+  assert.equal(waitInputSchema.safeParse({
+    name: 'large', condition: { kind: 'terminal_output', session: 'term', literal: 'x'.repeat(1025) },
+  }).success, false);
+});
+
+test('personal wait reports WAIT_NOT_FOUND for resume of an unknown name', async () => {
+  const { env } = await userFixture();
+  await withClient(env, async client => {
+    const result = await client.callTool({ name: 'wait', arguments: { name: 'missing', hold_seconds: 0 } });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /WAIT_NOT_FOUND/);
+  });
+});
+
+test('personal wait create, idempotent retry, resume, and cancel stay concise native TextContent', async () => {
+  const { defaultCwd, env } = await userFixture();
+  await withClient(env, async client => {
+    const createArgs = {
+      name: 'ready-file',
+      condition: { kind: 'file_exists', path: 'ready.flag' },
+      timeout_seconds: 30,
+      hold_seconds: 0,
+    };
+    const created = await client.callTool({ name: 'wait', arguments: createArgs });
+    const createdText = textOf(created);
+    assert.match(createdText, /^pending ready-file deadline=/);
+    const deadline = createdText.split('deadline=')[1];
+
+    const retried = await client.callTool({ name: 'wait', arguments: createArgs });
+    assert.equal(textOf(retried), createdText);
+    assert.equal(textOf(retried).split('deadline=')[1], deadline);
+
+    await fs.writeFile(path.join(defaultCwd, 'ready.flag'), 'ready\n');
+    const matched = await client.callTool({ name: 'wait', arguments: { name: 'ready-file', hold_seconds: 0 } });
+    assert.equal(matched.isError, undefined);
+    assert.match(textOf(matched), /^matched ready-file file=.*ready\.flag exists$/);
+
+    const cancelCreated = await client.callTool({
+      name: 'wait',
+      arguments: {
+        name: 'cancel-file',
+        condition: { kind: 'file_exists', path: 'never.flag' },
+        hold_seconds: 0,
+      },
+    });
+    assert.match(textOf(cancelCreated), /^pending cancel-file deadline=/);
+    const cancelled = await client.callTool({ name: 'wait', arguments: { name: 'cancel-file', cancel: true } });
+    assert.equal(textOf(cancelled), 'cancelled cancel-file');
+  });
+});
+
+test('aborting a personal wait MCP call leaves its durable record pending', async () => {
+  const { stateDir, env } = await userFixture();
+  await withClient(env, async client => {
+    const created = await client.callTool({
+      name: 'wait',
+      arguments: {
+        name: 'abort-file',
+        condition: { kind: 'file_exists', path: 'never.flag' },
+        hold_seconds: 0,
+      },
+    });
+    assert.match(textOf(created), /^pending abort-file deadline=/);
+
+    const controller = new AbortController();
+    const pending = client.callTool(
+      { name: 'wait', arguments: { name: 'abort-file', hold_seconds: 15 } },
+      undefined,
+      { signal: controller.signal, timeout: 20000 },
+    );
+    setTimeout(() => controller.abort(), 60);
+    await assert.rejects(pending, /abort/i);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const record = JSON.parse(await fs.readFile(path.join(stateDir, 'waits', 'abort-file.json'), 'utf8'));
+    assert.equal(record.status, 'pending');
+  });
+});
+
+test('Terminal output wait through personal MCP does not consume the Terminal model cursor', async (t) => {
+  const sandbox = await makeSandbox(t);
+  await startBroker(t, sandbox);
+  const broker = new BrokerClient({ socketPath: sandbox.brokerSocket });
+  await broker.request('session.open', { name: 'mcp-wait-cursor', command: 'cat' });
+
+  const { env } = await userFixture();
+  env.MCP_DEV_TERMINAL_SOCKET = sandbox.brokerSocket;
+  await withClient(env, async client => {
+    const armed = await client.callTool({
+      name: 'wait',
+      arguments: {
+        name: 'terminal-marker',
+        condition: { kind: 'terminal_output', session: 'mcp-wait-cursor', literal: 'READY_FROM_WAIT' },
+        hold_seconds: 0,
+      },
+    });
+    assert.match(textOf(armed), /^pending terminal-marker deadline=/);
+
+    await broker.request('session.send', { name: 'mcp-wait-cursor', text: 'READY_FROM_WAIT' });
+    await broker.request('session.send', { name: 'mcp-wait-cursor', key: 'Enter' });
+    const matched = await client.callTool({
+      name: 'wait', arguments: { name: 'terminal-marker', hold_seconds: 2 },
+    });
+    assert.match(textOf(matched), /^matched terminal-marker output mcp-wait-cursor READY_FROM_WAIT /);
+
+    const unread = await broker.request('model.read', { name: 'mcp-wait-cursor' });
+    assert.match(unread.text, /READY_FROM_WAIT/);
+    const empty = await broker.request('model.read', { name: 'mcp-wait-cursor' });
+    assert.equal(empty.text, '');
+  });
+});
+
+test('workspace-mode pi-dev loads from a public-style fixture with the private Terminal tree absent', async () => {
+  const root = await tempDir('pi-dev-public-export-');
+  const publicProviders = path.join(root, 'providers');
+  const copiedPi = path.join(publicProviders, 'pi-dev');
+  await fs.mkdir(publicProviders, { recursive: true });
+  await fs.cp(path.resolve(here, '..'), copiedPi, {
+    recursive: true,
+    filter: source => path.basename(source) !== 'node_modules',
+  });
+  await fs.symlink(path.resolve(here, '..', 'node_modules'), path.join(copiedPi, 'node_modules'), 'dir');
+  await assert.rejects(() => fs.stat(path.join(publicProviders, 'terminal')), error => error?.code === 'ENOENT');
+
+  const { env } = await fixture('unrestricted');
+  await withClientAt(path.join(copiedPi, 'server.mjs'), env, async client => {
+    const listed = await client.listTools();
+    assert.deepEqual(listed.tools.map(tool => tool.name).sort(), ['bash', 'edit', 'read', 'write']);
   });
 });
 
