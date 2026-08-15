@@ -1,0 +1,7 @@
+.env
+run/
+config/logs/
+config/sessions/
+config/*.pid
+__pycache__/
+*.pyc

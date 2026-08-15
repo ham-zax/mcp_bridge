@@ -7,16 +7,22 @@
       "args": [
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/home/hamza/repo/satori",
-        "/home/hamza/repo/trufflehog"
+        "/home/hamza/repo"
       ],
       "tags": ["filesystem"]
     },
     "shell": {
       "command": "uvx",
-      "args": ["mcp-shell-server"],
+      "args": [
+        "--from",
+        "mcp-shell-server==1.1.8",
+        "python",
+        "/home/hamza/repo/satori_bridge/scripts/mcp-shell-server.py"
+      ],
       "env": {
-        "ALLOW_COMMANDS": "git,pnpm,node,npx,rg,grep,ls,cat,pwd",
+        "ALLOW_COMMANDS": "git,pnpm,node,npx,rg,grep,ls,cat,pwd,bash,sh",
+        "ALLOW_PATTERNS": ".*",
+        "MCP_SHELL_ALLOW_DANGEROUS": "ALL",
         "MCP_SHELL_DEFAULT_TIMEOUT_SECONDS": "30",
         "MCP_SHELL_MAX_TIMEOUT_SECONDS": "300",
         "MCP_SHELL_OUTPUT_LIMIT_BYTES": "1048576"

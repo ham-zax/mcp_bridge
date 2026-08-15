@@ -8,7 +8,7 @@ npm install -g @1mcp/agent
 
 echo "== verifying tool-provider prerequisites =="
 command -v npx >/dev/null || { echo "npx missing"; exit 1; }
-uv --version >/dev/null 2>&1 || { echo "uv missing (mvp-shell-server runs via uvx)"; exit 1; }
+uv --version >/dev/null 2>&1 || { echo "uv missing (mcp-shell-server runs via uvx)"; exit 1; }
 echo "  uvx: $(uvx --version)"
 echo "  node: $(node -v)  pnpm: $(pnpm -v)"
 
