@@ -33,9 +33,13 @@ function tmuxClients(socketPath) {
 }
 
 function spawnPseudoTtyCommand(t, command, env) {
+  const inheritedTerm = process.env.TERM;
+  const terminalType = inheritedTerm && inheritedTerm !== 'dumb'
+    ? inheritedTerm
+    : 'xterm-256color';
   const child = spawn('script', ['-q', '-e', '-c', command, '/dev/null'], {
     detached: true,
-    env: { ...process.env, ...env, TERM: process.env.TERM || 'xterm-256color' },
+    env: { ...process.env, ...env, TERM: terminalType },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   t.after(async () => {
