@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderBashText, renderEditText, renderWriteText } from '../render.mjs';
+import { renderBashText, renderEditText, renderPatchText, renderWriteText } from '../render.mjs';
 
 function record(overrides = {}) {
   return {
@@ -59,6 +59,22 @@ test('edit renderer returns one path plus diff without Pi success prose', () => 
 
 test('write renderer is a short creation acknowledgement', () => {
   assert.equal(renderWriteText('repo/src/new.ts'), 'Created repo/src/new.ts');
+});
+
+test('patch renderer returns a compact native multi-file diff summary', () => {
+  const text = renderPatchText({
+    changes: [
+      { kind: 'update', path: 'src/a.ts', additions: 2, deletions: 1 },
+      { kind: 'add', path: 'src/new.ts', additions: 3, deletions: 0 },
+      { kind: 'delete', path: 'src/old.ts', additions: 0, deletions: 4 },
+      { kind: 'move', path: 'src/from.ts', moveTo: 'src/to.ts', additions: 1, deletions: 1 }
+    ]
+  });
+  assert.equal(
+    text,
+    'M src/a.ts (+2 -1)\nA src/new.ts (+3)\nD src/old.ts (-4)\nR src/from.ts -> src/to.ts (+1 -1)'
+  );
+  assert.doesNotMatch(text, /Begin Patch|Successfully|Done!/);
 });
 
 test('signal termination renders a meaningful native annotation', () => {

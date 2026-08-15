@@ -4,8 +4,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { canonicalDefaultCwd, canonicalWorkspaceRoot } from './boundary.mjs';
 import { runRead, runEdit, runWrite } from './files.mjs';
+import { runPatch } from './patch.mjs';
 import { runBash } from './shell.mjs';
-import { renderBashText, renderEditText, renderWriteText } from './render.mjs';
+import { renderBashText, renderEditText, renderPatchText, renderWriteText } from './render.mjs';
 
 const mode = process.env.MCP_DEV_SHELL_MODE;
 if (!['allowlist', 'unrestricted'].includes(mode)) {
@@ -80,7 +81,7 @@ server.registerTool('read', {
 
 server.registerTool('edit', {
   description: pathMode === 'user'
-    ? 'Apply exact, disjoint replacements to a WSL-user-accessible text file; relative paths use the configured default cwd and absolute paths are accepted'
+    ? 'Apply guarded exact, disjoint replacements to a single-file text target; relative paths use the configured default cwd and absolute paths are accepted'
     : 'Apply one or more exact, disjoint replacements below the workspace root',
   inputSchema: {
     path: modelPath,
@@ -100,6 +101,19 @@ server.registerTool('write', {
   await runWrite({ ...pathPolicy, ...args }, extra.signal);
   return { content: [{ type: 'text', text: renderWriteText(args.path) }] };
 }));
+
+if (pathMode === 'user') {
+  server.registerTool('apply_patch', {
+    description: 'Apply one exact-context Codex-style patch for multi-file structural changes across WSL-user-accessible text files; preflights all targets before mutation, but a later runtime failure can report partial application',
+    inputSchema: {
+      patch: z.string().min(1).describe('Patch text using *** Begin Patch, *** Update File:, optional *** Move to:, @@ hunks with space/-/+ lines, *** Add File:, *** Delete File:, and *** End Patch'),
+      cwd: cwdPath.optional()
+    }
+  }, async (args, extra) => invoke(async () => {
+    const result = await runPatch({ ...pathPolicy, ...args }, extra.signal);
+    return { content: [{ type: 'text', text: renderPatchText(result) }] };
+  }));
+}
 
 if (mode === 'unrestricted') {
   server.registerTool('bash', {

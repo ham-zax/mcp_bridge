@@ -125,17 +125,25 @@ test('restricted omits unrestricted Pi bash', async () => {
   });
 });
 
-test('personal user mode exposes the same four primitives with user-path descriptions', async () => {
+test('personal user mode exposes apply_patch alongside edit with user-path descriptions', async () => {
   const { env } = await userFixture();
   await withClient(env, async client => {
     const listed = await client.listTools();
-    assert.deepEqual(listed.tools.map(x => x.name).sort(), ['bash', 'edit', 'read', 'write']);
+    assert.deepEqual(listed.tools.map(x => x.name).sort(), ['apply_patch', 'bash', 'edit', 'read', 'write']);
     const read = listed.tools.find(x => x.name === 'read');
     assert.match(read.description, /absolute paths.*accepted/i);
     assert.match(read.inputSchema.properties.path.description, /relative.*default.*absolute/i);
     const bash = listed.tools.find(x => x.name === 'bash');
     assert.match(bash.description, /default cwd/i);
     assert.match(bash.inputSchema.properties.cwd.description, /relative.*default.*absolute/i);
+    const edit = listed.tools.find(x => x.name === 'edit');
+    assert.match(edit.description, /single-file.*guarded|guarded.*single-file/i);
+    const applyPatch = listed.tools.find(x => x.name === 'apply_patch');
+    assert.deepEqual(Object.keys(applyPatch.inputSchema.properties).sort(), ['cwd', 'patch']);
+    assert.match(applyPatch.description, /multi-file.*structural|structural.*multi-file/i);
+    assert.match(applyPatch.description, /partial/i);
+    assert.match(applyPatch.inputSchema.properties.patch.description, /\*\*\* Move to:/i);
+    assert.match(applyPatch.inputSchema.properties.cwd.description, /relative.*default.*absolute/i);
   });
 });
 
@@ -161,6 +169,58 @@ test('personal bash uses stable default cwd and accepts relative or absolute cwd
     assert.equal(textOf(relative).trim(), await fs.realpath(path.join(defaultCwd, 'repo')));
     const absolute = await client.callTool({ name: 'bash', arguments: { command: 'pwd', cwd: '/tmp' } });
     assert.equal(textOf(absolute).trim(), await fs.realpath('/tmp'));
+  });
+});
+
+test('personal apply_patch mutates through explicit cwd and returns native summary text', async () => {
+  const { defaultCwd, env } = await userFixture();
+  const repo = path.join(defaultCwd, 'repo');
+  await fs.mkdir(repo);
+  await fs.writeFile(path.join(repo, 'a.txt'), 'alpha\nbeta\n');
+  await withClient(env, async client => {
+    const result = await client.callTool({
+      name: 'apply_patch',
+      arguments: {
+        cwd: 'repo',
+        patch: [
+          '*** Begin Patch',
+          '*** Update File: a.txt',
+          '@@',
+          '-alpha',
+          '+ALPHA',
+          '*** Add File: b.txt',
+          '+new',
+          '*** End Patch'
+        ].join('\n')
+      }
+    });
+    assert.equal(result.isError, undefined);
+    assert.equal(textOf(result), 'M a.txt (+1 -1)\nA b.txt (+1)');
+    assert.equal(await fs.readFile(path.join(repo, 'a.txt'), 'utf8'), 'ALPHA\nbeta\n');
+    assert.equal(await fs.readFile(path.join(repo, 'b.txt'), 'utf8'), 'new\n');
+  });
+});
+
+test('personal apply_patch returns exact-context diagnostics without structured content', async () => {
+  const { defaultCwd, env } = await userFixture();
+  await fs.writeFile(path.join(defaultCwd, 'x.txt'), 'same\nother\nsame\n');
+  await withClient(env, async client => {
+    const result = await client.callTool({
+      name: 'apply_patch',
+      arguments: {
+        patch: [
+          '*** Begin Patch',
+          '*** Update File: x.txt',
+          '@@',
+          '-same',
+          '+changed',
+          '*** End Patch'
+        ].join('\n')
+      }
+    });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /ambiguous \(2 matches\)/i);
+    assert.equal(await fs.readFile(path.join(defaultCwd, 'x.txt'), 'utf8'), 'same\nother\nsame\n');
   });
 });
 
