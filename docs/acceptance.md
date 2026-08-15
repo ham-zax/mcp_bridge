@@ -50,15 +50,15 @@ https://<your-hostname>/mcp
 
 Complete OAuth consent and invoke a harmless provider operation. On pinned 1MCP 0.34.4, setup must have verified/applied the HTTPS `form-action` CSP compatibility patch before this test.
 
-## 4. Filesystem boundary
+## 4. Files providers during A/B
 
-Read a file inside the configured workspace and verify the filesystem provider denies a path outside its configured root.
+Verify the legacy filesystem provider still enforces its root. Then verify `dev.read`, `dev.edit`, and `dev.write` use paths relative to the configured workspace. Absolute paths, `..` traversal, existing symlink escapes, and new-file creation through a symlinked outside parent must fail. Verify two concurrent creates for one absent path yield exactly one success.
 
-## 5. Shell profile
+## 5. Shell profile and native result boundary during A/B
 
-For `restricted`, verify a command permitted by the selected policy succeeds and a command denied by that policy remains denied.
+For `restricted`, verify `dev` advertises `read`, `edit`, and `write` but not `bash`; the separate legacy shell must still enforce restricted policy.
 
-For `trusted-dev`, verify normal Linux development commands execute with service-user authority. Use harmless commands for acceptance; unrestricted authority is a policy property, not a requirement to perform destructive actions.
+For `trusted-dev`, verify `dev.bash` accepts one native command string with optional workspace-relative cwd. Successful output must appear as terminal text, a normal non-zero exit must append `[exit N]`, and the result must not expose `structuredContent` or a JSON execution record.
 
 ## 6. Recovery
 

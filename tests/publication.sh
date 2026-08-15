@@ -34,6 +34,9 @@ test_public_structure() {
   [ -f "$ROOT/config/profiles/trusted-dev.env" ] && \
   [ -f "$ROOT/systemd/mcp-dev-bridge.service.in" ] && \
   [ -f "$ROOT/providers/legacy-shell/server.py" ] && \
+  [ -f "$ROOT/providers/pi-dev/server.mjs" ] && \
+  [ -f "$ROOT/providers/pi-dev/package.json" ] && \
+  [ -f "$ROOT/providers/pi-dev/package-lock.json" ] && \
   [ -f "$ROOT/scripts/render-config.mjs" ]
 }
 
@@ -53,6 +56,8 @@ test_explicit_profile_contract() {
 }
 
 test_profiles_are_distinct() {
+  grep -Fqx 'MCP_SHELL_MODE=allowlist' "$ROOT/config/profiles/restricted.env" || return 1
+  grep -Fqx 'MCP_SHELL_MODE=unrestricted' "$ROOT/config/profiles/trusted-dev.env" || return 1
   contains "$ROOT/config/profiles/trusted-dev.env" '^MCP_SHELL_ALLOW_DANGEROUS=ALL$' && \
   ! contains "$ROOT/config/profiles/restricted.env" '^MCP_SHELL_ALLOW_DANGEROUS=ALL$'
 }
@@ -70,14 +75,37 @@ EOF
     state="$tmp/$profile"
     node "$ROOT/scripts/render-config.mjs" --profile "$profile" --env-file "$env_file" --state-dir "$state" --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
     config="$state/1mcp/mcp.json"
-    node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!c.mcpServers?.filesystem || !c.mcpServers?.shell) process.exit(1)' "$config" || { rm -rf "$tmp"; return 1; }
+    node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!c.mcpServers?.filesystem || !c.mcpServers?.shell || !c.mcpServers?.dev) process.exit(1)' "$config" || { rm -rf "$tmp"; return 1; }
     grep -Fq '/tmp/example-workspace' "$config" || { rm -rf "$tmp"; return 1; }
     grep -Fq "$ROOT/providers/legacy-shell/server.py" "$config" || { rm -rf "$tmp"; return 1; }
     grep -Fq "MCP_BRIDGE_PROFILE='$profile'" "$state/bridge.env" || { rm -rf "$tmp"; return 1; }
   done
   grep -Fq '"MCP_SHELL_ALLOW_DANGEROUS": "ALL"' "$tmp/trusted-dev/1mcp/mcp.json" || { rm -rf "$tmp"; return 1; }
   grep -Fq '"MCP_SHELL_ALLOW_DANGEROUS": ""' "$tmp/restricted/1mcp/mcp.json" || { rm -rf "$tmp"; return 1; }
+  node - "$tmp/restricted/1mcp/mcp.json" "$tmp/trusted-dev/1mcp/mcp.json" <<'NODE'
+const fs = require('fs');
+const [restrictedFile, trustedFile] = process.argv.slice(2);
+const restricted = JSON.parse(fs.readFileSync(restrictedFile, 'utf8'));
+const trusted = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
+for (const cfg of [restricted, trusted]) {
+  const env = cfg.mcpServers.dev.env;
+  if (env.MCP_DEV_WORKSPACE_ROOT !== '/tmp/example-workspace') process.exit(1);
+  if (env.MCP_DEV_MAX_OUTPUT_BYTES !== '1048576') process.exit(1);
+  if (!env.MCP_DEV_STATE_DIR.endsWith('/dev')) process.exit(1);
+}
+if (restricted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'allowlist') process.exit(1);
+if (trusted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'unrestricted') process.exit(1);
+NODE
   rm -rf "$tmp"
+}
+
+test_pi_install_and_smoke_contract() {
+  grep -Fq 'npm --prefix "$DIR/providers/pi-dev" ci --omit=dev' "$ROOT/scripts/setup.sh" || return 1
+  grep -Fq 'unexpected Pi version' "$ROOT/scripts/setup.sh" || return 1
+  grep -Fq 'MCP_DEV_WORKSPACE_ROOT' "$ROOT/scripts/smoke-local.sh" || return 1
+  grep -Fq 'MCP_DEV_STATE_DIR' "$ROOT/scripts/smoke-local.sh" || return 1
+  grep -Fq 'MCP_DEV_MAX_OUTPUT_BYTES' "$ROOT/scripts/smoke-local.sh" || return 1
+  grep -Fq 'MCP_DEV_SHELL_MODE' "$ROOT/scripts/smoke-local.sh" || return 1
 }
 
 test_env_is_ignored() {
@@ -166,6 +194,7 @@ run_test 'publication directory structure exists' test_public_structure
 run_test 'setup requires explicit trust profile' test_explicit_profile_contract
 run_test 'trusted-dev is unrestricted while restricted is not' test_profiles_are_distinct
 run_test 'renderer generates valid external state for both profiles' test_renderer_generates_both_profiles
+run_test 'setup and smoke preserve pinned Pi deployment contract' test_pi_install_and_smoke_contract
 run_test '.env remains ignored' test_env_is_ignored
 run_test 'runtime and 1MCP state default outside the repository' test_state_defaults_are_external
 run_test 'lifecycle selects an actually rendered external deployment' test_rendered_deployment_is_selected_by_lifecycle

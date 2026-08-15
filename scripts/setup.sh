@@ -101,6 +101,16 @@ if [ "${BRIDGE_SETUP_SKIP_INSTALL:-0}" != "1" ]; then
   echo "  shell MCP:      mcp-shell-server==$SHELL_MCP_VERSION"
   echo "  cloudflared:     $(cloudflared --version 2>/dev/null | head -n1)"
   echo "  node:            $(node -v)"
+
+  echo "== installing pinned Pi dev provider dependencies =="
+  npm --prefix "$DIR/providers/pi-dev" ci --omit=dev
+  PI_PACKAGE="$DIR/providers/pi-dev/node_modules/@earendil-works/pi-coding-agent/package.json"
+  PI_VERSION="$(node -p "require(process.argv[1]).version" "$PI_PACKAGE")"
+  [ "$PI_VERSION" = "0.84.1" ] || {
+    echo "unexpected Pi version: $PI_VERSION" >&2
+    exit 1
+  }
+  echo "  Pi coding primitives: @earendil-works/pi-coding-agent@$PI_VERSION"
 fi
 
 RENDER_ARGS=(--profile "$PROFILE" --env-file "$ENV_FILE" --repo-root "$DIR")

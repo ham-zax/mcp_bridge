@@ -93,10 +93,21 @@ export async function renderConfig(options) {
   const deployment = {
     ...(await readEnvFile(envFile, { optional: true })),
     ...Object.fromEntries(
-      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
+      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
     ),
   };
   const profileValues = await readEnvFile(path.join(repoRoot, 'config', 'profiles', `${profile}.env`));
+
+  const shellMode = profileValues.MCP_SHELL_MODE;
+  if (!['allowlist', 'unrestricted'].includes(shellMode)) {
+    throw new Error(`profile ${profile} must set MCP_SHELL_MODE=allowlist or unrestricted`);
+  }
+
+  const devMaxOutputBytesRaw = deployment.MCP_DEV_MAX_OUTPUT_BYTES ?? '1048576';
+  const devMaxOutputBytes = Number(devMaxOutputBytesRaw);
+  if (!Number.isInteger(devMaxOutputBytes) || devMaxOutputBytes <= 0 || devMaxOutputBytes > 16 * 1024 * 1024) {
+    throw new Error('MCP_DEV_MAX_OUTPUT_BYTES must be an integer from 1 to 16777216');
+  }
 
   const workspaceRoot = deployment.MCP_WORKSPACE_ROOT;
   const publicUrl = deployment.MCP_PUBLIC_URL;
@@ -119,6 +130,9 @@ export async function renderConfig(options) {
     __SHELL_ALLOW_COMMANDS__: profileValues.MCP_SHELL_ALLOW_COMMANDS ?? '',
     __SHELL_ALLOW_PATTERNS__: profileValues.MCP_SHELL_ALLOW_PATTERNS ?? '',
     __SHELL_ALLOW_DANGEROUS__: profileValues.MCP_SHELL_ALLOW_DANGEROUS ?? '',
+    __SHELL_MODE__: shellMode,
+    __DEV_STATE_DIR__: path.join(stateDir, 'dev'),
+    __DEV_MAX_OUTPUT_BYTES__: String(devMaxOutputBytes),
   });
 
   const oneMcpDir = path.join(stateDir, '1mcp');

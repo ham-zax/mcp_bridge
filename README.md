@@ -79,7 +79,7 @@ Legacy `scripts/start.sh`, `scripts/status.sh`, and `scripts/stop.sh` remain com
 
 ## Current development surface
 
-The publication scaffold intentionally preserves the existing filesystem and shell providers while the later development-harness work is evaluated. The intended architectural domains are Code, Files, Shell, and Terminal; provider implementations remain replaceable.
+The bridge evaluated CodeDB and removed it after its independent benchmark failed the required post-edit freshness gate; the benchmark evidence remains under `docs/benchmarks/`. The remaining experimental `dev` provider uses pinned Pi primitives for workspace-relative `read`, exact guarded multi-`edit`, and atomic create-only `write`. Under `trusted-dev` it also exposes native-command `bash`; under `restricted` it deliberately omits Pi Bash and the existing allowlisted shell remains responsible for Shell. Dev results are plain model-facing text: source, one diff, a short create acknowledgement, or terminal output. The legacy filesystem and shell providers remain during A/B and are removed only by an explicit cutover.
 
 ## Important 1MCP 0.34.4 compatibility behavior
 
