@@ -10,7 +10,7 @@
 Previous verdict: REMOVE
 Correction classification: adapter / architecture mismatch
 Rooted watcher: PASS
-Current product verdict: RETEST_REQUIRED pending Pi-era value comparison
+Current product verdict: ROUTER_EXPERIMENT
 ```
 
 The original context benchmark remains useful, but its freshness gate launched one neutral-root MCP process and used the optional per-call `project=<other-project>` switch for the Satori repository. The correction phase independently reproduced that alternate-project path as a snapshot-style adapter path that did not follow external changes. That result is not evidence that CodeDB's primary rooted watcher is defective.
@@ -186,4 +186,57 @@ Evidence that must be re-evaluated against the current product rather than reuse
 
 Inference: the reliability blocker used for the previous removal was an architecture/adapter mismatch. It no longer justifies `REMOVE`.
 
-Policy decision: **CodeDB remains RETEST_REQUIRED until Task 5 compares Pi-only development with Pi + correctly rooted CodeDB.**
+## Pi-era value comparison
+
+The correction phase compared the current four-tool trusted `dev` surface against `dev +` correctly rooted CodeDB on the same semantic-search tracing task.
+
+### Incremental schema cost
+
+| Surface | Tools | Normalized schema bytes | Estimated tokens |
+|---|---:|---:|---:|
+| Pi `dev` only | 4 | 1,737 | 408 |
+| rooted CodeDB only | 10 | 10,788 | 2,368 |
+| Pi + rooted CodeDB | 14 | 12,524 | 2,774 |
+
+Observed fact: CodeDB adds roughly 2.4k always-visible schema tokens to the four-tool Pi surface, so navigation savings must amortize a large fixed cost.
+
+### Same-task evidence trace
+
+Both sides used eight direct MCP calls against the same repository commit and recovered the same concrete request-chain files/functions. The CodeDB trace used rooted calls with no `project` override.
+
+| Metric | Pi only | Pi + rooted CodeDB | Delta |
+|---|---:|---:|---:|
+| task calls | 8 | 8 | same |
+| request bytes | 847 | 838 | -1.1% |
+| request tokens | 232 | 212 | -8.6% |
+| result bytes | 48,329 | 22,751 | -52.9% |
+| result tokens | 9,618 | 5,115 | -46.8% |
+| direct provider wall time | 52.7 ms | 504.2 ms | CodeDB ~9.6x slower, +451 ms absolute |
+| schema + requests + results | 10,258 tokens | 8,101 tokens | CodeDB -21.0% |
+
+Observed fact: even after paying the full combined CodeDB schema cost, this multi-step trace used about 2.2k fewer estimated tokens with CodeDB. The direct execution penalty remained below one second but was materially slower than Pi-native Bash/read operations.
+
+### First-touch quality diagnostic
+
+The original `codedb_context(task)` result was compact but noisy and did not identify the real request chain; a seeded path-filtered `handleSearchCode` search also returned zero. This limits how much of the fixed trace can be interpreted as autonomous orientation quality.
+
+A more natural follow-up search for the likely tool name `search_codebase` did show CodeDB's useful search behavior:
+
+| Search | Request tokens | Result tokens | Direct wall |
+|---|---:|---:|---:|
+| Pi `dev.bash` + `rg` | 33 | 1,255 | 18.2 ms |
+| rooted `codedb_search` | 16 | 592 | 1.45 ms |
+
+The CodeDB search returned the primary `packages/mcp/src/tools/search_codebase.ts` match near the top while using about half the request/result tokens. The value case is therefore strongest for ranked search, bounded code reads, and caller/navigation primitives—not for treating `codedb_context` as an infallible first-touch answer.
+
+### Freshness in the representative repository
+
+A final Pi-produced source fixture in the representative repository advanced rooted CodeDB `seq 1080 -> 1081` on create and `1081 -> 1082` on edit. Both markers became searchable without `project` or `codedb_read`; the disposable file was then removed and the Git path remained clean.
+
+### Multi-repository constraint and verdict
+
+At measurement time the configured workspace contained 30 top-level Git repositories. A single fixed `MCP_CODE_ROOT` would therefore make rooted CodeDB reliable for only one repository, while the alternate-project switch is exactly the path that failed automatic freshness.
+
+Inference: correctly rooted CodeDB has enough compression/navigation value to justify continuing the experiment, but the current one-root deployment shape is not sufficient for the intended workspace.
+
+Policy decision: **CodeDB = ROUTER_EXPERIMENT.** Do not re-add a single fixed-root CodeDB provider to the final live product yet. The next Code-domain experiment should preserve one rooted CodeDB process per active repository behind a small routing boundary without exposing a large new model-facing catalog.

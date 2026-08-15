@@ -75,9 +75,21 @@ The corrected range result removes the strongest token-saving claim for `dev.rea
 
 The old stale-index failure is **adapter / architecture mismatch** evidence for neutral-root + per-call alternate-project routing. It is not evidence against the primary rooted watcher.
 
-### Current product verdict
+### Pi-era value comparison
 
-**CodeDB = RETEST_REQUIRED pending Pi-era value comparison.** Rooted freshness is now `PASS`; Task 5 must decide whether the extra Code domain is worth its incremental schema/context cost and whether one fixed repository root is sufficient.
+- Pi-only normalized schema: 4 tools / 408 estimated tokens.
+- Rooted CodeDB adds 10 tools / 2,368 estimated schema tokens; combined surface is 14 tools / 2,774 tokens.
+- On the same eight-call semantic-search trace, Pi-only used 232 request + 9,618 result tokens; Pi + rooted CodeDB used 212 request + 5,115 result tokens.
+- Including the full advertised schema cost, combined accounting was 10,258 tokens for Pi-only versus 8,101 for Pi + CodeDB: CodeDB reduced the estimate by 21.0%.
+- CodeDB direct provider wall time was 504 ms versus 53 ms for Pi-only; the added latency was material proportionally but about 451 ms absolute.
+- A natural `search_codebase` first-search diagnostic used 16 request / 592 result tokens with rooted CodeDB versus 33 / 1,255 through Pi `rg`.
+- `codedb_context(task)` itself was noisy and did not identify the real request chain, so the value case is ranked search/bounded reads/caller navigation rather than blind reliance on context composition.
+- Representative-repository Pi create/edit freshness passed again: rooted CodeDB advanced `1080 -> 1081 -> 1082` without `project` or `codedb_read`.
+- The configured workspace contained 30 top-level Git repositories at measurement time; one fixed root is therefore insufficient.
+
+### Policy decision
+
+**CodeDB = ROUTER_EXPERIMENT.** Rooted freshness and navigation compression are good enough to continue, but CodeDB should not return to the final live product as one fixed-root provider. A later Code-domain experiment should route repository selection to separate rooted CodeDB processes while keeping the model-facing surface small.
 
 ## GCF correction
 
