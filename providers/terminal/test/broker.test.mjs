@@ -78,6 +78,192 @@ test('broker restart preserves tmux server, PTY process, transcript capture, and
   assert.equal(killed.ok, true, JSON.stringify(killed));
 });
 
+test('broker reconciliation keeps an existing live transcript pipe attached after restart', async (t) => {
+  const sandbox = await makeSandbox(t);
+  const broker1 = await startBroker(t, sandbox);
+
+  const opened = await brokerRequest(sandbox.brokerSocket, request('pipe-open', 'session.open', {
+    name: 'pipe-live', command: 'cat',
+  }));
+  assert.equal(opened.ok, true, JSON.stringify(opened));
+
+  await brokerRequest(sandbox.brokerSocket, request('pipe-before-text', 'session.send', {
+    name: 'pipe-live', text: 'PIPE_BEFORE',
+  }));
+  await brokerRequest(sandbox.brokerSocket, request('pipe-before-enter', 'session.send', {
+    name: 'pipe-live', key: 'Enter',
+  }));
+
+  let before;
+  await waitFor(async () => {
+    const response = await brokerRequest(sandbox.brokerSocket, request('pipe-read-before', 'session.read', {
+      name: 'pipe-live', cursor: 0, maxBytes: 65536,
+    }));
+    if (!response.ok || !response.result.text.includes('PIPE_BEFORE')) return false;
+    before = response.result;
+    return true;
+  }, { description: 'pre-restart pipe output' });
+
+  broker1.kill('SIGTERM');
+  await onceExit(broker1);
+  await startBroker(t, sandbox);
+
+  await brokerRequest(sandbox.brokerSocket, request('pipe-after-text', 'session.send', {
+    name: 'pipe-live', text: 'PIPE_AFTER',
+  }));
+  await brokerRequest(sandbox.brokerSocket, request('pipe-after-enter', 'session.send', {
+    name: 'pipe-live', key: 'Enter',
+  }));
+
+  await waitFor(async () => {
+    const response = await brokerRequest(sandbox.brokerSocket, request('pipe-read-after', 'session.read', {
+      name: 'pipe-live', cursor: before.nextCursor, maxBytes: 65536,
+    }));
+    return response.ok && response.result.text.includes('PIPE_AFTER');
+  }, { description: 'post-restart output through existing transcript pipe' });
+});
+
+test('model read uses one persisted broker-owned cursor across zero-output reads, recovery controls, snapshots, and restart', async (t) => {
+  const sandbox = await makeSandbox(t);
+  const broker1 = await startBroker(t, sandbox);
+
+  const opened = await brokerRequest(sandbox.brokerSocket, request('model-open', 'session.open', {
+    name: 'model-cursor',
+    command: "printf 'MODEL_FIRST\\n'; exec cat",
+  }));
+  assert.equal(opened.ok, true, JSON.stringify(opened));
+
+  let first = null;
+  let firstText = '';
+  await waitFor(async () => {
+    const response = await brokerRequest(sandbox.brokerSocket, request('model-read-first', 'model.read', {
+      name: 'model-cursor',
+    }));
+    if (!response.ok) return false;
+    first = response.result;
+    firstText += response.result.text;
+    return firstText.includes('MODEL_FIRST');
+  }, { description: 'first model cursor output' });
+  assert.ok(first.nextCursor > 0);
+
+  const duplicate = await brokerRequest(sandbox.brokerSocket, request('model-read-empty', 'model.read', {
+    name: 'model-cursor',
+  }));
+  assert.equal(duplicate.ok, true, JSON.stringify(duplicate));
+  assert.equal(duplicate.result.text, '');
+  assert.equal(duplicate.result.cursor, first.nextCursor);
+  assert.equal(duplicate.result.nextCursor, first.nextCursor);
+
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('model-send-second', 'session.send', {
+    name: 'model-cursor', text: 'MODEL_SECOND',
+  }))).ok, true);
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('model-send-enter', 'session.send', {
+    name: 'model-cursor', key: 'Enter',
+  }))).ok, true);
+
+  let second = null;
+  let secondText = '';
+  await waitFor(async () => {
+    const response = await brokerRequest(sandbox.brokerSocket, request('model-read-second', 'model.read', {
+      name: 'model-cursor',
+    }));
+    if (!response.ok) return false;
+    second = response.result;
+    secondText += response.result.text;
+    return secondText.includes('MODEL_SECOND');
+  }, { description: 'second model cursor output' });
+  assert.ok(second.nextCursor > first.nextCursor);
+
+  const replay = await brokerRequest(sandbox.brokerSocket, request('model-read-explicit', 'model.read', {
+    name: 'model-cursor', cursor: 0,
+  }));
+  assert.equal(replay.ok, true, JSON.stringify(replay));
+  assert.match(replay.result.text, /MODEL_FIRST/);
+  const replayEnd = replay.result.nextCursor;
+
+  const ahead = await brokerRequest(sandbox.brokerSocket, request('model-read-ahead', 'model.read', {
+    name: 'model-cursor', cursor: replay.result.endOffset + 1,
+  }));
+  assert.equal(ahead.ok, false, JSON.stringify(ahead));
+  assert.equal(ahead.error.code, 'CURSOR_AHEAD');
+
+  const afterAhead = await brokerRequest(sandbox.brokerSocket, request('model-read-after-ahead', 'model.read', {
+    name: 'model-cursor',
+  }));
+  assert.equal(afterAhead.ok, true, JSON.stringify(afterAhead));
+  assert.equal(afterAhead.result.cursor, replayEnd);
+  assert.equal(afterAhead.result.text, '');
+
+  const snapshot = await brokerRequest(sandbox.brokerSocket, request('model-snapshot', 'model.read', {
+    name: 'model-cursor', snapshot: true,
+  }));
+  assert.equal(snapshot.ok, true, JSON.stringify(snapshot));
+  assert.equal(snapshot.result.snapshot, true);
+  assert.match(snapshot.result.text, /MODEL_SECOND/);
+
+  const brokerPidBefore = broker1.pid;
+  broker1.kill('SIGTERM');
+  await onceExit(broker1);
+  const broker2 = await startBroker(t, sandbox);
+  assert.notEqual(broker2.pid, brokerPidBefore);
+
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('model-send-third', 'session.send', {
+    name: 'model-cursor', text: 'MODEL_THIRD',
+  }))).ok, true);
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('model-send-third-enter', 'session.send', {
+    name: 'model-cursor', key: 'Enter',
+  }))).ok, true);
+
+  let third = null;
+  let thirdText = '';
+  await waitFor(async () => {
+    const response = await brokerRequest(sandbox.brokerSocket, request('model-read-third', 'model.read', {
+      name: 'model-cursor',
+    }));
+    if (!response.ok) return false;
+    third = response.result;
+    thirdText += response.result.text;
+    return thirdText.includes('MODEL_THIRD');
+  }, { description: 'model cursor output after broker restart' });
+  assert.equal(third.cursor, replayEnd);
+  assert.match(thirdText, /MODEL_THIRD/);
+  assert.doesNotMatch(thirdText, /MODEL_FIRST/);
+
+  const closed = await brokerRequest(sandbox.brokerSocket, request('model-close', 'session.close', { name: 'model-cursor' }));
+  assert.equal(closed.ok, true, JSON.stringify(closed));
+});
+
+test('expired broker-owned model cursor remains explicit and is not silently rewritten', async (t) => {
+  const sandbox = await makeSandbox(t, { budgetBytes: 64 });
+  await startBroker(t, sandbox);
+
+  const opened = await brokerRequest(sandbox.brokerSocket, request('expired-open', 'session.open', {
+    name: 'model-expired',
+    command: "printf 'BEGIN:'; printf 'x%.0s' {1..160}; printf ':END\\n'",
+  }));
+  assert.equal(opened.ok, true, JSON.stringify(opened));
+
+  let firstError;
+  await waitFor(async () => {
+    const response = await brokerRequest(sandbox.brokerSocket, request('expired-read-1', 'model.read', {
+      name: 'model-expired',
+    }));
+    if (response.ok || response.error.code !== 'CURSOR_EXPIRED') return false;
+    firstError = response.error;
+    return true;
+  }, { description: 'expired model cursor error' });
+  assert.ok(firstError.details.baseOffset > 0);
+  assert.ok(Buffer.byteLength(firstError.details.recovery.text) <= 4096);
+
+  const again = await brokerRequest(sandbox.brokerSocket, request('expired-read-2', 'model.read', {
+    name: 'model-expired',
+  }));
+  assert.equal(again.ok, false, JSON.stringify(again));
+  assert.equal(again.error.code, 'CURSOR_EXPIRED');
+  assert.equal(again.error.details.baseOffset, firstError.details.baseOffset);
+  assert.equal(again.error.details.endOffset, firstError.details.endOffset);
+});
+
 test('broker restart reconciles mixed live and dead retained panes idempotently', async (t) => {
   const sandbox = await makeSandbox(t);
   const broker1 = await startBroker(t, sandbox);

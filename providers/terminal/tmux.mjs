@@ -201,6 +201,14 @@ export class TmuxBackend {
     await chmod(file, 0o600);
   }
 
+  async hasTranscriptPipe(name) {
+    validateSessionName(name);
+    const { stdout } = await this.run([
+      'display-message', '-p', '-t', `${name}:0.0`, '#{pane_pipe}',
+    ]);
+    return parseBoolean(stdout.trim());
+  }
+
   async installTranscriptPipe(name) {
     const sessionDir = this.sessionDir(name);
     await ensureTranscript(sessionDir, { budgetBytes: this.transcriptBudgetBytes });
@@ -275,7 +283,9 @@ export class TmuxBackend {
     validateSessionName(name);
     await this.ensureStateRoot();
     const info = await this.sessionInfo(name);
-    if (!info.paneDead) await this.installTranscriptPipe(name);
+    if (!info.paneDead && !(await this.hasTranscriptPipe(name))) {
+      await this.installTranscriptPipe(name);
+    }
     await this.writeSessionMetadata(name, {
       version: 1,
       name,

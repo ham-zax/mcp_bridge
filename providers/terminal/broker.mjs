@@ -11,6 +11,7 @@ import {
   encodeResponse,
   errorResponse,
 } from './protocol.mjs';
+import { readModelCursor, writeModelCursor } from './model-cursor.mjs';
 import { readTranscript } from './transcript.mjs';
 import { TmuxBackend, validateSessionName } from './tmux.mjs';
 
@@ -120,18 +121,34 @@ export async function createBroker(config = loadConfig()) {
   await tmux.assertServer();
   const reconciled = await tmux.reconcileSessions();
   const leases = new Map();
+  const modelReadChains = new Map();
+
+  async function serializeModelRead(name, fn) {
+    const previous = modelReadChains.get(name) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(fn);
+    modelReadChains.set(name, current);
+    try {
+      return await current;
+    } finally {
+      if (modelReadChains.get(name) === current) modelReadChains.delete(name);
+    }
+  }
 
   async function dispatch(request) {
     const { op, params } = request;
     switch (op) {
-      case 'session.open':
-        return tmux.openSession({
-          name: requireString(params.name, 'name'),
+      case 'session.open': {
+        const name = requireString(params.name, 'name');
+        const session = await tmux.openSession({
+          name,
           command: params.command === undefined ? '' : params.command,
           cwd: params.cwd,
           cols: params.cols,
           rows: params.rows,
         });
+        await writeModelCursor(tmux.sessionDir(name), 0);
+        return session;
+      }
       case 'session.list': {
         const sessions = await tmux.listSessions();
         return {
@@ -150,6 +167,28 @@ export async function createBroker(config = loadConfig()) {
           cursor: params.cursor === undefined ? 0 : params.cursor,
           maxBytes,
           recoveryTailBytes: Math.min(params.recoveryTailBytes || 4096, config.readMaxBytes),
+        });
+      }
+      case 'model.read': {
+        const name = requireString(params.name, 'name');
+        validateSessionName(name);
+        await tmux.sessionInfo(name);
+        if (params.snapshot !== undefined && typeof params.snapshot !== 'boolean') {
+          throw new TerminalError('INVALID_ARGUMENT', 'snapshot must be a boolean when provided');
+        }
+        if (params.snapshot === true) {
+          return { snapshot: true, text: await tmux.captureScreen(name) };
+        }
+        const maxBytes = boundedReadLimit(params.maxBytes, config.readMaxBytes);
+        const recoveryTailBytes = Math.min(params.recoveryTailBytes || 4096, config.readMaxBytes);
+        return serializeModelRead(name, async () => {
+          const sessionDir = tmux.sessionDir(name);
+          const cursor = params.cursor === undefined
+            ? await readModelCursor(sessionDir)
+            : params.cursor;
+          const result = await readTranscript(sessionDir, { cursor, maxBytes, recoveryTailBytes });
+          await writeModelCursor(sessionDir, result.nextCursor);
+          return result;
         });
       }
       case 'session.send':
