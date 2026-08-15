@@ -19,9 +19,13 @@ is_public_path() {
   case "$1" in
     docs/superpowers/* | \
     docs/personal/* | \
+    docs/benchmarks/terminal-preflight.md | \
     config/profiles/personal.env | \
     config/templates/mcp-personal.json | \
     providers/terminal/* | \
+    scripts/install-terminal-broker-user.sh | \
+    systemd/wsl-agent-tmux.service.in | \
+    systemd/wsl-agent-terminal-broker.service.in | \
     providers/code-router/* | \
     bin/wsl-term)
       return 1
@@ -86,7 +90,11 @@ test_private_only_paths_are_not_public() {
     config/profiles/personal.env \
     config/templates/mcp-personal.json \
     docs/personal/example \
+    docs/benchmarks/terminal-preflight.md \
     providers/terminal/example \
+    scripts/install-terminal-broker-user.sh \
+    systemd/wsl-agent-tmux.service.in \
+    systemd/wsl-agent-terminal-broker.service.in \
     providers/code-router/example \
     bin/wsl-term; do
     if is_public_path "$path"; then
