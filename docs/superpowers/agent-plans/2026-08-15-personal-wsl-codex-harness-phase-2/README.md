@@ -2,13 +2,13 @@
 
 **Date:** 2026-08-15
 **Authority:** `docs/superpowers/plans/2026-08-15-personal-wsl-codex-harness-phase-2.md`
-**Execution shape:** Hybrid — three independent Wave-1 branches/worktrees, then integration and dependency-driven Wave 2.
+**Execution shape:** Hybrid — three independent Wave-1 branches/worktrees, dependency-driven follow-up missions, then integration gates before shared production surfaces change.
 
 ## Why three agents can start now
 
 The master plan has one important dependency chain: `apply_patch` requires the personal `/home/hamza` path/authority contract, and Terminal MCP integration requires both the personal profile and the durable Terminal core. We therefore do **not** split the master plan into three arbitrary equal chunks.
 
-Wave 1 uses three genuinely independent write domains:
+Wave 1 used three genuinely independent write domains, then the dependency frontier advanced as each mission completed:
 
 ```text
                     coordination baseline
@@ -18,30 +18,40 @@ Wave 1 uses three genuinely independent write domains:
           v                v                v
 Agent 1: foundation   Agent 2: toolbox  Agent 3: terminal core
 Tasks 1-3            Task 5            Task 6
+    COMPLETE            COMPLETE           COMPLETE
           |                |                |
-          +----------------+----------------+
-                           |
-                     integration gate
-                           |
-          +----------------+----------------+
-          |                                 |
-          v                                 v
-Task 4 apply_patch                  Task 7 Terminal MCP/human attach
-(after Agent 1)                     (after Agents 1 + 3)
-                                            |
-                                            v
-                                      Task 8 await decision
+          |                |                +--------------------+
+          |                |                                     |
+          v                v                                     v
+Agent 1: Wave-1 integration                         Agent 3: Herdr challenger
+Agents 1 + 2 + 3                                    Task 6.5, experiment only
+          |                                                     |
+          +-------------------------+---------------------------+
+                                    |
+                                    v
+                         Terminal backend decision gate
+                                    |
+             +----------------------+----------------------+
+             |                                             |
+             v                                             v
+TMUX_BROKER_WINS / HERDR_NOT_MATERIAL          HERDR_WINS / HYBRID_WINS
+Task 7 may proceed as written                  focused design amendment first
 
-Tasks 9-10 Code router/facade may start after the Wave-1 integration gate in a fresh mission.
-Task 11 RTK is independent after raw Bash remains proven.
-Tasks 12-14 are final evidence/consolidation work, not Wave-1 parallel work.
+In parallel:
+Agent 2 -> Task 4 apply_patch, based on Agent-1 foundation contract.
+
+Task 8 await/resume waits for both Task 7 real product-path evidence and the Task-6.5 Herdr wait verdict.
+Tasks 9-10 Code router/facade open after the integration gate in a fresh mission.
+Task 11 RTK remains independent after raw Bash stays proven.
+Tasks 12-14 are final evidence/consolidation work.
 ```
 
-## Wave-1 mission files
+## Mission files
 
 - `agent-1-foundation.md` — Tasks 1-3: baseline, personal profile, unrestricted personal Files/Bash semantics.
 - `agent-2-toolbox.md` — Task 5: zero-schema personal CLI toolbox.
-- `agent-3-terminal-core.md` — Task 6: dedicated tmux lifetime + broker/transcript foundation.
+- `agent-3-terminal-core.md` — Task 6: dedicated tmux lifetime + broker/transcript foundation. **Completed baseline.**
+- `agent-3-herdr-evaluation.md` — Task 6.5: Herdr v0.8.0 vs tmux/broker vs hybrid Terminal/await challenger. **Experiment only; no production migration.**
 
 ## Worktree topology
 
@@ -56,12 +66,17 @@ Agent 2
   branch:   feat/personal-harness-agent-2-toolbox
   worktree: /home/hamza/repo/satori_bridge/.worktrees/personal-harness-agent-2
 
-Agent 3
+Agent 3 Task-6 baseline
   branch:   feat/personal-harness-agent-3-terminal-core
   worktree: /home/hamza/repo/satori_bridge/.worktrees/personal-harness-agent-3
+
+Agent 3 Task-6.5 challenger
+  branch:   feat/personal-harness-herdr-evaluation
+  worktree: /home/hamza/repo/satori_bridge/.worktrees/personal-harness-herdr-evaluation
+  base:     Agent-3 Task-6 commit 3ff8c6eb03a4dccdd393a324e5d4e6edf891cdc6 + coordination-doc update
 ```
 
-All three branches start from the same coordination commit containing this folder and the canonical master plan.
+The original Wave-1 branches started from coordination commit `8ff5db7`. Follow-up missions start from the dependency commit they actually need; Task 6.5 starts from Agent 3's qualified Task-6 Terminal-core commit plus this coordination-doc update.
 
 ## Shared contracts frozen for Wave 1
 
@@ -126,6 +141,15 @@ docs/benchmarks/terminal-preflight.md
 
 Agent 3 must not edit personal MCP composition/configuration in Wave 1; Terminal registration is Task 7 after Agent 1 lands.
 
+### Agent 3 Task-6.5 challenger owns
+
+```text
+experiments/herdr/**
+docs/benchmarks/herdr-terminal-comparison.md
+```
+
+Task 6.5 is intentionally read-only with respect to production `providers/terminal/**`, Terminal systemd units, personal MCP composition, and the live bridge. A `HERDR_WINS` or `HYBRID_WINS` result creates a design-amendment gate; it does not authorize production migration in the experiment branch.
+
 ## Global no-overlap rules
 
 - Do not edit files owned by another Wave-1 mission.
@@ -136,18 +160,33 @@ Agent 3 must not edit personal MCP composition/configuration in Wave 1; Terminal
 - Use TDD where the master plan specifies RED/GREEN.
 - Preserve unrelated public-release work and public profile behavior.
 
-## Integration gate after Wave 1
+## Current integration and decision gates
 
-Do not start Task 4 or Task 7 integration until all three agents report one of `COMPLETE`, `BLOCKED`, or `NEEDS_DECISION`.
+Task 4 is already unblocked by the completed Agent-1 personal path contract and may proceed independently on its own branch.
 
-The integrator will:
+The Wave-1 integrator will:
 
-1. review each mission commit against its mission acceptance criteria;
-2. merge Agent 1 foundation first;
-3. merge Agent 2 toolbox and wire its focused test into shared root verification if needed;
-4. merge Agent 3 Terminal core;
-5. run the full combined baseline;
-6. then open fresh missions for Task 4 (`apply_patch`) and Task 7 (Terminal MCP/human attach).
+1. review/integrate Agent 1 foundation first;
+2. integrate Agent 2 toolbox and wire its focused portable test into shared root verification;
+3. integrate Agent 3 Terminal core;
+4. run the full combined baseline;
+5. publish the integrated HEAD for follow-up production missions.
+
+**Task 7 must not start merely because Wave-1 integration is green.** It also waits for Task 6.5.
+
+Task-7 gate:
+
+```text
+Task 6.5 = TMUX_BROKER_WINS | HERDR_NOT_MATERIAL
+  -> Task 7 may use the current tmux/broker production plan.
+
+Task 6.5 = HERDR_WINS | HYBRID_WINS
+  -> STOP production Terminal integration.
+  -> write/review focused Terminal design amendment.
+  -> only then open the revised Task-7 mission.
+```
+
+Task 8 waits for the winning Terminal backend's real ChatGPT product-path acceptance plus the Herdr wait/lifecycle verdict.
 
 ## Required handoff format for every agent
 

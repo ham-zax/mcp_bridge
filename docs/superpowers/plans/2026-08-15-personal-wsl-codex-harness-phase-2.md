@@ -4,9 +4,9 @@
 
 **Goal:** Turn the private WSL bridge into a durable Codex-like local coding harness: unrestricted file and Bash access as user `hamza`, Codex-style patching, a rich native CLI toolbox, persistent tmux-backed terminal sessions with human takeover, a small multi-repository Code intelligence facade, and evidence-gated output/context optimizations.
 
-**Architecture:** Keep Cloudflare + OAuth + 1MCP as transport. Keep Files/Shell in the Pi-backed `dev` provider, but add a private `personal` profile whose filesystem boundary is the Linux user account rather than a workspace sandbox and whose stable default directory is `/home/hamza`. Add a separate `terminal` MCP provider backed by a small Unix-socket broker and a dedicated tmux server so PTYs survive ChatGPT/1MCP/provider restarts. Add a separate `code` MCP provider only after a rooted-CodeDB child-process router proves useful across multiple repositories. Public-release profiles remain isolated from all private-only capability.
+**Architecture:** Keep Cloudflare + OAuth + 1MCP as transport. Keep Files/Shell in the Pi-backed `dev` provider, but add a private `personal` profile whose filesystem boundary is the Linux user account rather than a workspace sandbox and whose stable default directory is `/home/hamza`. The proven Terminal baseline is a separate MCP provider over a thin Unix-socket broker and dedicated tmux lifetime authority. Before that implementation is frozen into the model-facing Terminal/await layer, benchmark Herdr as an evidence-driven challenger and possible hybrid component. Add a separate `code` MCP provider only after a rooted-CodeDB child-process router proves useful across multiple repositories. Public-release profiles remain isolated from all private-only capability.
 
-**Tech Stack:** Node.js >= 22.19, `@modelcontextprotocol/sdk` 1.30.0, `@earendil-works/pi-coding-agent` 0.84.1, Bash, tmux >= 3.4, user systemd, Git, CodeDB 0.2.5840 for the first router experiment, ast-grep 0.45.0 for the CLI-toolbox phase, optional RTK after raw Bash/Terminal are proven.
+**Tech Stack:** Node.js >= 22.19, `@modelcontextprotocol/sdk` 1.30.0, `@earendil-works/pi-coding-agent` 0.84.1, Bash, tmux >= 3.4, user systemd, Git, Herdr v0.8.0 for the Terminal/await challenger experiment, CodeDB 0.2.5840 for the first router experiment, ast-grep 0.45.0 for the CLI-toolbox phase, optional RTK after raw Bash/Terminal are proven.
 
 ## Global Constraints
 
@@ -22,6 +22,9 @@
 - Terminal PTYs must survive ChatGPT disconnects, Cloudflare reconnects, 1MCP restarts, MCP-provider restarts, and terminal-broker restarts. They are allowed to die when the WSL instance itself stops.
 - Terminal human attachment is single-writer: human attachment blocks model input/resize/ordinary close but does not block model observation.
 - Terminal output is incremental and bounded; old output may rotate, but cursor semantics must never silently return the wrong bytes.
+- The completed tmux/broker implementation is the qualified Terminal baseline, not an untouchable implementation choice. Herdr v0.8.0 must be benchmarked against it before Task 7 freezes the production Terminal MCP/human-takeover backend.
+- A Herdr experiment is read-only with respect to the production Terminal implementation: it may create `experiments/herdr/**` and benchmark evidence, but it must not silently replace `providers/terminal/**`, systemd units, or live MCP composition.
+- If Herdr wins or a hybrid wins, write and review a focused Terminal design amendment before Task 7 production integration; do not migrate by benchmark fiat.
 - `apply_patch` does not replace `edit` or `write` until its own correctness/ergonomics benchmark produces an explicit `PATCH_WINS`, `BOTH_EARN_PLACE`, or `EDIT_WINS` verdict.
 - The Code domain must never return to exposing CodeDB's entire 10-tool catalog directly without an explicit later decision.
 - `await` semantics are designed only after Terminal is live and measured.
@@ -106,9 +109,15 @@ The goal is not "four actions forever." The goal is four obvious capability doma
 - Create: `scripts/install-terminal-broker-user.sh`.
 - Modify: `systemd/mcp-dev-bridge.service.in` only for ordering/wants; bridge restarts must never own Terminal PTY lifetime.
 
+### Herdr challenger experiment
+
+- Create: `experiments/herdr/` — disposable scripts/adapters only; never production provider code during the benchmark.
+- Create: `docs/benchmarks/herdr-terminal-comparison.md` — same-workload comparison of tmux/broker, Herdr, and a possible hybrid.
+- Pin: Herdr `v0.8.0` for the experiment; record the exact Linux artifact/digest actually used.
+
 ### Await/resume
 
-- Create a focused `docs/superpowers/specs/YYYY-MM-DD-terminal-await-design.md` only after real Terminal product-path evidence exists.
+- Create a focused `docs/superpowers/specs/YYYY-MM-DD-terminal-await-design.md` only after real Terminal product-path evidence and the Herdr challenger verdict exist.
 - Modify Terminal or create a generic condition/wait provider only if that focused sub-spec is approved; do not freeze `terminal_wait` in advance.
 
 ### Code router
@@ -857,6 +866,243 @@ git commit -m "feat: add durable tmux terminal broker"
 
 ---
 
+### Task 6.5: Benchmark Herdr Against the Qualified tmux/Broker Baseline
+
+**Files:**
+- Create: `experiments/herdr/` — disposable benchmark/prototype scripts only.
+- Create: `docs/benchmarks/herdr-terminal-comparison.md`.
+- Do not modify production `providers/terminal/**`, systemd Terminal units, personal MCP composition, or the live bridge during this task.
+
+**Interfaces:**
+- Consumes: the completed Task 6 tmux/broker implementation and Herdr `v0.8.0` pinned from the official release.
+- Produces one Terminal-backend verdict:
+
+```text
+TMUX_BROKER_WINS
+HERDR_WINS
+HYBRID_WINS
+HERDR_NOT_MATERIAL
+```
+
+- Produces one independent wait/resume verdict:
+
+```text
+HERDR_MAKES_CUSTOM_AWAIT_UNNECESSARY = YES | PARTIALLY | NO
+```
+
+This is a challenger experiment, not a migration task. A Herdr or hybrid win requires a focused design amendment before Task 7 production integration.
+
+- [ ] **Step 1: Pin and verify Herdr**
+
+Verify architecture with `uname -m`, obtain the matching official `v0.8.0` release artifact, and verify the SHA-256 digest against GitHub release metadata before execution. Record:
+
+```text
+version
+target architecture
+artifact name
+sha256
+install/test path
+```
+
+Do not use floating `latest`, `master`, or an unverified installer in the benchmark.
+
+- [ ] **Step 2: Freeze three candidate shapes**
+
+Compare these exact architectural candidates without silently changing them mid-benchmark:
+
+```text
+A — TMUX_BROKER
+model-facing adapter
+  -> our broker
+  -> dedicated tmux lifetime authority
+
+B — HERDR
+thin model-facing adapter/prototype
+  -> Herdr local CLI/socket API
+  -> Herdr PTY/runtime
+
+C — HYBRID
+our bounded model-facing read/cursor policy where it adds measured value
+  -> Herdr for PTY ownership, human attach, lifecycle/wait primitives
+```
+
+The hybrid prototype may exist only under `experiments/herdr/**`; do not modify production Terminal code.
+
+- [ ] **Step 3: Build one same-workload benchmark corpus**
+
+Run equivalent scenarios against every candidate that can support them:
+
+```text
+open interactive shell
+start a long-running server/watch command
+read initial output
+read only newly relevant output again
+send ordinary text
+send ENTER / CTRL_C / CTRL_D
+resize
+non-zero process exit + final output
+large/noisy output
+immediate-output-and-exit process
+alternate-screen/TUI inspection
+human attach to the exact PTY
+read-only/model observation while human controls input
+human detach/control return
+client/provider disconnect and reconnect
+backend control-process restart
+wait for output pattern
+wait for ordinary process completion/readiness
+recognized coding-agent working/blocked/idle/done wait, where supported
+```
+
+Do not weaken the tmux baseline workload to make Herdr look better or vice versa.
+
+- [ ] **Step 4: Measure durability boundaries explicitly**
+
+For the existing Task 6 baseline, retain the already-proven broker-restart property:
+
+```text
+broker restarts
+tmux server PID unchanged
+PTY child PID unchanged
+transcript continues
+```
+
+For Herdr, distinguish at least:
+
+```text
+client/adapter disconnect
+1MCP/provider-equivalent disconnect
+Herdr server still running
+full Herdr server restart
+```
+
+Record exactly which PTYs/processes survive, which are reconstructed/resumed, and which are lost. Do not treat process reconstruction as identical to preserving the same PTY/process.
+
+- [ ] **Step 5: Compare human takeover semantics**
+
+Measure whether Herdr can provide the required personal contract without extra custom locking machinery:
+
+```text
+attach to exact session
+single writable controller
+read-only observer remains possible
+second writer is rejected or requires explicit takeover
+control returns cleanly after detach
+sudo-password interaction does not require password transport through MCP
+```
+
+Record what Herdr provides natively versus what a harness adapter would still need to enforce.
+
+- [ ] **Step 6: Compare model-read/context behavior**
+
+Use the same noisy terminal workloads and measure:
+
+```text
+bytes/tokens returned on first read
+bytes/tokens returned on repeated read with no meaningful new output
+duplicate text re-injected
+large-output recovery behavior
+TUI/current-screen recovery quality
+truncation signaling
+latency
+```
+
+Compare Herdr's pane/agent read model against Task 6's monotonic transcript cursor model. If the hybrid candidate adds a thin cursor/dedup layer, measure the extra code and whether it actually reduces context.
+
+- [ ] **Step 7: Evaluate Herdr waiting before Task 8 designs a custom await service**
+
+Exercise Herdr's available pane-output waiting and recognized-agent lifecycle waiting. Measure:
+
+```text
+output-pattern wait
+agent working -> blocked/idle/done transition wait
+client polling avoided
+cancellation/timeout behavior
+reconnect behavior
+false-positive/stale-agent risk
+```
+
+Then answer independently:
+
+```text
+HERDR_MAKES_CUSTOM_AWAIT_UNNECESSARY = YES | PARTIALLY | NO
+```
+
+`YES` means Task 8 should first try to expose/translate Herdr's event-driven wait semantics instead of inventing a parallel condition service. `PARTIALLY` must name the missing condition classes. `NO` must cite concrete failed requirements.
+
+- [ ] **Step 8: Measure ownership and operational cost**
+
+Record for each candidate:
+
+```text
+additional long-lived processes
+idle RSS/CPU
+number of custom production LOC we would own
+number of systemd units/services
+restart/recovery complexity
+external dependency surface
+upgrade/migration risk
+model-facing schema impact
+```
+
+Do not score Herdr merely on feature count; score the amount of custom infrastructure it lets us delete while preserving our durability/context requirements.
+
+- [ ] **Step 9: Classify any failure before verdict**
+
+For every failed scenario, label it:
+
+```text
+candidate
+adapter/prototype
+benchmark
+```
+
+Reproduce candidate failures independently before using them to reject a backend.
+
+- [ ] **Step 10: Record verdict and consequence**
+
+`docs/benchmarks/herdr-terminal-comparison.md` must contain:
+
+```text
+version/digest
+same-workload matrix
+context/latency measurements
+durability matrix
+human-takeover matrix
+wait/lifecycle matrix
+operational ownership comparison
+Terminal verdict
+await verdict
+```
+
+Decision rules:
+
+```text
+TMUX_BROKER_WINS
+  -> Task 7 executes its current tmux/broker design.
+
+HERDR_NOT_MATERIAL
+  -> Task 7 executes its current tmux/broker design; retain Herdr evidence only.
+
+HERDR_WINS
+  -> STOP before Task 7 implementation; write/review a focused Terminal design amendment that replaces the backend while preserving the six-tool model-facing goal unless evidence also justifies changing that surface.
+
+HYBRID_WINS
+  -> STOP before Task 7 implementation; write/review a focused Terminal design amendment naming the exact responsibilities retained by our adapter and delegated to Herdr.
+```
+
+- [ ] **Step 11: Commit experiment evidence only**
+
+```bash
+git add experiments/herdr docs/benchmarks/herdr-terminal-comparison.md
+git diff --cached --check
+git commit -m "docs: evaluate Herdr terminal backend"
+```
+
+If the experiment needs small helper code, it remains under `experiments/herdr/**` and must not be wired into production composition in this task.
+
+---
+
 ### Task 7: Add Human Takeover and the Terminal MCP Surface
 
 **Files:**
@@ -873,8 +1119,20 @@ git commit -m "feat: add durable tmux terminal broker"
 - Modify: `tests/harness.sh`
 
 **Interfaces:**
-- Consumes: Terminal broker socket.
-- Produces: six MCP tools and a human attach CLI.
+- Consumes: the Task 6.5 Terminal-backend verdict plus the winning backend contract.
+- Produces: six MCP tools and a human attach CLI unless an approved Herdr/hybrid design amendment explicitly changes that surface.
+
+- [ ] **Step 0: Apply the Task 6.5 gate before coding**
+
+```text
+TMUX_BROKER_WINS | HERDR_NOT_MATERIAL
+  -> execute the tmux/broker steps below as written.
+
+HERDR_WINS | HYBRID_WINS
+  -> STOP. Do not adapt these tmux-specific steps ad hoc.
+  -> write/review the focused Terminal design amendment required by Task 6.5.
+  -> revise this task's implementation details while preserving the qualified model-facing goals.
+```
 
 - [ ] **Step 1: Write failing MCP schema tests**
 
@@ -1041,7 +1299,7 @@ git commit -m "feat: expose persistent terminal sessions"
 - Conditional provider files only after that focused sub-spec is reviewed and approved.
 
 **Interfaces:**
-- Consumes: real ChatGPT -> Cloudflare -> OAuth -> 1MCP -> Terminal latency/read/poll behavior from Task 7 product acceptance.
+- Consumes: real ChatGPT -> Cloudflare -> OAuth -> 1MCP -> Terminal latency/read/poll behavior from Task 7 product acceptance **and** the Task 6.5 Herdr wait/lifecycle verdict.
 - Produces: `NO_WAIT_TOOL_NEEDED` or an approved focused wait/resume design. This task does **not** predeclare a `terminal_wait` API.
 
 - [ ] **Step 1: Measure real polling debt before designing another subsystem**
@@ -1080,16 +1338,26 @@ Do not add hypothetical conditions merely to make the first abstraction look gen
 Compare:
 
 ```text
-Terminal-specific waiting
+winning Terminal backend's native wait/event primitives
 ```
 
 against:
 
 ```text
+Terminal-specific harness waiting
+```
+
+and, only for condition classes the Terminal backend cannot own cleanly:
+
+```text
 generic local condition/wait service
 ```
 
-Use observed request lifetime, reconnect semantics, state ownership, cancellation, polling cost, and context cost as criteria. If normal incremental reads are sufficient, record `NO_WAIT_TOOL_NEEDED` and stop.
+If Task 6.5 returned `HERDR_MAKES_CUSTOM_AWAIT_UNNECESSARY = YES`, begin by proving whether Herdr's native event-driven wait/lifecycle semantics satisfy the real Task 7 product-path needs through a thin adapter. Do not invent a parallel generic waiter unless that proof fails.
+
+If the Task 6.5 answer is `PARTIALLY`, the focused sub-spec must name only the missing condition classes rather than reimplementing Herdr-supported waits.
+
+Use observed request lifetime, reconnect semantics, state ownership, cancellation, polling cost, and context cost as criteria. If normal incremental reads or the winning backend's native waits are sufficient, record `NO_WAIT_TOOL_NEEDED` and stop.
 
 - [ ] **Step 4: If a wait abstraction is justified, write a focused sub-spec before code**
 
@@ -1612,9 +1880,10 @@ Every capability below must remain in one explicit state so it cannot silently d
 | Personal unrestricted WSL Files/Bash | IMPLEMENT_THIS_PHASE |
 | Codex-style apply_patch | EXPERIMENT_THIS_PHASE |
 | Native CLI toolbox / ast-grep | IMPLEMENT_THIS_PHASE |
-| Persistent tmux Terminal | IMPLEMENT_THIS_PHASE |
-| Human PTY takeover | IMPLEMENT_THIS_PHASE |
-| Terminal wait/resume | DEFERRED_PENDING_TERMINAL_EVIDENCE: Task 8 focused sub-spec gate |
+| Persistent tmux Terminal baseline | IMPLEMENTED_BASELINE: Task 6 qualification |
+| Herdr Terminal/await challenger | EXPERIMENT_THIS_PHASE: Task 6.5 before Task 7 backend freeze |
+| Human PTY takeover | IMPLEMENT_THIS_PHASE: implementation depends on Task 6.5 winner |
+| Terminal wait/resume | DEFERRED_PENDING_TERMINAL_EVIDENCE: Task 6.5 + Task 7 -> Task 8 focused sub-spec gate |
 | Multi-repo rooted CodeDB router | EXPERIMENT_THIS_PHASE |
 | Small Code facade | EXPERIMENT_THIS_PHASE |
 | Selective RTK | EXPERIMENT_THIS_PHASE |
@@ -1637,11 +1906,13 @@ Do not execute all tasks concurrently. Recommended waves:
 Wave 0  Task 1 current private baseline + capability ledger
 Wave 1  Tasks 2-3 private path/profile foundation
 Wave 2  Task 4 apply_patch + Task 5 CLI toolbox (parallel-safe with file ownership)
-Wave 3  Tasks 6-7 Terminal core + MCP/human attach
-Wave 4  Task 8 evidence-driven await/resume sub-spec decision
-Wave 5  Tasks 9-10 Code router + facade
-Wave 6  Tasks 11-13 RTK / concurrency / structured-format decisions
-Wave 7  Task 14 final integration/live acceptance
+Wave 3  Task 6 qualified tmux/broker Terminal core
+Wave 3.5  Task 6.5 Herdr vs tmux/broker vs hybrid challenger benchmark
+Wave 4  Task 7 winning Terminal backend -> MCP/human attach
+Wave 5  Task 8 evidence-driven await/resume sub-spec decision using Terminal + Herdr evidence
+Wave 6  Tasks 9-10 Code router + facade
+Wave 7  Tasks 11-13 RTK / concurrency / structured-format decisions
+Wave 8  Task 14 final integration/live acceptance
 ```
 
 Only use parallel agents when owned paths do not overlap. A designated integrator owns `config/templates/*`, `scripts/render-config.mjs`, `tests/harness.sh`, the live deployment, and Git staging/commits whenever two lanes converge.
@@ -1656,10 +1927,12 @@ Before execution begins, verify:
 - [ ] Private/public profile separation is explicit.
 - [ ] `/home/hamza` default and unrestricted personal path semantics are represented in Tasks 2-3.
 - [ ] `apply_patch` uses the three-way `PATCH_WINS | BOTH_EARN_PLACE | EDIT_WINS` gate and does not silently replace proven edit/write semantics.
-- [ ] tmux owns PTY lifetime; broker/MCP do not, and the production two-unit systemd restart test proves broker restart preserves tmux and PTY PIDs.
+- [ ] tmux owns PTY lifetime in the qualified Task 6 baseline; broker/MCP do not, and the production two-unit systemd restart test proves broker restart preserves tmux and PTY PIDs.
+- [ ] Herdr v0.8.0 is evaluated as a same-workload Terminal/await challenger before Task 7 backend freeze, with explicit durability, context, human-takeover, wait/lifecycle, and ownership-cost evidence.
+- [ ] `HERDR_WINS` or `HYBRID_WINS` forces a focused Terminal design amendment before production migration; Task 7 never silently mutates the frozen architecture from benchmark results alone.
 - [ ] Human takeover is single-writer and sudo passwords are never broker-logged.
 - [ ] Terminal model-cursor state is broker-owned per session, bounded/recoverable, and never silently reinterprets rotated bytes or becomes a hidden global cursor.
-- [ ] `await` follows real Terminal product-path evidence and no `terminal_wait` signature is frozen before a focused sub-spec.
+- [ ] `await` follows real Terminal product-path evidence plus the Herdr wait/lifecycle verdict, and no `terminal_wait` signature is frozen before a focused sub-spec.
 - [ ] CodeDB children are rooted per repo; no per-call `project=` architecture returns.
 - [ ] CodeDB raw 10-tool surface is not exposed directly.
 - [ ] RTK is optional with raw bypass.
