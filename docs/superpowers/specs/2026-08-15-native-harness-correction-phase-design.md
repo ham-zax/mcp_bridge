@@ -19,17 +19,17 @@ The phase answers four questions independently:
 
 ## Current state and preservation rule
 
-Git remains at the provisional Pi cutover candidate:
+The implementation baseline beneath this correction spec is the provisional Pi cutover commit:
 
 ```text
 41491ac feat: cut over to Pi dev provider
 ```
 
-The correction phase MUST NOT revert, amend, or temporarily rewrite that commit merely to recreate the old A/B provider set.
+The current branch may contain later correction-spec or planning commits above that baseline. The correction phase MUST NOT revert, amend, or temporarily rewrite `41491ac` merely to recreate the old A/B provider set.
 
 The live deployment is evaluation state, not source-of-truth product history. Before changing it, verify the actual rendered provider composition and bridge health rather than relying on cached ChatGPT actions.
 
-Existing OAuth/session state under the external 1MCP state home must be preserved exactly. The correction phase changes generated provider composition only; it does not rotate OAuth registrations, tokens, or transport identity.
+Existing durable OAuth identity/session continuity under the external 1MCP state home must be preserved. The correction phase must not delete, rotate, or replace existing OAuth client registrations or valid access-token sessions merely to change provider composition. Transient Streamable HTTP transport sessions may naturally be recreated by restart or ChatGPT refresh.
 
 ## Evaluation principle
 
@@ -53,7 +53,7 @@ This rule applies to CodeDB, Pi, GCF, and future Terminal/format/provider experi
 
 ### Selected approach
 
-Temporarily restore the live evaluation provider set from the known pre-cutover A/B implementation state represented by commit `e99579a`, while leaving Git HEAD at `41491ac`.
+Temporarily restore the live evaluation provider set from the known pre-cutover A/B implementation state represented by commit `e99579a`, while leaving the current branch history intact above the `41491ac` implementation baseline.
 
 The desired evaluation surface is:
 
@@ -77,12 +77,14 @@ Rejected alternatives:
 
 ### Rendering contract
 
-The implementation plan must define a deterministic way to render the A/B provider composition from the known pre-cutover tree/config into the existing external deployment state without checking out or resetting the current branch.
+The implementation plan must define a deterministic way to reconstruct the A/B provider composition from the known pre-cutover tree/config into the existing external deployment state without checking out or resetting the current branch.
+
+Commit `e99579a` is authoritative only for the provider composition/template semantics being reconstructed. It MUST NOT be used as the active setup or lifecycle controller. Current HEAD's OAuth/state migration hardening, external-state management, user-systemd lifecycle, process-ownership checks, and self-hosting cutover protections remain authoritative throughout the correction phase.
 
 The operation must:
 
 - preserve the current repository checkout and HEAD;
-- preserve the external OAuth/session tree;
+- preserve the existing external state home and durable OAuth client-registration/access-token continuity;
 - replace only generated provider/configuration material required for the A/B surface;
 - keep deployment-local hostname, workspace root, tunnel, and trust-profile values unchanged;
 - be reversible by rerendering the current HEAD configuration;
@@ -344,7 +346,7 @@ systemd service ownership
 local readiness
 public readiness
 issues: 0
-OAuth/session directory remains present
+external state home and durable OAuth continuity records remain present
 ```
 
 Provider composition changes require ChatGPT Actions Refresh and a fresh session before client-facing acceptance.
