@@ -7,6 +7,7 @@ const expectedOperations = [
   'session.open',
   'session.list',
   'session.read',
+  'session.observe',
   'session.send',
   'session.resize',
   'session.close',
@@ -16,7 +17,7 @@ const expectedOperations = [
   'lease.release_human',
 ];
 
-test('private protocol freezes the Task 6 operation vocabulary', () => {
+test('private protocol freezes the Terminal broker operation vocabulary', () => {
   assert.deepEqual([...OPERATIONS].sort(), [...expectedOperations].sort());
 });
 

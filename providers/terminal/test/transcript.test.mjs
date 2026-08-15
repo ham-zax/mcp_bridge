@@ -9,6 +9,7 @@ import {
   appendTranscript,
   ensureTranscript,
   readTranscript,
+  readTranscriptState,
 } from '../transcript.mjs';
 
 async function withSessionDir(t) {
@@ -16,6 +17,17 @@ async function withSessionDir(t) {
   t.after(() => rm(dir, { recursive: true, force: true }));
   return dir;
 }
+
+test('readTranscriptState exposes logical offsets without transcript payload', async (t) => {
+  const dir = await withSessionDir(t);
+  await ensureTranscript(dir, { budgetBytes: 1024 });
+  await appendTranscript(dir, Buffer.from('abc'), { budgetBytes: 1024 });
+  assert.deepEqual(await readTranscriptState(dir), {
+    baseOffset: 0,
+    endOffset: 3,
+    budgetBytes: 1024,
+  });
+});
 
 test('incremental reads use monotonically increasing logical byte cursors', async (t) => {
   const dir = await withSessionDir(t);

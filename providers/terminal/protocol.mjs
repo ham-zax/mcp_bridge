@@ -2,6 +2,7 @@ export const OPERATIONS = new Set([
   'session.open',
   'session.list',
   'session.read',
+  'session.observe',
   'session.send',
   'session.resize',
   'session.close',

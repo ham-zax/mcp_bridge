@@ -206,6 +206,22 @@ export async function ensureTranscript(sessionDir, { budgetBytes }) {
   }
 }
 
+export async function readTranscriptState(sessionDir) {
+  await mkdir(sessionDir, { recursive: true, mode: 0o700 });
+  await chmod(sessionDir, 0o700);
+  const release = await acquireLock(sessionDir);
+  try {
+    const cursor = await readCursor(sessionDir);
+    return {
+      baseOffset: cursor.baseOffset,
+      endOffset: cursor.endOffset,
+      budgetBytes: cursor.budgetBytes,
+    };
+  } finally {
+    await release();
+  }
+}
+
 export async function appendTranscript(sessionDir, chunk, { budgetBytes }) {
   validateBudget(budgetBytes);
   const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -231,6 +233,179 @@ test('model read uses one persisted broker-owned cursor across zero-output reads
 
   const closed = await brokerRequest(sandbox.brokerSocket, request('model-close', 'session.close', { name: 'model-cursor' }));
   assert.equal(closed.ok, true, JSON.stringify(closed));
+});
+
+test('session generation survives broker restart and changes on same-name reopen', async (t) => {
+  const sandbox = await makeSandbox(t);
+  const broker1 = await startBroker(t, sandbox);
+
+  const opened = await brokerRequest(sandbox.brokerSocket, request('generation-open', 'session.open', {
+    name: 'generation', command: 'cat',
+  }));
+  assert.equal(opened.ok, true, JSON.stringify(opened));
+
+  const first = await brokerRequest(sandbox.brokerSocket, request('generation-observe-first', 'session.observe', {
+    name: 'generation',
+  }));
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.match(first.result.generation, /^[0-9a-f-]{36}$/i);
+
+  broker1.kill('SIGTERM');
+  await onceExit(broker1);
+  await startBroker(t, sandbox);
+
+  const afterRestart = await brokerRequest(sandbox.brokerSocket, request('generation-observe-restart', 'session.observe', {
+    name: 'generation',
+  }));
+  assert.equal(afterRestart.ok, true, JSON.stringify(afterRestart));
+  assert.equal(afterRestart.result.generation, first.result.generation);
+
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('generation-close', 'session.close', {
+    name: 'generation', force: true,
+  }))).ok, true);
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('generation-reopen', 'session.open', {
+    name: 'generation', command: 'cat',
+  }))).ok, true);
+
+  const replacement = await brokerRequest(sandbox.brokerSocket, request('generation-observe-replacement', 'session.observe', {
+    name: 'generation',
+  }));
+  assert.equal(replacement.ok, true, JSON.stringify(replacement));
+  assert.match(replacement.result.generation, /^[0-9a-f-]{36}$/i);
+  assert.notEqual(replacement.result.generation, first.result.generation);
+});
+
+test('same-name reopen starts with fresh transcript and model cursor state', async (t) => {
+  const sandbox = await makeSandbox(t);
+  await startBroker(t, sandbox);
+
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('reopen-old-open', 'session.open', {
+    name: 'same-name', command: "printf 'OLD_SESSION_MARKER\\n'; exec cat",
+  }))).ok, true);
+
+  let oldRead;
+  await waitFor(async () => {
+    const response = await brokerRequest(sandbox.brokerSocket, request('reopen-old-read', 'model.read', { name: 'same-name' }));
+    if (!response.ok || !response.result.text.includes('OLD_SESSION_MARKER')) return false;
+    oldRead = response.result;
+    return true;
+  }, { description: 'old incarnation marker' });
+  assert.match(oldRead.text, /OLD_SESSION_MARKER/);
+
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('reopen-old-close', 'session.close', {
+    name: 'same-name', force: true,
+  }))).ok, true);
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('reopen-new-open', 'session.open', {
+    name: 'same-name', command: "printf 'NEW_SESSION_MARKER\\n'; exec cat",
+  }))).ok, true);
+
+  let newText = '';
+  await waitFor(async () => {
+    const response = await brokerRequest(sandbox.brokerSocket, request('reopen-new-read', 'model.read', { name: 'same-name' }));
+    if (!response.ok) return false;
+    newText += response.result.text;
+    return newText.includes('NEW_SESSION_MARKER');
+  }, { description: 'new incarnation marker' });
+  assert.match(newText, /NEW_SESSION_MARKER/);
+  assert.doesNotMatch(newText, /OLD_SESSION_MARKER/);
+});
+
+test('expectedGeneration rejects replacement state and generation changes during explicit reads', async (t) => {
+  const sandbox = await makeSandbox(t);
+  await startBroker(t, sandbox);
+
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('expected-open', 'session.open', {
+    name: 'expected-generation', command: "printf 'GENERATION_ONE\\n'; exec cat",
+  }))).ok, true);
+  const observed = await brokerRequest(sandbox.brokerSocket, request('expected-observe', 'session.observe', {
+    name: 'expected-generation',
+  }));
+  assert.equal(observed.ok, true, JSON.stringify(observed));
+
+  assert.equal((await brokerRequest(sandbox.brokerSocket, request('expected-close', 'session.close', {
+    name: 'expected-generation', force: true,
+  }))).ok, true);
+  const reopened = await brokerRequest(sandbox.brokerSocket, request('expected-reopen', 'session.open', {
+    name: 'expected-generation', command: "printf 'GENERATION_TWO\\n'; exec cat",
+  }));
+  assert.equal(reopened.ok, true, JSON.stringify(reopened));
+  const replacement = await brokerRequest(sandbox.brokerSocket, request('expected-observe-replacement', 'session.observe', {
+    name: 'expected-generation',
+  }));
+  assert.equal(replacement.ok, true, JSON.stringify(replacement));
+
+  const stale = await brokerRequest(sandbox.brokerSocket, request('expected-stale-read', 'session.read', {
+    name: 'expected-generation', cursor: 0, maxBytes: 65536, expectedGeneration: observed.result.generation,
+  }));
+  assert.equal(stale.ok, false, JSON.stringify(stale));
+  assert.equal(stale.error.code, 'SESSION_GENERATION_MISMATCH');
+
+  const sessionRoot = path.join(sandbox.stateRoot, 'sessions', 'expected-generation');
+  const dataDir = path.join(sessionRoot, 'incarnations', replacement.result.generation);
+  const lockFile = path.join(dataDir, '.transcript.lock');
+  const lockDeadline = Date.now() + 1000;
+  while (true) {
+    try {
+      await writeFile(lockFile, `${JSON.stringify({ pid: process.pid, createdAtMs: Date.now() })}\n`, {
+        mode: 0o600,
+        flag: 'wx',
+      });
+      break;
+    } catch (error) {
+      if (error?.code !== 'EEXIST' || Date.now() >= lockDeadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+  let settled = false;
+  let earlyResult;
+  const racingRead = brokerRequest(sandbox.brokerSocket, request('expected-racing-read', 'session.read', {
+    name: 'expected-generation', cursor: 0, maxBytes: 65536, expectedGeneration: replacement.result.generation,
+  })).then((result) => {
+    earlyResult = result;
+    return result;
+  }).finally(() => { settled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(settled, false, JSON.stringify(earlyResult));
+
+  const metadataFile = path.join(sessionRoot, 'session.json');
+  const metadata = JSON.parse(await readFile(metadataFile, 'utf8'));
+  const tempMetadata = `${metadataFile}.race`;
+  await writeFile(tempMetadata, `${JSON.stringify({
+    ...metadata,
+    generation: '00000000-0000-4000-8000-000000000001',
+  })}\n`, { mode: 0o600 });
+  await rename(tempMetadata, metadataFile);
+  await unlink(lockFile);
+
+  const raced = await racingRead;
+  assert.equal(raced.ok, false, JSON.stringify(raced));
+  assert.equal(raced.error.code, 'SESSION_GENERATION_MISMATCH');
+});
+
+test('concurrent same-name opens serialize to one incarnation and one SESSION_EXISTS failure', async (t) => {
+  const sandbox = await makeSandbox(t);
+  await startBroker(t, sandbox);
+
+  const [a, b] = await Promise.all([
+    brokerRequest(sandbox.brokerSocket, request('concurrent-open-a', 'session.open', {
+      name: 'concurrent-open', command: 'cat',
+    })),
+    brokerRequest(sandbox.brokerSocket, request('concurrent-open-b', 'session.open', {
+      name: 'concurrent-open', command: 'cat',
+    })),
+  ]);
+  const successes = [a, b].filter((response) => response.ok);
+  const failures = [a, b].filter((response) => !response.ok);
+  assert.equal(successes.length, 1, JSON.stringify([a, b]));
+  assert.equal(failures.length, 1, JSON.stringify([a, b]));
+  assert.equal(failures[0].error.code, 'SESSION_EXISTS');
+
+  const observed = await brokerRequest(sandbox.brokerSocket, request('concurrent-observe', 'session.observe', {
+    name: 'concurrent-open',
+  }));
+  assert.equal(observed.ok, true, JSON.stringify(observed));
+  assert.match(observed.result.generation, /^[0-9a-f-]{36}$/i);
+  assert.equal(observed.result.transcript.baseOffset, 0);
 });
 
 test('expired broker-owned model cursor remains explicit and is not silently rewritten', async (t) => {

@@ -4,7 +4,9 @@ import { promisify } from 'node:util';
 import {
   chmod,
   mkdir,
+  readFile,
   realpath,
+  rename,
   stat,
   unlink,
   writeFile,
@@ -107,6 +109,14 @@ export class TmuxBackend {
     return path.join(this.sessionsRoot, name);
   }
 
+  sessionDataDir(name, generation) {
+    validateSessionName(name);
+    if (typeof generation !== 'string' || !/^[0-9a-f-]{36}$/i.test(generation)) {
+      throw new TerminalError('SESSION_STATE_CORRUPT', `invalid session generation for ${name}`);
+    }
+    return path.join(this.sessionDir(name), 'incarnations', generation);
+  }
+
   async assertServer() {
     await this.run(['show-options', '-g', '-v', 'exit-empty']);
   }
@@ -192,13 +202,63 @@ export class TmuxBackend {
     });
   }
 
+  async readSessionMetadata(name) {
+    const file = path.join(this.sessionDir(name), 'session.json');
+    try {
+      const metadata = JSON.parse(await readFile(file, 'utf8'));
+      if (!metadata || typeof metadata !== 'object' || metadata.name !== name) {
+        throw new Error('invalid session metadata');
+      }
+      return metadata;
+    } catch (error) {
+      if (error?.code === 'ENOENT') return null;
+      if (error instanceof TerminalError) throw error;
+      throw new TerminalError('SESSION_STATE_CORRUPT', `unable to read session metadata for ${name}: ${error.message}`);
+    }
+  }
+
   async writeSessionMetadata(name, metadata) {
     const dir = this.sessionDir(name);
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await chmod(dir, 0o700);
     const file = path.join(dir, 'session.json');
-    await writeFile(file, `${JSON.stringify(metadata)}\n`, { mode: 0o600 });
-    await chmod(file, 0o600);
+    const temp = path.join(dir, `.session.json.${process.pid}.${crypto.randomUUID()}.tmp`);
+    try {
+      await writeFile(temp, `${JSON.stringify(metadata)}\n`, { mode: 0o600, flag: 'wx' });
+      await chmod(temp, 0o600);
+      await rename(temp, file);
+      await chmod(file, 0o600);
+    } finally {
+      await unlink(temp).catch((error) => {
+        if (error?.code !== 'ENOENT') throw error;
+      });
+    }
+  }
+
+  async sessionState(name) {
+    const metadata = await this.readSessionMetadata(name);
+    if (!metadata || typeof metadata.generation !== 'string' || metadata.generation.length === 0) {
+      throw new TerminalError('SESSION_STATE_CORRUPT', `session generation is unavailable for ${name}`);
+    }
+    const dataDir = metadata.dataLayout === 'generation'
+      ? this.sessionDataDir(name, metadata.generation)
+      : this.sessionDir(name);
+    return { metadata, generation: metadata.generation, dataDir };
+  }
+
+  async sessionGeneration(name) {
+    return (await this.sessionState(name)).generation;
+  }
+
+  async resetPriorIncarnationState(name) {
+    const dir = this.sessionDir(name);
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await chmod(dir, 0o700);
+    for (const file of ['session.json', 'model-cursor.json']) {
+      await unlink(path.join(dir, file)).catch((error) => {
+        if (error?.code !== 'ENOENT') throw error;
+      });
+    }
   }
 
   async hasTranscriptPipe(name) {
@@ -209,8 +269,7 @@ export class TmuxBackend {
     return parseBoolean(stdout.trim());
   }
 
-  async installTranscriptPipe(name) {
-    const sessionDir = this.sessionDir(name);
+  async installTranscriptPipe(name, sessionDir = this.sessionDir(name)) {
     await ensureTranscript(sessionDir, { budgetBytes: this.transcriptBudgetBytes });
     const pipeCommand = [
       shellQuote(this.nodeBin),
@@ -235,7 +294,9 @@ export class TmuxBackend {
       throw new TerminalError('INVALID_ARGUMENT', 'command must be a string when provided');
     }
 
-    const sessionDir = this.sessionDir(name);
+    await this.resetPriorIncarnationState(name);
+    const generation = crypto.randomUUID();
+    const sessionDir = this.sessionDataDir(name, generation);
     await ensureTranscript(sessionDir, { budgetBytes: this.transcriptBudgetBytes });
     const token = crypto.randomUUID();
     const gatePath = path.join(sessionDir, `.start-gate.${token}`);
@@ -260,10 +321,12 @@ export class TmuxBackend {
       ]);
       created = true;
       await this.run(['set-option', '-w', '-t', `${name}:0`, 'remain-on-exit', 'on']);
-      await this.installTranscriptPipe(name);
+      await this.installTranscriptPipe(name, sessionDir);
       await this.writeSessionMetadata(name, {
-        version: 1,
+        version: 2,
         name,
+        generation,
+        dataLayout: 'generation',
         cwd: resolvedCwd,
         createdAt: new Date().toISOString(),
       });
@@ -283,12 +346,23 @@ export class TmuxBackend {
     validateSessionName(name);
     await this.ensureStateRoot();
     const info = await this.sessionInfo(name);
+    const prior = await this.readSessionMetadata(name);
+    const generation = typeof prior?.generation === 'string' && prior.generation.length > 0
+      ? prior.generation
+      : crypto.randomUUID();
+    const dataLayout = prior?.dataLayout === 'generation' ? 'generation' : 'legacy-flat';
+    const dataDir = dataLayout === 'generation'
+      ? this.sessionDataDir(name, generation)
+      : this.sessionDir(name);
     if (!info.paneDead && !(await this.hasTranscriptPipe(name))) {
-      await this.installTranscriptPipe(name);
+      await this.installTranscriptPipe(name, dataDir);
     }
     await this.writeSessionMetadata(name, {
-      version: 1,
+      ...prior,
+      version: 2,
       name,
+      generation,
+      dataLayout,
       recoveredAt: new Date().toISOString(),
     });
     return info;

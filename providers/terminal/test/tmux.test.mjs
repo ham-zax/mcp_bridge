@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
 
 import { TmuxBackend } from '../tmux.mjs';
@@ -41,6 +43,31 @@ test('dedicated tmux backend covers create, send, resize, capture, list, dead st
   assert.equal(exited.remainOnExit, true);
   assert.equal(exited.paneDeadStatus, 7);
   await tmux.closeSession('exit7');
+});
+
+test('session metadata carries a stable generation across reconciliation and a new one after reopen', async (t) => {
+  const sandbox = await makeSandbox(t);
+  const tmux = new TmuxBackend({
+    socketPath: sandbox.socketPath,
+    stateRoot: sandbox.stateRoot,
+    defaultCwd: '/home/hamza',
+    transcriptBudgetBytes: 1024 * 1024,
+  });
+
+  await tmux.openSession({ name: 'generation-meta', command: 'cat' });
+  const metadataFile = path.join(tmux.sessionDir('generation-meta'), 'session.json');
+  const first = JSON.parse(await readFile(metadataFile, 'utf8'));
+  assert.match(first.generation, /^[0-9a-f-]{36}$/i);
+
+  await tmux.reconcileSession('generation-meta');
+  const reconciled = JSON.parse(await readFile(metadataFile, 'utf8'));
+  assert.equal(reconciled.generation, first.generation);
+
+  await tmux.closeSession('generation-meta');
+  await tmux.openSession({ name: 'generation-meta', command: 'cat' });
+  const replacement = JSON.parse(await readFile(metadataFile, 'utf8'));
+  assert.match(replacement.generation, /^[0-9a-f-]{36}$/i);
+  assert.notEqual(replacement.generation, first.generation);
 });
 
 test('session names are constrained to the frozen contract', async (t) => {
