@@ -274,8 +274,8 @@ export class TmuxBackend {
   async reconcileSession(name) {
     validateSessionName(name);
     await this.ensureStateRoot();
-    await this.installTranscriptPipe(name);
     const info = await this.sessionInfo(name);
+    if (!info.paneDead) await this.installTranscriptPipe(name);
     await this.writeSessionMetadata(name, {
       version: 1,
       name,
