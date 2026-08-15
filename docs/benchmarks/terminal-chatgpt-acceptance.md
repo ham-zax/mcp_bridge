@@ -12,9 +12,11 @@
 
 **LOCAL_ACCEPTANCE:** COMPLETE
 
-**REAL_CHATGPT_ACCEPTANCE:** PENDING
+**REAL_CHATGPT_ACCEPTANCE:** COMPLETE
 
-**TASK_8_UNBLOCKED:** NO — Task 8 remains blocked until rollback-gated live activation, Actions Refresh, and fresh-session real ChatGPT Terminal acceptance complete
+**FINAL_PRODUCT_VERDICT:** `TERMINAL_ACCEPTED`
+
+**TASK_8_UNBLOCKED:** YES — the fresh-session ChatGPT -> Cloudflare/OAuth -> 1MCP -> Terminal MCP -> broker -> tmux path passed
 
 ## Frozen architecture
 
@@ -445,80 +447,94 @@ Task 7 also found one additional tmux 3.4 reconciliation edge during its model-c
 
 ## Real ChatGPT acceptance
 
-**Status: PENDING.**
+**Status: COMPLETE.**
 
-The current session is itself using the live bridge. The mission explicitly forbids replacing/restarting a bridge from inside a process owned by that same bridge, and user-facing Actions Refresh is external/manual. Therefore no live 1MCP/bridge refresh was attempted.
+**Final verdict: `TERMINAL_ACCEPTED`.**
 
-After the coordinator integrates the final Task-7 commit onto the newer assembled integration head, activation must be performed from an external WSL shell/session that is not dependent on the bridge being restarted:
+The live product path was exercised end to end:
 
-1. Enter the integrated checkout.
+```text
+ChatGPT -> Cloudflare/OAuth -> 1MCP -> Terminal MCP -> broker -> tmux
+```
 
-2. Install/refresh the private Terminal services and provider dependencies:
+Connector heartbeat passed, and the already-integrated Code provider remained usable during the acceptance run.
 
-   ```bash
-   bash scripts/install-terminal-broker-user.sh
-   systemctl --user start wsl-agent-tmux.service wsl-agent-terminal-broker.service
-   systemctl --user status wsl-agent-tmux.service wsl-agent-terminal-broker.service --no-pager
-   ```
+### Basic Terminal behavior
 
-3. Render the personal 1MCP composition into the existing external bridge state directory. The standard state directory is derived exactly as the bridge library does:
+```text
+persistent shell                       PASS
+incremental unread reads               PASS
+immediate second read, no new output   empty / no duplicate
+resize                                 PASS
+verified terminal size                 33 101
+non-zero exit retention                PASS
+exact retained status                  exit=7
+```
 
-   ```bash
-   BRIDGE_STATE_BASE="${XDG_STATE_HOME:-$HOME/.local/state}"
-   BRIDGE_STATE_DIR="${BRIDGE_STATE_DIR:-$BRIDGE_STATE_BASE/mcp-dev-bridge}"
-   node scripts/render-config.mjs \
-     --profile personal \
-     --env-file .env \
-     --state-dir "$BRIDGE_STATE_DIR" \
-     --repo-root "$PWD"
-   ```
+### Broker restart durability
 
-   If the deployment already supplies a non-default `BRIDGE_STATE_DIR`, use that exact deployed value rather than the default above.
+The live session was `chatgpt-acceptance`.
 
-4. From that same external shell, restart/reconcile the bridge using the site's existing external lifecycle control. For a systemd-managed deployment, restart `mcp-dev-bridge.service` externally; do not issue the restart from a ChatGPT request running through that bridge.
+Before restarting only the Terminal broker:
 
-5. Confirm external bridge status:
+```text
+broker PID  3118267
+tmux PID    3118265
+pane PID    3135815
+```
 
-   ```bash
-   bin/status
-   ```
+After the broker-only restart:
 
-6. In the ChatGPT product, perform the required Actions/connector refresh so the newly rendered personal provider catalog is reloaded.
+```text
+broker PID  3139861  changed
+tmux PID    3118265  unchanged
+pane PID    3135815  unchanged
+```
 
-7. From a fresh ChatGPT session, verify exactly these six Terminal tools and no lease/raw-tmux tools:
+Therefore the product path proved:
 
-   ```text
-   terminal_open
-   terminal_read
-   terminal_send
-   terminal_resize
-   terminal_list
-   terminal_close
-   ```
+```text
+broker replaced                   YES
+tmux lifetime authority survived  YES
+PTY/pane process survived         YES
+broker socket restored            YES
+```
 
-8. Run a product-path scenario:
+After the broker returned, ChatGPT successfully wrote and read `AFTER_BROKER_RESTART` through the same Terminal session.
 
-   - open an interactive shell;
-   - read initial output twice and verify the second no-new-output read is empty;
-   - send text and `ENTER`;
-   - exercise `CTRL_C` and one navigation key;
-   - resize;
-   - open a command that exits `7` and verify `terminal_list` reports exact exit `7`;
-   - in the external WSL shell run `wsl-term attach <session>`;
-   - while attached, verify ChatGPT read/list still work while send/resize/ordinary close return `HUMAN_HAS_CONTROL`;
-   - detach the human client and verify ChatGPT send works again.
+### Human takeover
 
-Only after that external/product run should `REAL_CHATGPT_ACCEPTANCE` be changed from `PENDING` to `COMPLETE`.
+A human attached to the exact same PTY with:
+
+```text
+wsl-term attach chatgpt-acceptance
+```
+
+While human control was active:
+
+```text
+terminal_read            PASS / allowed
+terminal_send            HUMAN_HAS_CONTROL
+terminal_resize          HUMAN_HAS_CONTROL
+ordinary terminal_close  HUMAN_HAS_CONTROL
+```
+
+The human typed `HUMAN_SIDE_MARKER` directly into the attached PTY. ChatGPT observed that marker through `terminal_read` while model writes remained blocked.
+
+After human detach, model write control returned. ChatGPT successfully wrote and read `MODEL_CONTROL_RESTORED`.
+
+Normal cleanup passed.
+
+A small number of individual ChatGPT tool invocations were intercepted once by the ChatGPT/tool runtime before reaching MCP and succeeded on retry. This is product-path observational evidence only; it is not classified as a Terminal-provider defect and does not define a new harness subsystem.
 
 ## Deviations / review notes
 
-- No rebase or merge onto the newer integration branch was performed. This Task-7 branch remains based on `0441b94` exactly as directed; coordinator integration is separate.
-- The additional live transcript-pipe reconciliation guard described above was discovered by a Task-7 restart test and is included because Task 7 explicitly requires broker restart to preserve continuing terminal output.
-- The first real-systemd acceptance attempt could not call `systemctl --user` from a nested Node process because that process had not inherited `DBUS_SESSION_BUS_ADDRESS`. No architecture result was taken from that attempt. The Terminal services were reset to a clean namespace, the correct user-bus environment was exported, and the complete gate was rerun successfully. The machine was restored afterward.
-- Independent reviewer/subagent dispatch is unavailable in this web session. Final review was therefore inline: diff scope, six-tool registration, input-secrecy path, frozen-domain exclusions, tests, syntax, and systemd evidence were checked directly.
+- The live product run was performed after the original Task-7 design branch had been integrated and activated externally; this document now records that later acceptance evidence.
+- The additional live transcript-pipe reconciliation guard described above remains part of the accepted implementation because broker restart must preserve continuing transcript capture.
+- The Task-7 local systemd qualification and the later real ChatGPT product-path acceptance are separate evidence layers; both are retained here.
 
 ## Risks / blockers
 
-No local Task-7 correctness blocker remains.
+No Task-7 correctness or product-path acceptance blocker remains.
 
-The only outstanding acceptance item is the external product-path refresh/verification described above. That is intentionally pending rather than being performed from the bridge-owned ChatGPT session.
+Task 8 await/resume design is unblocked by the final `TERMINAL_ACCEPTED` verdict.
