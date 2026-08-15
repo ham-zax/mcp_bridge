@@ -492,40 +492,227 @@ test('multi-file patch reports partial application when a later snapshot becomes
   assert.equal(await fs.readFile(second, 'utf8'), 'EXTERNAL\n');
 });
 
-test('concurrent personal mutations on disjoint paths do not interfere', async () => {
+test('30 concurrent personal mutation batches on disjoint paths do not interfere', async () => {
   const defaultCwd = await tempDir('patch-disjoint-agents-');
-  await fs.writeFile(path.join(defaultCwd, 'edit.txt'), 'alpha\n');
-  await fs.writeFile(path.join(defaultCwd, 'patch.txt'), 'beta\n');
 
-  const settled = await Promise.allSettled([
-    runEdit({
+  for (let iteration = 0; iteration < 30; iteration += 1) {
+    const relativeDir = `case-${iteration}`;
+    const absoluteDir = path.join(defaultCwd, relativeDir);
+    await fs.mkdir(absoluteDir);
+    await fs.writeFile(path.join(absoluteDir, 'edit.txt'), 'alpha\n');
+    await fs.writeFile(path.join(absoluteDir, 'patch.txt'), 'beta\n');
+
+    const settled = await Promise.allSettled([
+      runEdit({
+        pathMode: 'user',
+        defaultCwd,
+        path: `${relativeDir}/edit.txt`,
+        edits: [{ oldText: 'alpha', newText: 'ALPHA' }]
+      }),
+      runPatch({
+        pathMode: 'user',
+        defaultCwd,
+        patch: patch(
+          '*** Begin Patch',
+          `*** Update File: ${relativeDir}/patch.txt`,
+          '@@',
+          '-beta',
+          '+BETA',
+          '*** End Patch'
+        )
+      }),
+      runWrite({
+        pathMode: 'user',
+        defaultCwd,
+        path: `${relativeDir}/new.txt`,
+        content: 'NEW\n'
+      })
+    ]);
+
+    assert.ok(settled.every(result => result.status === 'fulfilled'), `iteration ${iteration}: disjoint mutations must all succeed`);
+    assert.equal(await fs.readFile(path.join(absoluteDir, 'edit.txt'), 'utf8'), 'ALPHA\n');
+    assert.equal(await fs.readFile(path.join(absoluteDir, 'patch.txt'), 'utf8'), 'BETA\n');
+    assert.equal(await fs.readFile(path.join(absoluteDir, 'new.txt'), 'utf8'), 'NEW\n');
+  }
+});
+
+function raceFileContent() {
+  return `alpha\n${'middle\n'.repeat(12000)}omega\n`;
+}
+
+function assertConflictRejections(settled) {
+  for (const result of settled) {
+    if (result.status !== 'rejected') continue;
+    assert.match(
+      result.reason instanceof Error ? result.reason.message : String(result.reason),
+      /changed since preflight|reread and reconcile|exact text.*not found|conflict|ENOENT|no such file/i
+    );
+  }
+}
+
+test('overlapping apply_patch calls never both succeed while one same-region result is lost', async () => {
+  const defaultCwd = await tempDir('patch-concurrent-overlap-');
+  const target = path.join(defaultCwd, 'x.txt');
+
+  for (let iteration = 0; iteration < 50; iteration += 1) {
+    await fs.writeFile(target, raceFileContent());
+    const settled = await Promise.allSettled([
+      runPatch({
+        pathMode: 'user',
+        defaultCwd,
+        patch: patch(
+          '*** Begin Patch',
+          '*** Update File: x.txt',
+          '@@',
+          '-alpha',
+          '+ACTOR_A',
+          '*** End Patch'
+        )
+      }),
+      runPatch({
+        pathMode: 'user',
+        defaultCwd,
+        patch: patch(
+          '*** Begin Patch',
+          '*** Update File: x.txt',
+          '@@',
+          '-alpha',
+          '+ACTOR_B',
+          '*** End Patch'
+        )
+      })
+    ]);
+
+    const fulfilled = settled.filter(result => result.status === 'fulfilled');
+    assert.equal(fulfilled.length, 1, `iteration ${iteration}: same-region patches must have exactly one winner`);
+    assertConflictRejections(settled);
+    assert.match(await fs.readFile(target, 'utf8'), /^(ACTOR_A|ACTOR_B)\n/);
+  }
+});
+
+test('disjoint apply_patch calls on one file preserve both effects or explicitly conflict', async () => {
+  const defaultCwd = await tempDir('patch-concurrent-disjoint-');
+  const target = path.join(defaultCwd, 'x.txt');
+
+  for (let iteration = 0; iteration < 50; iteration += 1) {
+    await fs.writeFile(target, raceFileContent());
+    const settled = await Promise.allSettled([
+      runPatch({
+        pathMode: 'user',
+        defaultCwd,
+        patch: patch(
+          '*** Begin Patch',
+          '*** Update File: x.txt',
+          '@@',
+          '-alpha',
+          '+ALPHA',
+          '*** End Patch'
+        )
+      }),
+      runPatch({
+        pathMode: 'user',
+        defaultCwd,
+        patch: patch(
+          '*** Begin Patch',
+          '*** Update File: x.txt',
+          '@@',
+          '-omega',
+          '+OMEGA',
+          '*** End Patch'
+        )
+      })
+    ]);
+
+    const fulfilled = settled.filter(result => result.status === 'fulfilled').length;
+    const final = await fs.readFile(target, 'utf8');
+    if (fulfilled === 2) {
+      assert.match(final, /^ALPHA\n/);
+      assert.match(final, /OMEGA\n$/);
+    } else {
+      assert.equal(fulfilled, 1, `iteration ${iteration}: disjoint patches must have at least one winner`);
+      assertConflictRejections(settled);
+      assert.notEqual(final.startsWith('ALPHA\n'), final.endsWith('OMEGA\n'), `iteration ${iteration}: one explicit loser must leave exactly one effect`);
+    }
+  }
+});
+
+test('apply_patch and exact edit on one file preserve both effects or explicitly conflict', async () => {
+  const defaultCwd = await tempDir('patch-edit-concurrent-');
+  const target = path.join(defaultCwd, 'x.txt');
+
+  for (let iteration = 0; iteration < 50; iteration += 1) {
+    await fs.writeFile(target, raceFileContent());
+    const settled = await Promise.allSettled([
+      runPatch({
+        pathMode: 'user',
+        defaultCwd,
+        patch: patch(
+          '*** Begin Patch',
+          '*** Update File: x.txt',
+          '@@',
+          '-alpha',
+          '+ALPHA',
+          '*** End Patch'
+        )
+      }),
+      runEdit({
+        pathMode: 'user',
+        defaultCwd,
+        path: 'x.txt',
+        edits: [{ oldText: 'omega', newText: 'OMEGA' }]
+      })
+    ]);
+
+    const fulfilled = settled.filter(result => result.status === 'fulfilled').length;
+    const final = await fs.readFile(target, 'utf8');
+    if (fulfilled === 2) {
+      assert.match(final, /^ALPHA\n/);
+      assert.match(final, /OMEGA\n$/);
+    } else {
+      assert.equal(fulfilled, 1, `iteration ${iteration}: patch/edit must have at least one winner`);
+      assertConflictRejections(settled);
+      assert.notEqual(final.startsWith('ALPHA\n'), final.endsWith('OMEGA\n'), `iteration ${iteration}: one explicit loser must leave exactly one effect`);
+    }
+  }
+});
+
+test('delete and update from one patch snapshot never both report success', async () => {
+  const defaultCwd = await tempDir('patch-delete-update-concurrent-');
+  const target = path.join(defaultCwd, 'x.txt');
+
+  for (let iteration = 0; iteration < 50; iteration += 1) {
+    await fs.writeFile(target, raceFileContent());
+    const deletePlan = await preflightPatch({
       pathMode: 'user',
       defaultCwd,
-      path: 'edit.txt',
-      edits: [{ oldText: 'alpha', newText: 'ALPHA' }]
-    }),
-    runPatch({
+      patch: patch('*** Begin Patch', '*** Delete File: x.txt', '*** End Patch')
+    });
+    const updatePlan = await preflightPatch({
       pathMode: 'user',
       defaultCwd,
       patch: patch(
         '*** Begin Patch',
-        '*** Update File: patch.txt',
+        '*** Update File: x.txt',
         '@@',
-        '-beta',
-        '+BETA',
+        '-alpha',
+        '+ALPHA',
         '*** End Patch'
       )
-    }),
-    runWrite({ pathMode: 'user', defaultCwd, path: 'new.txt', content: 'NEW\n' })
-  ]);
+    });
 
-  assert.ok(settled.every(x => x.status === 'fulfilled'));
-  assert.equal(await fs.readFile(path.join(defaultCwd, 'edit.txt'), 'utf8'), 'ALPHA\n');
-  assert.equal(await fs.readFile(path.join(defaultCwd, 'patch.txt'), 'utf8'), 'BETA\n');
-  assert.equal(await fs.readFile(path.join(defaultCwd, 'new.txt'), 'utf8'), 'NEW\n');
+    const settled = await Promise.allSettled([
+      applyPatchPlan(deletePlan),
+      applyPatchPlan(updatePlan)
+    ]);
+    const fulfilled = settled.filter(result => result.status === 'fulfilled').length;
+    assert.equal(fulfilled, 1, `iteration ${iteration}: delete/update from one snapshot must have exactly one winner`);
+    assertConflictRejections(settled);
+
+    try {
+      const final = await fs.readFile(target, 'utf8');
+      assert.match(final, /^ALPHA\n/);
+    } catch (error) {
+      assert.equal(error.code, 'ENOENT');
+    }
+  }
 });
-
-test.todo('CAS trigger: overlapping apply_patch calls on one snapshot must not both report success after one update is lost');
-test.todo('CAS trigger: disjoint apply_patch updates to one file must preserve both changes or reject one actor');
-test.todo('CAS trigger: apply_patch versus exact edit on one file must preserve both changes or reject one actor');
-test.todo('CAS trigger: delete/update race must not report both operations as successful');

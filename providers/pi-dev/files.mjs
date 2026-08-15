@@ -13,6 +13,7 @@ import {
   resolveNewWorkspacePath,
   resolveUserPath
 } from './boundary.mjs';
+import { withMutationPath } from './mutation-coordinator.mjs';
 
 function normalizeExactText(text) {
   const withoutBom = text.startsWith('\uFEFF') ? text.slice(1) : text;
@@ -64,9 +65,11 @@ export function createStrictEditOperations(edits) {
     },
     writeFile: async (absolutePath, content) => {
       if (!snapshot || snapshotPath !== absolutePath) throw new Error('edit snapshot is missing');
-      const current = await fs.readFile(absolutePath);
-      if (!current.equals(snapshot)) throw new Error('file changed during edit; reread and reconcile');
-      await fs.writeFile(absolutePath, content, 'utf8');
+      await withMutationPath(absolutePath, async () => {
+        const current = await fs.readFile(absolutePath);
+        if (!current.equals(snapshot)) throw new Error('file changed during edit; reread and reconcile');
+        await fs.writeFile(absolutePath, content, 'utf8');
+      });
     }
   };
 }

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { resolveUserCwd, resolveUserPath } from './boundary.mjs';
+import { withMutationPaths } from './mutation-coordinator.mjs';
 
 const BEGIN_PATCH = '*** Begin Patch';
 const END_PATCH = '*** End Patch';
@@ -409,46 +410,52 @@ export async function applyPatchPlan(plan, operationOverrides = {}) {
     try {
       throwIfAborted(plan.signal);
 
-      if (item.kind === 'add') {
-        try {
-          await operations.writeFile(item.target, item.after, { flag: 'wx' });
-        } catch (error) {
-          if (error?.code === 'EEXIST') {
-            throw patchError(`add ${item.path} already exists; patch conflict`, 'PATCH_CONFLICT');
+      const mutationTargets = item.kind === 'move'
+        ? [item.target, item.destination]
+        : [item.target];
+
+      await withMutationPaths(mutationTargets, async () => {
+        if (item.kind === 'add') {
+          try {
+            await operations.writeFile(item.target, item.after, { flag: 'wx' });
+          } catch (error) {
+            if (error?.code === 'EEXIST') {
+              throw patchError(`add ${item.path} already exists; patch conflict`, 'PATCH_CONFLICT');
+            }
+            error.patchStateUnknown = true;
+            throw error;
           }
-          error.patchStateUnknown = true;
-          throw error;
-        }
-      } else if (item.kind === 'update') {
-        await assertSnapshot(operations, item);
-        try {
-          await operations.writeFile(item.target, item.after);
-        } catch (error) {
-          error.patchStateUnknown = true;
-          throw error;
-        }
-      } else if (item.kind === 'delete') {
-        await assertSnapshot(operations, item);
-        await operations.unlink(item.target);
-      } else if (item.kind === 'move') {
-        await assertDestinationStillAbsent(operations, item.destination, `move ${item.path} -> ${item.moveTo}`);
-        await assertSnapshot(operations, item);
-        try {
-          await operations.writeFile(item.destination, item.after, { flag: 'wx', mode: item.mode });
-        } catch (error) {
-          if (error?.code === 'EEXIST') {
-            throw patchError(`move destination ${item.moveTo} already exists; patch conflict`, 'PATCH_CONFLICT');
+        } else if (item.kind === 'update') {
+          await assertSnapshot(operations, item);
+          try {
+            await operations.writeFile(item.target, item.after);
+          } catch (error) {
+            error.patchStateUnknown = true;
+            throw error;
           }
-          error.patchStateUnknown = true;
-          throw error;
+        } else if (item.kind === 'delete') {
+          await assertSnapshot(operations, item);
+          await operations.unlink(item.target);
+        } else if (item.kind === 'move') {
+          await assertDestinationStillAbsent(operations, item.destination, `move ${item.path} -> ${item.moveTo}`);
+          await assertSnapshot(operations, item);
+          try {
+            await operations.writeFile(item.destination, item.after, { flag: 'wx', mode: item.mode });
+          } catch (error) {
+            if (error?.code === 'EEXIST') {
+              throw patchError(`move destination ${item.moveTo} already exists; patch conflict`, 'PATCH_CONFLICT');
+            }
+            error.patchStateUnknown = true;
+            throw error;
+          }
+          extraApplied = [`created move destination ${item.moveTo} from ${item.path}; source retained until removal`];
+          await assertSnapshot(operations, item);
+          await operations.unlink(item.target);
+          extraApplied = [];
+        } else {
+          throw patchError(`unknown preflight operation: ${item.kind}`);
         }
-        extraApplied = [`created move destination ${item.moveTo} from ${item.path}; source retained until removal`];
-        await assertSnapshot(operations, item);
-        await operations.unlink(item.target);
-        extraApplied = [];
-      } else {
-        throw patchError(`unknown preflight operation: ${item.kind}`);
-      }
+      });
 
       applied.push(label);
       changes.push({

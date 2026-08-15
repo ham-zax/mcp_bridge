@@ -337,3 +337,93 @@ stronger CAS/hash  TRIGGER_FIRED_FOCUSED_DESIGN_REQUIRED
 The focused design deliberately does **not** approve model-visible hash fields yet. A standalone expected hash checked before the current write would inherit the same check-then-write race. The first follow-up step should make the existing implicit snapshot precondition atomic for cooperating same-path Files mutations, while preserving disjoint-path concurrency and current partial-application semantics. A model-visible revision/hash should be added only if a later focused benchmark proves it is still necessary after atomic enforcement.
 
 `apply_patch` remains `BOTH_EARN_PLACE`, `edit` remains the guarded simple replacement primitive, `write` remains create-only, personal path semantics remain unchanged, and public `restricted` / `trusted-dev` behavior remains unchanged.
+
+## Task 12.5 — Atomic Same-Path Mutation Enforcement
+
+**Verdict:** `SAME_PATH_ATOMICITY_FIXED`
+
+Task 12.5 implements the focused follow-up without changing any model-facing Files schema. The proven defect was the scheduling window between the final snapshot comparison and the corresponding mutation, not the absence of a SHA/revision field.
+
+### Coordinator contract
+
+The Pi Files provider now has one shared provider-internal mutation coordinator keyed by canonical absolute filesystem target. `edit` and `apply_patch` import the same coordinator module; there are no separate per-tool lock maps.
+
+For an existing-file exact edit, the coordinator lease covers:
+
+```text
+final read
+snapshot comparison
+write
+```
+
+For patch update/delete, the lease covers the same final snapshot check plus write/unlink. Patch Add remains exclusive-create (`wx`) and is also executed under its target lease. Move acquires both source and destination leases using the coordinator's stable canonical-path ordering, then holds both through destination validation/exclusive create, source recheck, and source removal.
+
+The coordinator is per canonical path rather than global. Different canonical files can enter mutation critical sections concurrently. Missing targets are canonicalized through their real parent directory so symlinked parent aliases to the same destination cannot create split locks.
+
+Multi-file `apply_patch` remains explicitly non-transactional: each file operation takes only its own lease(s), and an earlier committed operation followed by a later stale/failing target still reports `PATCH_PARTIAL`.
+
+### RED evidence before implementation
+
+The four Task-12 TODOs were first converted into real regressions and run against the unmodified provider. All four failed immediately on iteration 0 with the expected silent-loss class:
+
+```text
+overlapping patch/patch          both fulfilled when exactly one result could survive
+disjoint patch/patch same file   both fulfilled but one valid effect disappeared
+patch/edit same file             both fulfilled but one valid effect disappeared
+delete/update same snapshot      both fulfilled despite contradictory final state
+```
+
+Coordinator unit tests were also written before implementation. The initial test run failed because the coordinator module did not yet exist; a later canonical-alias test independently failed against the first implementation because two symlinked parent aliases could enter concurrently. The coordinator was then tightened to canonicalize both existing and missing targets before keying locks.
+
+### Post-fix stress matrix
+
+The required post-fix stress corpus ran against the real exported provider primitives:
+
+| Scenario | Runs | Safe conflict | Serializable both-success | Silent lost update | Other |
+|---|---:|---:|---:|---:|---:|
+| overlapping patch/patch, same region | 50 | 50 | 0 | **0** | 0 |
+| disjoint patch/patch, same file | 50 | 50 | 0 | **0** | 0 |
+| patch/edit, same file | 50 | 50 | 0 | **0** | 0 |
+| delete/update, same preflight snapshot | 50 | 50 | 0 | **0** | 0 |
+| disjoint edit/patch/write path batches | 30 | 30 all-success batches | — | **0** | 0 |
+
+Total reproduced `SILENT_LOST_UPDATE` after the fix: **0**.
+
+Raw post-fix stress evidence is retained outside Git at:
+
+```text
+${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/benchmarks/task12-5-mutation-atomicity/post-fix-stress.json
+```
+
+The observed same-file outcome in this run was conservative serialization: one actor committed and the stale actor rejected explicitly. The contract also permits both disjoint effects to succeed when the second operation preflights after the first mutation and therefore computes from the newer state.
+
+### Existing semantics preserved
+
+The full regression suite continues to verify:
+
+- exact-edit missing/ambiguous anchors still reject;
+- same-region edit/edit still has one explicit loser;
+- stale edit snapshots still reject;
+- create/create remains exclusive-create;
+- patch Add remains exclusive-create;
+- move destination races remain exclusive;
+- move source/destination acquisition uses one stable sorted canonical-path order;
+- later stale targets in multi-file patching still produce explicit `PATCH_PARTIAL` after earlier committed work;
+- personal `{ pathMode: user, defaultCwd }` resolution is unchanged;
+- public restricted/trusted-dev catalogs and workspace confinement are unchanged.
+
+### Native Bash / external-writer boundary
+
+This is an **in-process cooperating Files mutation coordinator**, not universal cross-process CAS. Native Bash and arbitrary external writers do not participate in the lock.
+
+The existing snapshot checks remain valuable: if an external mutation becomes visible before the final comparison, edit/patch rejects it. An external writer that races after that final comparison is outside this coordinator's guarantee. Task 12.5 makes no stronger cross-process claim.
+
+### Model-visible revision/hash decision
+
+```text
+MODEL_VISIBLE_HASH_NEEDED = NO
+```
+
+The reproduced cooperating same-path defect is eliminated with the existing implicit snapshot precondition once its final compare+mutation is atomic inside the provider. No actual stale-read workflow evidence in Task 12.5 requires `expected_sha256`, `revision`, `etag`, `if_hash`, or an equivalent MCP field.
+
+A future revision token remains evidence-triggered only. If later real stale-read ergonomics justify one, it must be enforced inside the same coordinator critical section rather than replacing atomic enforcement.
