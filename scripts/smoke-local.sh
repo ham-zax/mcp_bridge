@@ -15,7 +15,7 @@ const dev = cfg.mcpServers?.dev;
 if (cfg.mcpServers?.filesystem) throw new Error('filesystem provider must be absent after Pi cutover');
 if (profile) {
   const actual = Object.keys(cfg.mcpServers ?? {}).sort();
-  const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : null;
+  const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : profile === 'personal' ? ['dev'] : null;
   if (!expected || JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`unexpected final provider set for ${profile || 'unknown'}: ${actual.join(',')}`);
   }
@@ -25,10 +25,18 @@ if (dev) {
   const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
   if (pkg.version !== '0.84.1') throw new Error(`unexpected Pi version: ${pkg.version}`);
   const env = dev.env ?? {};
-  if (!path.isAbsolute(env.MCP_DEV_WORKSPACE_ROOT ?? '')) throw new Error('MCP_DEV_WORKSPACE_ROOT must be absolute');
   if (!path.isAbsolute(env.MCP_DEV_STATE_DIR ?? '')) throw new Error('MCP_DEV_STATE_DIR must be absolute');
   if (!/^[1-9][0-9]*$/.test(env.MCP_DEV_MAX_OUTPUT_BYTES ?? '')) throw new Error('MCP_DEV_MAX_OUTPUT_BYTES must be a positive integer');
   if (!['allowlist', 'unrestricted'].includes(env.MCP_DEV_SHELL_MODE)) throw new Error('MCP_DEV_SHELL_MODE must be allowlist or unrestricted');
+  if (profile === 'personal') {
+    if (env.MCP_DEV_PATH_MODE !== 'user') throw new Error('personal MCP_DEV_PATH_MODE must be user');
+    if (!path.isAbsolute(env.MCP_DEV_DEFAULT_CWD ?? '')) throw new Error('personal MCP_DEV_DEFAULT_CWD must be absolute');
+    if (env.MCP_DEV_WORKSPACE_ROOT !== undefined) throw new Error('personal dev provider must not use MCP_DEV_WORKSPACE_ROOT');
+  } else {
+    if (env.MCP_DEV_PATH_MODE !== 'workspace') throw new Error('public MCP_DEV_PATH_MODE must be workspace');
+    if (!path.isAbsolute(env.MCP_DEV_WORKSPACE_ROOT ?? '')) throw new Error('MCP_DEV_WORKSPACE_ROOT must be absolute');
+    if (env.MCP_DEV_DEFAULT_CWD !== undefined) throw new Error('public dev provider must not set MCP_DEV_DEFAULT_CWD');
+  }
 }
 NODE
 fi
@@ -41,4 +49,4 @@ curl -sf -m 5 -X POST "$URL" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1.0.0"}}}'
 echo
 echo
-echo "(connectivity check only; final tool surface: inspect dev plus restricted-only shell, or docs/acceptance.md from ChatGPT)"
+echo "(connectivity check only; inspect dev plus restricted-only shell for public profiles, or dev-only personal composition)"

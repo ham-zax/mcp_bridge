@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 function usage() {
-  return `Usage: scripts/render-config.mjs --profile <restricted|trusted-dev> [options]\n\nOptions:\n  --env-file PATH   Deployment env file (default: <repo>/.env)\n  --state-dir PATH  Persistent state root\n  --repo-root PATH  Repository root override\n  --help            Show this help\n`;
+  return `Usage: scripts/render-config.mjs --profile <restricted|trusted-dev|personal> [options]\n\nOptions:\n  --env-file PATH   Deployment env file (default: <repo>/.env)\n  --state-dir PATH  Persistent state root\n  --repo-root PATH  Repository root override\n  --help            Show this help\n`;
 }
 
 function parseArgs(argv) {
@@ -81,8 +81,8 @@ export async function renderConfig(options) {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const repoRoot = path.resolve(options.repoRoot ?? path.join(scriptDir, '..'));
   const profile = options.profile;
-  if (!['restricted', 'trusted-dev'].includes(profile)) {
-    throw new Error('profile must be one of: restricted, trusted-dev');
+  if (!['restricted', 'trusted-dev', 'personal'].includes(profile)) {
+    throw new Error('profile must be one of: restricted, trusted-dev, personal');
   }
 
   const home = process.env.HOME || os.homedir();
@@ -103,13 +103,25 @@ export async function renderConfig(options) {
     throw new Error(`profile ${profile} must set MCP_SHELL_MODE=allowlist or unrestricted`);
   }
 
+  const isPersonal = profile === 'personal';
+  let personalDefaultCwd = null;
+  if (isPersonal) {
+    if (profileValues.MCP_DEV_PATH_MODE !== 'user') {
+      throw new Error('profile personal must set MCP_DEV_PATH_MODE=user');
+    }
+    personalDefaultCwd = profileValues.MCP_DEV_DEFAULT_CWD;
+    if (typeof personalDefaultCwd !== 'string' || !path.isAbsolute(personalDefaultCwd)) {
+      throw new Error('profile personal must set MCP_DEV_DEFAULT_CWD to an absolute path');
+    }
+  }
+
   const devMaxOutputBytesRaw = deployment.MCP_DEV_MAX_OUTPUT_BYTES ?? '1048576';
   const devMaxOutputBytes = Number(devMaxOutputBytesRaw);
   if (!Number.isInteger(devMaxOutputBytes) || devMaxOutputBytes <= 0 || devMaxOutputBytes > 16 * 1024 * 1024) {
     throw new Error('MCP_DEV_MAX_OUTPUT_BYTES must be an integer from 1 to 16777216');
   }
 
-  const workspaceRoot = deployment.MCP_WORKSPACE_ROOT;
+  const workspaceRoot = isPersonal ? personalDefaultCwd : deployment.MCP_WORKSPACE_ROOT;
   const publicUrl = deployment.MCP_PUBLIC_URL;
   const tunnelName = deployment.MCP_TUNNEL_NAME ?? '';
   if (!workspaceRoot) throw new Error(`MCP_WORKSPACE_ROOT is required in ${envFile} or the environment`);
@@ -123,7 +135,8 @@ export async function renderConfig(options) {
   }
   if (parsedUrl.protocol !== 'https:') throw new Error('MCP_PUBLIC_URL must use https');
 
-  const template = JSON.parse(await fs.readFile(path.join(repoRoot, 'config', 'templates', 'mcp.json'), 'utf8'));
+  const templateName = isPersonal ? 'mcp-personal.json' : 'mcp.json';
+  const template = JSON.parse(await fs.readFile(path.join(repoRoot, 'config', 'templates', templateName), 'utf8'));
   const rendered = replaceStrings(template, {
     __WORKSPACE_ROOT__: workspaceRoot,
     __REPO_ROOT__: repoRoot,
@@ -135,8 +148,13 @@ export async function renderConfig(options) {
     __DEV_MAX_OUTPUT_BYTES__: String(devMaxOutputBytes),
   });
 
-  if (profile === 'trusted-dev') {
-    delete rendered.mcpServers.shell;
+  if (isPersonal) {
+    rendered.mcpServers.dev.env.MCP_DEV_SHELL_MODE = shellMode;
+    rendered.mcpServers.dev.env.MCP_DEV_PATH_MODE = profileValues.MCP_DEV_PATH_MODE;
+    rendered.mcpServers.dev.env.MCP_DEV_DEFAULT_CWD = personalDefaultCwd;
+  } else {
+    rendered.mcpServers.dev.env.MCP_DEV_PATH_MODE = 'workspace';
+    if (profile === 'trusted-dev') delete rendered.mcpServers.shell;
   }
 
   const oneMcpDir = path.join(stateDir, '1mcp');
@@ -178,7 +196,7 @@ async function main() {
     return;
   }
   if (!args.profile) {
-    console.error('A trust profile is required. Choose --profile restricted or --profile trusted-dev.');
+    console.error('A trust profile is required. Choose --profile restricted, --profile trusted-dev, or --profile personal.');
     console.error(usage());
     process.exitCode = 2;
     return;
