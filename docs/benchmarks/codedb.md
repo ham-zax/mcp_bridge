@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-15  
 **Candidate:** CodeDB `0.2.5840` (`core`, lean MCP, telemetry disabled)  
-**Project:** `/home/hamza/repo/satori` at `719335c56305b6ce4ba91de1b410398049b069ac`
+**Project:** `$HOME/repo/satori` at `719335c56305b6ce4ba91de1b410398049b069ac`
 
 ## Verdict
 
@@ -131,7 +131,7 @@ Freshness failed independently of the context benchmark.
 The original Satori checkout disappeared during an early probe and was then freshly cloned back to the same HEAD. To rule out a stale cache from the removed checkout, the CodeDB external index was explicitly rebuilt:
 
 ```text
-codedb /home/hamza/repo/satori index
+codedb $HOME/repo/satori index
 ✓ index ready 1058 files
 ```
 

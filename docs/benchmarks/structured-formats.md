@@ -18,7 +18,7 @@ These verdicts are independent of the CodeDB `REMOVE` decision.
 
 ## Actual payloads
 
-Three real CodeDB payload pairs were captured from `/home/hamza/repo/satori`:
+Three real CodeDB payload pairs were captured from `$HOME/repo/satori`:
 
 | Payload | Structure class | Native pair | JSON source |
 |---|---|---|---|
