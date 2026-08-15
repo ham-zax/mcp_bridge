@@ -79,10 +79,50 @@ test_legacy_filesystem_dependency_removed() {
   ! grep -Fq '@modelcontextprotocol/server-filesystem' "$ROOT/scripts/setup.sh"
 }
 
+test_evaluation_ab_renderer_uses_old_provider_semantics_only() {
+  local tmp
+  tmp="$(mktemp -d)" || return 1
+  cat > "$tmp/deployment.env" <<'ENV'
+MCP_WORKSPACE_ROOT=/tmp/example-workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TUNNEL_NAME=
+ENV
+  mkdir -p "$tmp/state/1mcp/sessions/sessions/server"
+  printf '%s\n' fixture > "$tmp/state/1mcp/sessions/sessions/server/session_cli_fixture.json"
+
+  node "$ROOT/scripts/render-evaluation-ab.mjs" \
+    --profile trusted-dev \
+    --env-file "$tmp/deployment.env" \
+    --state-dir "$tmp/state" \
+    --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
+
+  node - "$tmp/state/1mcp/mcp.json" "$tmp/state/evaluation-ab.json" "$ROOT" <<'NODE'
+const fs = require('fs');
+const [configFile, metadataFile, root] = process.argv.slice(2);
+const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+const metadata = JSON.parse(fs.readFileSync(metadataFile, 'utf8'));
+const names = Object.keys(config.mcpServers ?? {}).sort();
+if (JSON.stringify(names) !== JSON.stringify(['dev', 'filesystem', 'shell'])) process.exit(1);
+if (config.mcpServers.dev.args[0] !== `${root}/providers/pi-dev/server.mjs`) process.exit(1);
+if (config.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'unrestricted') process.exit(1);
+if (config.mcpServers.filesystem.args[1] !== '@modelcontextprotocol/server-filesystem@2026.7.10') process.exit(1);
+if (config.mcpServers.shell.env.MCP_SHELL_ALLOW_DANGEROUS !== 'ALL') process.exit(1);
+if (metadata.provider_source_ref !== 'e99579a') process.exit(1);
+if (metadata.implementation_baseline_ref !== '41491ac') process.exit(1);
+if (metadata.profile !== 'trusted-dev') process.exit(1);
+NODE
+  local rc=$?
+  [ "$rc" -eq 0 ] || { rm -rf "$tmp"; return 1; }
+  [ "$(cat "$tmp/state/1mcp/sessions/sessions/server/session_cli_fixture.json")" = fixture ] || { rm -rf "$tmp"; return 1; }
+  grep -Fq "BRIDGE_STATE_DIR='$tmp/state'" "$tmp/state/bridge.env" || { rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+}
+
 run_test 'losing CodeDB candidate is removed from source/template' test_codedb_candidate_removed
 run_test 'final rendered provider composition matches Pi cutover' test_final_rendered_composition
 run_test 'Pi dev provider pins and structure are complete' test_pi_provider_structure
 run_test 'legacy filesystem dependency is removed after Pi cutover' test_legacy_filesystem_dependency_removed
+run_test 'evaluation A/B renderer reuses old provider semantics without old lifecycle' test_evaluation_ab_renderer_uses_old_provider_semantics_only
 
 printf '\n%d tests, %d failures\n' "$TESTS" "$FAILURES"
 [ "$FAILURES" -eq 0 ]
