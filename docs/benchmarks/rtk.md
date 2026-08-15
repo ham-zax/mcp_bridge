@@ -2,7 +2,7 @@
 
 Date: 2026-08-15
 
-## Verdict
+## RTK 0.43 verdict
 
 ```text
 RTK_NOT_MATERIAL
@@ -243,3 +243,378 @@ restricted/trusted-dev     unchanged
 ```
 
 RTK is not installed, initialized, or required by repository configuration as a result of this task. The already-present local binary was benchmarked only.
+
+---
+
+## RTK 0.45 delta requalification — real development flows
+
+Date: 2026-08-15
+
+### Delta verdict
+
+```text
+RTK_EXPLICIT_HELPER
+```
+
+RTK 0.45 does **not** justify an automatic Bash rewrite layer. Native Bash remains the normal and trusted execution path. The real-flow delta does justify one narrow, explicitly selected use: `rtk test <test command>` can substantially compress known test-runner output when the caller is willing to use RTK's retained full-output log for recovery.
+
+No production Bash, MCP schema, profile, provider composition, hook, shim, or command classifier is changed by this verdict.
+
+The result does **not** promote `rtk rg`, `rtk read`, RTK Git diff shaping, or RTK shell rewriting as routine coding primitives. Against an intelligently compact native baseline, those operations were either equivalent, slower, lossy, or worse.
+
+### Installed 0.45 binary and local integration state
+
+```text
+binary                 $HOME/.local/bin/rtk
+version                rtk 0.45.0
+size                   10326432 bytes
+sha256                 99e0cff729d52297a23eb832f809d9773ba7c32de818dfe76b2cdd900a951535
+PATH command shims      none for git/rg/grep/sed/npm/pnpm
+RTK environment vars   none observed
+Claude RTK hook         none observed in Claude hook configuration
+Codex integration      present: global RTK.md + AGENTS reference
+RTK config             present under $HOME/.config/rtk/
+```
+
+`rtk init --show --codex` reports the global Codex instruction integration as installed. That is an instruction-layer integration, not a shell/PATH execution shim. The installed RTK document tells Codex to prefix commands with RTK, but the Personal WSL Harness policy in this benchmark deliberately does not adopt that behavior: native Bash remains normal, and RTK is evaluated only when explicitly chosen.
+
+No installed RTK integration was added, removed, or modified by this experiment.
+
+### Actual 0.45 operation/rewrite discovery
+
+The installed binary advertises direct output helpers including `git`, `rg`, `grep`, `read`, `smart`, `test`, `err`, `npm`, `pnpm`, `pipe`, and language/tool-specific wrappers. There is no dedicated RTK `sed` shaping subcommand; `rtk sed --help` reaches native GNU `sed` behavior.
+
+Observed `rtk rewrite` behavior on this binary:
+
+```text
+exit 0 + rewrite
+  git status
+  git diff
+  git diff --check
+  git diff --name-only
+  git log --oneline -20
+  npm run test
+
+exit 1 + no rewrite
+  sed -n ...
+  npm test
+  git status > file
+  exact node -e diagnostic command
+
+exit 3 + printed candidate
+  rg ...
+  rg -n ...
+  rg -l ...
+  pipeline whose grep stage was replaced with rtk grep
+```
+
+The help text documents exit 0 as supported and exit 1 as no equivalent. Exit 3 is not documented there, so this benchmark does not reinterpret it as an automation-safe signal.
+
+### Measurement model
+
+The primary benchmark compares three complete development workflows in paired disposable clones of the exact same repository state.
+
+NATIVE uses deliberately compact native commands where appropriate, including `rg -n`, `sed -n`, `git status --short`, `git diff --stat`, `git log --oneline`, and focused Node tests.
+
+RTK-ASSISTED keeps those native commands when they are already the better primitive and uses RTK only for operations a coding agent could plausibly select deliberately. In the paired flows those candidate helpers were direct `rtk rg` and `rtk test`; exact diff/status/range inspection stayed native.
+
+Token counts use `tiktoken==0.13.0` with `o200k_base`. Tool calls and command executions count each logical development command. Clone/setup preparation is excluded from flow timing and token totals. Final correctness is independently verified after each flow.
+
+Raw evidence is retained outside Git at:
+
+```text
+${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/benchmarks/rtk-v045/
+```
+
+### Flow A — failing-test bugfix
+
+A disposable commit changed the Bash non-zero annotation from `[exit N]` to `[code N]`. Both variants then performed the same workflow:
+
+```text
+search symptom
+inspect renderer source
+run focused failing renderer test
+apply exact fix
+rerun focused test
+inspect exact git diff
+git diff --check
+git status --short
+```
+
+Results:
+
+| Metric | NATIVE | RTK-assisted |
+|---|---:|---:|
+| tool calls | 8 | 8 |
+| command executions | 8 | 8 |
+| result tokens | 1475 | 898 |
+| wall time | 397 ms | 664 ms |
+| raw reruns | 0 | 0 |
+| final correctness | pass | pass |
+
+Token reduction: **39.1%**.
+
+The search result was identical: 230 tokens in both cases. `rtk rg -n` therefore earned no credit. The material reduction came from `rtk test`:
+
+```text
+failing focused test   505 -> 80 tokens
+passing focused test   198 -> 46 tokens
+```
+
+For the failure, RTK retained the actionable actual/expected values:
+
+```text
+actual:   ... [code 1]
+expected: ... [exit 1]
+```
+
+and provided a full-output log path. It omitted the test location, assertion heading, code frame, and stack from the compact result. No raw rerun was required in this particular flow because the prior search/source inspection already localized the bug. This is evidence that `rtk test` is a compression helper, not a replacement for raw debugging evidence.
+
+### Flow B — multi-file refactor
+
+A coordinated internal refactor renamed `renderPatchText` to `renderApplyPatchText` across renderer, server, and renderer tests. Both variants performed:
+
+```text
+search symbol/usages
+inspect coordinated source ranges
+modify all three files
+run focused renderer + server tests
+inspect git diff --stat
+inspect exact unified diff
+git diff --check
+git status --short
+```
+
+Results:
+
+| Metric | NATIVE | RTK-assisted |
+|---|---:|---:|
+| tool calls | 8 | 8 |
+| command executions | 8 | 8 |
+| result tokens | 2385 | 1948 |
+| wall time | 19.95 s | 17.78 s |
+| raw reruns | 0 | 0 |
+| final correctness | pass | pass |
+
+Token reduction: **18.3%**.
+
+Again, direct `rtk rg -n` returned the same 135-token usage list as native `rg -n`. All 437 saved tokens came from the passing test result:
+
+```text
+native focused tests   484 tokens
+rtk test                47 tokens
+reduction               90.3%
+```
+
+The wall-time difference is dominated by normal server-test runtime variance and is not credited as an RTK speedup.
+
+### Flow C — repository investigation/navigation
+
+The investigation asked a concrete repository question: is `apply_patch` personal/user-mode only, and does it reuse the Agent-1 user path policy rather than introducing another cwd/root model?
+
+Both variants performed:
+
+```text
+broad implementation search, capped to 80 lines
+inspect exact server policy ranges
+inspect exact patch resolver/preflight ranges
+inspect harness profile assertions
+inspect compact git history
+git status --short
+git diff --stat
+```
+
+Both arrived at the correct conclusion:
+
+```text
+apply_patch is registered only in user mode;
+patch cwd/paths reuse resolveUserCwd/resolveUserPath;
+workspace/public mode does not gain apply_patch.
+```
+
+Results:
+
+| Metric | NATIVE | RTK-assisted |
+|---|---:|---:|
+| tool calls | 7 | 7 |
+| command executions | 7 | 7 |
+| result tokens | 3827 | 3827 |
+| wall time | 46 ms | 87 ms |
+| raw reruns | 0 | 0 |
+| final correctness | pass | pass |
+
+Token reduction: **0%**.
+
+The two RTK search calls were byte-for-byte equivalent to the already-compact native `rg -n ... | head` results and only added wrapper latency. Exact source navigation still needed native `sed -n` because RTK `read` has max/tail controls but no arbitrary start/end line range.
+
+### Whole-flow totals
+
+| Metric | NATIVE | RTK-assisted |
+|---|---:|---:|
+| total result tokens | 7687 | 6673 |
+| total tool calls | 23 | 23 |
+| total command executions | 23 | 23 |
+| total raw reruns | 0 | 0 |
+| summed observed wall time | 20.39 s | 18.53 s |
+
+Total result-token reduction across the three flows: **13.2%**.
+
+That aggregate should not be interpreted as a general RTK gain. Flow C had no token benefit at all, and in Flows A/B virtually all savings came from `rtk test`. The observed total wall-time improvement is test-runtime noise: repeated micro-measurement of the small renderer suite showed native median 109.1 ms versus RTK median 125.8 ms, while targeted `rg` was 6.1 ms native versus 27.5 ms through RTK.
+
+### 0.43 problem cases retested under 0.45
+
+#### `git diff --check` — still unsafe
+
+```text
+NATIVE  exit 2, 15 tokens, exact file/line/trailing-whitespace diagnostic
+RTK     exit 2, 0 tokens
+```
+
+The old evidence-loss defect remains: RTK preserves failure status but removes the remediation evidence entirely.
+
+#### `git diff --name-only` — still damages machine-readable output
+
+```text
+NATIVE  20 tokens, paths only
+RTK     22 tokens, paths plus an extra `Changes:` section
+```
+
+This remains unsuitable when a caller asked for path-only output.
+
+#### Plain `git diff` — still not worth replacing native diff
+
+```text
+NATIVE  832 tokens
+RTK     689 tokens
+saving  17.2%
+```
+
+RTK removes normal diff metadata/context for a modest saving. Exact review/debugging should stay native.
+
+#### `rg`, `rg -n`, and `rg -l`
+
+On real repository queries:
+
+```text
+broad rg, capped identically       1900 -> 1900 tokens
+line-sensitive rg -n                90 ->   90 tokens
+file-list rg -l                     24 ->   24 tokens
+```
+
+Targeted searches therefore get no result reduction while adding about 20-25 ms wrapper latency in repeated measurements.
+
+A synthetic 300-match query demonstrated RTK's noisy-result policy: it returned a summary, the first 25 matches, and a recoverable full-output log reference (`+275 more ...`). This is useful as a convenience display, but it is not an exhaustive usage search. Native coding practice can obtain the same bounded-discovery behavior with `rg ... | head`, and exhaustive refactor/usages work must not silently rely on RTK's capped view.
+
+#### Passing/failing test output
+
+Direct `rtk test` is the material 0.45-era helper result:
+
+```text
+real passing renderer suite     198 ->  46 tokens  (76.8%)
+fixture failing Node suite      496 -> 107 tokens  (78.4%)
+Flow-B 25-test focused suite    484 ->  47 tokens  (90.3%)
+```
+
+The failing test retained the final actual/expected object values plus a full-output log path, but omitted the failure location, assertion heading, and stack in the compact result.
+
+A control npm fixture confirms this benefit comes from explicit test shaping, not ordinary npm filtering:
+
+```text
+npm run test             300 tokens
+rtk npm run test         272 tokens   (9.3% saving)
+rtk test npm run test     62 tokens   (79.3% saving)
+```
+
+The 0.43 study benchmarked the rewrite/npm path, not this explicit `rtk test` helper. Therefore the stronger result cannot be attributed solely to the 0.45 binary version; it is also a consequence of the narrower explicit-helper evaluation requested here.
+
+#### Pipelines and redirects
+
+A simple `grep` pipeline produced exactly the same 14 tokens natively and through `rtk grep`, with added RTK latency.
+
+`rtk rewrite` still refused a shell redirection (`git status > file`, exit 1/no rewrite). An explicitly invoked `rtk git status > file` writes RTK's shaped status, as expected, so it must not be substituted when a redirect is intended to preserve native command output.
+
+#### Exact stack/error diagnostics
+
+On a real throwing Node module:
+
+```text
+native       188 tokens, source code frame + message + stack + Node version
+rtk err      161 tokens, error message + useful stack + full-output log
+rtk test      95 tokens, only tail stack/version + full-output log
+```
+
+`rtk err` is a modest optional compression when its omitted source code frame is not needed. `rtk test` is inappropriate for arbitrary non-test diagnostics: in this probe its compact tail omitted the `EXACT_STACK_MARKER` error message itself, so the raw/full output would be required to diagnose the failure.
+
+### Search/read/text-tool findings
+
+`rtk rg` is not promoted as a general coding helper by this benchmark:
+
+- targeted real searches were output-identical to native `rg`;
+- line-sensitive `-n` was preserved, but saved no tokens;
+- `-l` preserved the same file set but reordered it and saved no tokens;
+- noisy searches are capped to the first 25 matches plus a full-log recovery handle;
+- native `rg ... | head`, `rg -c`, and related compact forms already cover exploratory bounding without changing the trusted command model.
+
+No dedicated RTK `sed` shaping capability was discovered. For exact code-range navigation, native `sed -n` decisively wins. In the tested server range:
+
+```text
+sed -n '98,126p'       372 tokens
+rtk read -n -m 126     839 tokens
+```
+
+RTK `read` had to emit from line 1 because it lacks an arbitrary start offset. On a small full-file read, native `cat` and `rtk read` were both 389 tokens, with RTK adding wrapper latency.
+
+### Why the verdict is `RTK_EXPLICIT_HELPER`
+
+The user policy rules out automatic Bash rewriting in this mission, and the evidence does not justify reopening it anyway:
+
+1. Search/navigation produced no whole-flow token gain against compact native commands.
+2. The two serious 0.43 Git correctness/evidence problems remain in 0.45.
+3. Plain RTK diff still trades away review evidence for only ~17% reduction.
+4. Machine-readable Git output remains unsafe to shape generically.
+5. Native pipelines, redirects, compact Git forms, `rg`, and `sed -n` remain better defaults.
+6. Flow C showed zero token improvement from RTK-assisted navigation.
+7. `rtk test` did materially reduce real focused-test output in both passing and failing workflows while retaining a full-output recovery path.
+
+The earned helper is therefore narrow and explicit:
+
+```text
+use deliberately:
+  rtk test <known test-runner command>
+
+best case:
+  focused/noisy test suites where a compact pass/fail result is enough
+
+on failure:
+  inspect the compact actual/expected tail;
+  if location/stack/root cause is missing, read the full RTK log or rerun natively
+
+optional secondary use:
+  rtk err <noisy command> when a compact error+stack view is sufficient
+
+not promoted:
+  rtk rg for exhaustive code search
+  rtk read instead of targeted sed -n
+  rtk git diff / diff --check / --name-only
+  automatic rtk rewrite
+```
+
+### Final Bash policy after 0.45 delta
+
+Unchanged production contract:
+
+```text
+normal executor             native one-shot Bash command string
+normal output               native Bash output
+RTK automatic rewrite       none
+RTK classifier/hook         none in the harness
+new MCP action              none
+new Bash schema field       none
+explicit RTK helper         allowed only by deliberate command choice
+recommended RTK helper      rtk test for selected noisy test runs
+raw recovery                native Bash/full RTK log always available
+pipelines/redirections      native shell semantics unchanged
+personal/public path modes  unchanged
+```
+
+The benchmark verdict is an operator/model usage recommendation only. It does not modify provider behavior or require RTK for correct harness operation.
