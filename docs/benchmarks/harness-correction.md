@@ -37,7 +37,7 @@ Observed temporary deployment activation:
 - transient Streamable HTTP transport sessions were not treated as continuity state;
 - current ChatGPT connector discovery exposes 19 development tools: 4 `dev`, 14 legacy `filesystem`, and 1 legacy `shell`; no CodeDB or `ui_experiment_*` actions are present.
 
-The temporary A/B deployment is evaluation state only. Product source still carries the provisional Pi cutover implementation baseline beneath the correction commits.
+The temporary A/B deployment is evaluation state only. Product source carries the confirmed Pi cutover implementation baseline beneath the correction commits.
 
 ## Pi correction
 
@@ -110,4 +110,23 @@ The old stale-index failure is **adapter / architecture mismatch** evidence for 
 
 ## Final verdicts
 
-No correction-phase final verdict has been issued yet. The phase will end with independent Pi, CodeDB, GCF-generic, and GCF-graph decisions before the final provider composition is deployed.
+### Observed evidence
+
+- Pi passed 21/21 provider semantics, the corrected incumbent baseline, and fresh real ChatGPT-path read/bash/write/edit acceptance.
+- Rooted CodeDB freshness passed and its navigation evidence materially reduced the corrected multi-step trace, but one fixed root is insufficient for the multi-repository workspace.
+- GCF generic is lossless but larger than the native paired text; no natural model-facing graph JSON exists for a fair graph-profile test.
+
+### Inference
+
+The current Pi-backed `dev` product remains the best final Files/trusted-Shell surface. CodeDB is worth a future repository-routing experiment rather than immediate product reinsertion. Stateless GCF adds no current model-facing value.
+
+### Policy decision matrix
+
+```text
+Pi: CUTOVER_CONFIRMED
+CodeDB: ROUTER_EXPERIMENT
+GCF generic: NOT_MATERIAL
+GCF graph: DEFERRED_NO_GRAPH_PAYLOAD
+```
+
+Final product composition for this correction phase remains the tracked Pi-backed `dev` design. The temporary generic filesystem/shell A/B providers are evaluation incumbents only and will be removed from the live deployment when Task 8 rerenders current product source.

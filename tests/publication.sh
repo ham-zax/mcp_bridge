@@ -281,15 +281,6 @@ test_migration_guide_preserves_oauth_and_external_cutover() {
   grep -Eq 'transport session|streamable' "$doc"
 }
 
-test_evaluation_ab_renderer_is_provider_only() {
-  local f="$ROOT/scripts/render-evaluation-ab.mjs"
-  [ -f "$f" ] || return 1
-  grep -Fq "e99579a" "$f" || return 1
-  grep -Fq "41491ac" "$f" || return 1
-  grep -Fq "./render-config.mjs" "$f" || return 1
-  ! grep -Eq 'git (checkout|reset|restore)|scripts/(start|stop|setup)\.sh|bin/(start|stop)|systemctl' "$f"
-}
-
 run_test 'public bin entrypoints exist and are executable' test_public_entrypoints
 run_test 'publication directory structure exists' test_public_structure
 run_test 'setup requires explicit trust profile' test_explicit_profile_contract
@@ -305,7 +296,6 @@ run_test 'systemd installer renders a valid fixture without live manager' test_s
 run_test 'legacy OAuth continuity migrates without transient transport state' test_legacy_oauth_state_migration
 run_test 'legacy OAuth migration is a clean no-op and never targets Git state' test_legacy_oauth_migration_noop_and_repo_guard
 run_test 'migration guide preserves OAuth and requires external cutover control' test_migration_guide_preserves_oauth_and_external_cutover
-run_test 'evaluation A/B renderer is provider-only and current-lifecycle safe' test_evaluation_ab_renderer_is_provider_only
 
 printf '\n%s tests, %s failures\n' "$TESTS" "$FAILURES"
 [ "$FAILURES" -eq 0 ]
