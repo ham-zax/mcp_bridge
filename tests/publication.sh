@@ -38,7 +38,7 @@ test_public_structure() {
 }
 
 test_explicit_profile_contract() {
-  contains "$ROOT/scripts/setup.sh" -- '--profile' || return 1
+  grep -Fq -- '--profile' "$ROOT/scripts/setup.sh" || return 1
   contains "$ROOT/scripts/setup.sh" 'restricted' || return 1
   contains "$ROOT/scripts/setup.sh" 'trusted-dev' || return 1
   if contains "$ROOT/scripts/setup.sh" 'BRIDGE_SETUP_SKIP_INSTALL'; then
@@ -55,6 +55,29 @@ test_explicit_profile_contract() {
 test_profiles_are_distinct() {
   contains "$ROOT/config/profiles/trusted-dev.env" '^MCP_SHELL_ALLOW_DANGEROUS=ALL$' && \
   ! contains "$ROOT/config/profiles/restricted.env" '^MCP_SHELL_ALLOW_DANGEROUS=ALL$'
+}
+
+test_renderer_generates_both_profiles() {
+  local tmp env_file state profile config
+  tmp="$(mktemp -d)" || return 1
+  env_file="$tmp/deployment.env"
+  cat > "$env_file" <<'EOF'
+MCP_WORKSPACE_ROOT=/tmp/example-workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TUNNEL_NAME=
+EOF
+  for profile in restricted trusted-dev; do
+    state="$tmp/$profile"
+    node "$ROOT/scripts/render-config.mjs" --profile "$profile" --env-file "$env_file" --state-dir "$state" --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
+    config="$state/1mcp/mcp.json"
+    node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!c.mcpServers?.filesystem || !c.mcpServers?.shell) process.exit(1)' "$config" || { rm -rf "$tmp"; return 1; }
+    grep -Fq '/tmp/example-workspace' "$config" || { rm -rf "$tmp"; return 1; }
+    grep -Fq "$ROOT/providers/legacy-shell/server.py" "$config" || { rm -rf "$tmp"; return 1; }
+    grep -Fq "MCP_BRIDGE_PROFILE='$profile'" "$state/bridge.env" || { rm -rf "$tmp"; return 1; }
+  done
+  grep -Fq '"MCP_SHELL_ALLOW_DANGEROUS": "ALL"' "$tmp/trusted-dev/1mcp/mcp.json" || { rm -rf "$tmp"; return 1; }
+  grep -Fq '"MCP_SHELL_ALLOW_DANGEROUS": ""' "$tmp/restricted/1mcp/mcp.json" || { rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
 }
 
 test_env_is_ignored() {
@@ -93,6 +116,7 @@ run_test 'public bin entrypoints exist and are executable' test_public_entrypoin
 run_test 'publication directory structure exists' test_public_structure
 run_test 'setup requires explicit trust profile' test_explicit_profile_contract
 run_test 'trusted-dev is unrestricted while restricted is not' test_profiles_are_distinct
+run_test 'renderer generates valid external state for both profiles' test_renderer_generates_both_profiles
 run_test '.env remains ignored' test_env_is_ignored
 run_test 'runtime and 1MCP state default outside the repository' test_state_defaults_are_external
 run_test 'public tracked files contain no personal deployment identity' test_no_personal_identity_in_public_files
