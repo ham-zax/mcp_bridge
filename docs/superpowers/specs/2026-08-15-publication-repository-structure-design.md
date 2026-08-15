@@ -4,10 +4,12 @@
 
 Turn the current machine-specific `satori_bridge` repository into a publishable, reusable Linux/WSL project without destabilizing the working Cloudflare OAuth bridge or prematurely implementing the later CodeDB/Pi harness.
 
-The public project should support two policy profiles:
+The public project should support two explicit policy profiles:
 
-- `restricted` — conservative public default.
+- `restricted` — conservative public recommendation.
 - `trusted-dev` — first-class unrestricted development mode; the shell/provider receives the same effective access as the Linux user running the bridge.
+
+Setup must require an explicit profile selection. There is no silent profile default; omitting `--profile` is an error that explains both choices.
 
 Machine identity and deployment values must not be part of tracked source.
 
@@ -27,11 +29,11 @@ Public description:
 
 ## Design principles
 
-1. **Generic core, local deployment.** Tracked source describes reusable behavior; hostnames, home directories, workspace roots, tunnel identity, and runtime state live outside tracked source.
+1. **Generic core, local deployment.** Tracked source describes reusable behavior; hostnames, home directories, workspace roots, tunnel identity, generated 1MCP state/configuration, logs, sessions, and runtime state live outside the Git checkout.
 2. **Profiles describe policy, not identity.** `trusted-dev` means unrestricted agent access as the service user. It never means `/home/hamza`, a specific domain, or a specific repository root.
 3. **One public lifecycle interface.** Users operate `bin/start`, `bin/status`, and `bin/stop`; lifecycle internals stay behind that interface.
 4. **Compatibility before cleanup.** Existing `scripts/start.sh`, `scripts/status.sh`, `scripts/stop.sh`, `scripts/tunnel-up.sh`, and `scripts/tunnel-down.sh` remain thin wrappers during migration so the currently installed systemd service does not break when the branch is later merged.
-5. **Generated configuration is authoritative.** 1MCP runs from ignored local config generated from tracked templates + selected profile + local `.env` values.
+5. **Generated external state/configuration is authoritative.** 1MCP runs from an external writable state directory generated from tracked templates + an explicitly selected profile + local `.env` values.
 6. **No speculative packaging.** Do not create a monorepo, publish npm packages, add release automation, or invent a full CLI until external use justifies it.
 
 ## Target repository layout
@@ -102,15 +104,19 @@ Public description:
     └── superpowers/
 ```
 
-Directories that are local-only and ignored:
+Local deployment input may use an ignored repository `.env`, but generated and mutable runtime data does not live beneath the Git checkout.
+
+Default external state locations follow XDG conventions:
 
 ```text
-.env
-config/local/
-run/
+.env                                             # optional ignored deployment input
+${XDG_RUNTIME_DIR:-/run/user/$UID}/mcp-dev-bridge/
+${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/
 ```
 
-`config/logs/`, `config/sessions/`, PID files, Python caches, and other runtime artifacts remain ignored as well.
+The runtime directory owns bridge locks, desired-state markers, transient PIDs, and the last public URL. The state directory owns 1MCP's writable config directory, generated `mcp.json`, OAuth/session data, logs, and 1MCP's own `server.pid`. Tests may override both roots with temporary directories.
+
+This is intentionally not split into an idealized `XDG_CONFIG_HOME` + `XDG_STATE_HOME` model in the first pass because 1MCP treats its `--config-dir` as a writable home for configuration, `server.pid`, logs, and sessions. Keeping that whole 1MCP directory outside Git is simpler and matches the dependency's behavior.
 
 ## Runtime boundary
 
@@ -157,19 +163,27 @@ They contain no `/home/hamza`, `mcp.hamza.my.id`, machine hostname, tunnel ID, P
 
 ### Local deployment configuration
 
-A user's ignored `.env` supplies deployment identity:
+A user's ignored `.env` supplies deployment identity, but not the trust-profile choice:
 
 ```text
-MCP_BRIDGE_PROFILE=trusted-dev
 MCP_WORKSPACE_ROOT=/home/user/code
 MCP_PUBLIC_URL=https://mcp.example.com
 MCP_TUNNEL_NAME=
 ```
 
+Trust policy is selected explicitly at setup/render time:
+
+```bash
+./scripts/setup.sh --profile restricted
+# or
+./scripts/setup.sh --profile trusted-dev
+```
+
+Calling setup without `--profile` exits nonzero and prints both profile choices. The selected profile is then recorded in the generated external deployment state so lifecycle commands do not guess later.
+
 For Hamza's machine the selected values remain:
 
 ```text
-MCP_BRIDGE_PROFILE=trusted-dev
 MCP_WORKSPACE_ROOT=/home/hamza/repo
 MCP_PUBLIC_URL=https://mcp.hamza.my.id
 ```
@@ -185,21 +199,21 @@ Those values are examples of local state only and must not be committed to publi
 3. local `.env` deployment values;
 4. the current repository root discovered at runtime.
 
-It writes:
+It writes into the external 1MCP state directory, by default:
 
 ```text
-config/local/mcp.json
+${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/1mcp/mcp.json
 ```
 
-The generated file is ignored and becomes the preferred 1MCP config.
+That containing directory becomes the preferred 1MCP `--config-dir`; 1MCP may place `server.pid`, logs, and sessions beside the generated config without polluting the source checkout.
 
 During migration, runtime lookup is compatibility-aware:
 
 ```text
-if config/local/mcp.json exists:
-    use config/local/
+if external generated 1MCP state/config exists:
+    use external 1MCP directory
 else if legacy config/mcp.json exists:
-    use legacy config/
+    use legacy repository config/
 else:
     fail with setup guidance
 ```
@@ -210,7 +224,7 @@ The legacy tracked `config/mcp.json` is removed only after the local configurati
 
 ### `restricted`
 
-This is the public default. It should expose only the configured workspace and a conservative shell policy appropriate for a general install. Exact allowed-command contents are an implementation detail, but the profile must never silently become unrestricted.
+This is the public recommendation, not a silent default. It should expose only the configured workspace and a conservative shell policy appropriate for a general install. Exact allowed-command contents are an implementation detail, but the profile must never silently become unrestricted.
 
 ### `trusted-dev`
 
@@ -310,11 +324,12 @@ Do not add a Code of Conduct, release automation, badges, changelog generator, D
 Add `tests/publication.sh` for structural/publication invariants:
 
 - tracked non-internal files contain no `/home/hamza`, `mcp.hamza.my.id`, `DESKTOP-HQOUFCO`, or `Hamza` identity strings;
-- `.env`, `config/local/`, `run/`, logs/sessions/PIDs remain ignored;
+- `.env` remains ignored and generated runtime/config/log/session/PID state resolves outside the repository by default;
+- setup without an explicit profile fails and explains both `restricted` and `trusted-dev`;
 - public `bin/start|status|stop` exist and are executable;
 - compatibility lifecycle wrappers remain executable;
 - generic systemd template contains no personal path/domain;
-- setup/render step produces valid `config/local/mcp.json` from a temporary fixture;
+- setup/render step produces valid external 1MCP config/state from a temporary fixture;
 - `restricted` and `trusted-dev` profiles both exist;
 - trusted-dev generated shell policy remains deliberately unrestricted;
 - lifecycle suite still passes from the reorganized paths.
@@ -331,7 +346,7 @@ This refactor is implemented on branch `chore/publication-scaffold` in the workt
 
 Implementation order:
 
-1. add publication tests and ignored/local configuration boundary;
+1. add publication tests and explicit external runtime/state boundary;
 2. add generic templates/profiles and config renderer;
 3. add public `bin/` entrypoints and move lifecycle internals with compatibility wrappers;
 4. move legacy shell provider into `providers/`;
@@ -352,10 +367,10 @@ The branch is ready for merge review only when:
 3. Bash/Node syntax checks pass.
 4. `git diff --check` passes.
 5. no public tracked source/config/doc contains personal deployment identity.
-6. a temporary clean-home fixture can render valid local config for both profiles.
+6. a temporary clean-home fixture can render valid external 1MCP config/state for both explicitly selected profiles, and omission of the profile fails.
 7. `trusted-dev` is explicitly documented and testably unrestricted.
 8. after the prerequisite `.worktrees/` ignore commit, no runtime/refactor files in the main checkout and no live installed service have been modified by worktree development.
-9. merge instructions include the safe local config + generic systemd migration sequence.
+9. merge instructions include the safe external-state + generic systemd migration sequence.
 
 ## Deferred decisions
 
