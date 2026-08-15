@@ -8,11 +8,13 @@
 
 **Worktree:** `<repo>/.worktrees/personal-harness-agent-3-terminal-mcp`
 
+**LOCAL_IMPLEMENTATION:** COMPLETE
+
 **LOCAL_ACCEPTANCE:** COMPLETE
 
 **REAL_CHATGPT_ACCEPTANCE:** PENDING
 
-**TASK_8_UNBLOCKED:** YES after coordinator integration of this Task-7 branch
+**TASK_8_UNBLOCKED:** NO — Task 8 remains blocked until rollback-gated live activation, Actions Refresh, and fresh-session real ChatGPT Terminal acceptance complete
 
 ## Frozen architecture
 

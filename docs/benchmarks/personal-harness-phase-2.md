@@ -340,7 +340,7 @@ The focused design deliberately does **not** approve model-visible hash fields y
 
 ## Task 12.5 — Atomic Same-Path Mutation Enforcement
 
-**Verdict:** `SAME_PATH_ATOMICITY_FIXED`
+**Verdict:** `SAME_PATH_ATOMICITY_FIXED` + `CANCELLATION_SAFETY_FIXED`
 
 Task 12.5 implements the focused follow-up without changing any model-facing Files schema. The proven defect was the scheduling window between the final snapshot comparison and the corresponding mutation, not the absence of a SHA/revision field.
 
@@ -375,7 +375,7 @@ that callback does not begin
 
 If multi-path acquisition is canceled while waiting for a later sorted key, the normal `finally` release path drops every earlier acquired lease in reverse order. Once a callback has legitimately begun, this change does not invent rollback or new transactional semantics.
 
-Cancellation regressions cover queued patch/edit mutation, canceled-waiter queue cleanup, a later live waiter, partial multi-path acquisition release, and 100 abort-before-grant boundary iterations.
+Cancellation regressions cover queued patch/edit mutation, canceled-waiter queue cleanup, a later live waiter, partial multi-path acquisition release, and abort/grant boundary stress. Independent review of the committed fix returned `SAFE_TO_INTEGRATE = YES`, including 100/100 queued patch cancellations, 100/100 queued edit cancellations, 200/200 already-aborted callback suppressions, 100/100 canceled-waiter queue-progress runs, 100/100 multi-path cancellation releases, and three 300-iteration abort/grant boundary schedules with zero bad outcomes.
 
 ### RED evidence before implementation
 
