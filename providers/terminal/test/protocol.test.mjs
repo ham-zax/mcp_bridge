@@ -12,6 +12,7 @@ const expectedOperations = [
   'session.close',
   'model.read',
   'lease.acquire_human',
+  'lease.bind_human',
   'lease.release_human',
 ];
 

@@ -17,6 +17,7 @@ import { TmuxBackend, validateSessionName } from './tmux.mjs';
 
 const DEFAULT_TRANSCRIPT_BUDGET_BYTES = 16 * 1024 * 1024;
 const DEFAULT_READ_MAX_BYTES = 64 * 1024;
+const DEFAULT_LEASE_ATTACH_GRACE_MS = 5000;
 const MAX_PROTOCOL_LINE_BYTES = 1024 * 1024;
 
 function positiveIntegerEnv(name, fallback) {
@@ -54,6 +55,10 @@ export function loadConfig() {
       DEFAULT_TRANSCRIPT_BUDGET_BYTES,
     ),
     readMaxBytes: positiveIntegerEnv('MCP_TERMINAL_READ_MAX_BYTES', DEFAULT_READ_MAX_BYTES),
+    leaseAttachGraceMs: positiveIntegerEnv(
+      'MCP_TERMINAL_LEASE_ATTACH_GRACE_MS',
+      DEFAULT_LEASE_ATTACH_GRACE_MS,
+    ),
   };
 }
 
@@ -134,6 +139,40 @@ export async function createBroker(config = loadConfig()) {
     }
   }
 
+  async function reconcileHumanControl(name) {
+    const now = Date.now();
+    const clients = (await tmux.listClients()).filter((client) => client.session === name);
+    const lease = leases.get(name);
+
+    if (lease) {
+      const deadlineBase = lease.boundAtMs ?? lease.acquiredAtMs;
+      if (lease.clientPid !== null) {
+        const attached = clients.some((client) => client.pid === lease.clientPid);
+        if (attached) {
+          lease.observed = true;
+        } else if (lease.observed || now - deadlineBase >= config.leaseAttachGraceMs) {
+          leases.delete(name);
+        }
+      } else if (now - deadlineBase >= config.leaseAttachGraceMs) {
+        leases.delete(name);
+      }
+    }
+
+    return {
+      humanHasControl: clients.length > 0 || leases.has(name),
+      clients,
+      lease: leases.get(name) ?? null,
+    };
+  }
+
+  async function assertModelMayMutate(name, { forceClose = false } = {}) {
+    if (forceClose) return;
+    const control = await reconcileHumanControl(name);
+    if (control.humanHasControl) {
+      throw new TerminalError('HUMAN_HAS_CONTROL', `human has control of session ${name}`);
+    }
+  }
+
   async function dispatch(request) {
     const { op, params } = request;
     switch (op) {
@@ -151,12 +190,15 @@ export async function createBroker(config = loadConfig()) {
       }
       case 'session.list': {
         const sessions = await tmux.listSessions();
-        return {
-          sessions: sessions.map((session) => ({
+        const listed = [];
+        for (const session of sessions) {
+          const control = await reconcileHumanControl(session.name);
+          listed.push({
             ...session,
-            humanLease: leases.has(session.name),
-          })),
-        };
+            humanLease: control.humanHasControl,
+          });
+        }
+        return { sessions: listed };
       }
       case 'session.read': {
         const name = requireString(params.name, 'name');
@@ -191,36 +233,76 @@ export async function createBroker(config = loadConfig()) {
           return result;
         });
       }
-      case 'session.send':
+      case 'session.send': {
+        const name = requireString(params.name, 'name');
+        await assertModelMayMutate(name);
         return tmux.send({
-          name: requireString(params.name, 'name'),
+          name,
           text: params.text,
           key: params.key,
         });
-      case 'session.resize':
+      }
+      case 'session.resize': {
+        const name = requireString(params.name, 'name');
+        await assertModelMayMutate(name);
         return tmux.resize({
-          name: requireString(params.name, 'name'),
+          name,
           cols: params.cols,
           rows: params.rows,
         });
+      }
       case 'session.close': {
         const name = requireString(params.name, 'name');
+        await assertModelMayMutate(name, { forceClose: params.force === true });
         leases.delete(name);
         return tmux.closeSession(name);
       }
       case 'lease.acquire_human': {
         const name = requireString(params.name, 'name');
         await tmux.sessionInfo(name);
-        if (leases.has(name)) {
-          throw new TerminalError('HUMAN_HAS_CONTROL', `human lease already exists for session ${name}`);
+        const control = await reconcileHumanControl(name);
+        if (control.humanHasControl) {
+          throw new TerminalError('HUMAN_HAS_CONTROL', `human already has control of session ${name}`);
         }
+        const acquiredAtMs = Date.now();
         const lease = {
           leaseId: crypto.randomUUID(),
           clientId: requireString(params.clientId, 'clientId'),
-          acquiredAt: new Date().toISOString(),
+          acquiredAt: new Date(acquiredAtMs).toISOString(),
+          acquiredAtMs,
+          clientPid: null,
+          boundAtMs: null,
+          observed: false,
         };
         leases.set(name, lease);
-        return { name, ...lease };
+        return {
+          name,
+          leaseId: lease.leaseId,
+          clientId: lease.clientId,
+          acquiredAt: lease.acquiredAt,
+        };
+      }
+      case 'lease.bind_human': {
+        const name = requireString(params.name, 'name');
+        const leaseId = requireString(params.leaseId, 'leaseId');
+        const clientPid = params.clientPid;
+        if (!Number.isSafeInteger(clientPid) || clientPid <= 0) {
+          throw new TerminalError('INVALID_ARGUMENT', 'clientPid must be a positive integer');
+        }
+        await tmux.sessionInfo(name);
+        const lease = leases.get(name);
+        if (!lease || lease.leaseId !== leaseId) {
+          throw new TerminalError('LEASE_MISMATCH', `human lease id does not match session ${name}`);
+        }
+        lease.clientPid = clientPid;
+        lease.boundAtMs = Date.now();
+        const control = await reconcileHumanControl(name);
+        return {
+          name,
+          leaseId,
+          clientPid,
+          observed: control.lease?.observed === true,
+        };
       }
       case 'lease.release_human': {
         const name = requireString(params.name, 'name');
