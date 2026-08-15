@@ -11,6 +11,7 @@ import {
   runPatch
 } from '../patch.mjs';
 import { runEdit, runWrite } from '../files.mjs';
+import { withMutationPath } from '../mutation-coordinator.mjs';
 
 const tempDir = prefix => fs.mkdtemp(path.join(os.tmpdir(), prefix));
 
@@ -715,4 +716,44 @@ test('delete and update from one patch snapshot never both report success', asyn
       assert.equal(error.code, 'ENOENT');
     }
   }
+});
+
+test('apply_patch canceled while queued for its target lease does not mutate later', async () => {
+  const defaultCwd = await tempDir('patch-cancel-queued-');
+  const target = path.join(defaultCwd, 'x.txt');
+  await fs.writeFile(target, 'alpha\n');
+
+  const controller = new AbortController();
+  const plan = await preflightPatch({
+    pathMode: 'user',
+    defaultCwd,
+    signal: controller.signal,
+    patch: patch(
+      '*** Begin Patch',
+      '*** Update File: x.txt',
+      '@@',
+      '-alpha',
+      '+PATCHED',
+      '*** End Patch'
+    )
+  });
+
+  let releaseHolder;
+  let holderEntered;
+  const holderGate = new Promise(resolve => { releaseHolder = resolve; });
+  const holderReady = new Promise(resolve => { holderEntered = resolve; });
+  const holder = withMutationPath(target, async () => {
+    holderEntered();
+    await holderGate;
+  });
+  await holderReady;
+
+  const pending = applyPatchPlan(plan);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  controller.abort();
+  releaseHolder();
+
+  await assert.rejects(pending, /abort/i);
+  await holder;
+  assert.equal(await fs.readFile(target, 'utf8'), 'alpha\n');
 });

@@ -112,3 +112,130 @@ test('leases release after success and thrown failure', async () => {
   }));
   assert.equal(entered, true);
 });
+
+test('already-aborted acquisition rejects before its callback begins', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let entered = false;
+
+  await assert.rejects(
+    () => withMutationPath('/tmp/already-aborted.txt', async () => {
+      entered = true;
+    }, { signal: controller.signal }),
+    /abort/i
+  );
+  assert.equal(entered, false);
+});
+
+test('canceling a queued waiter removes it and a later live waiter still runs', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mutation-coordinator-cancel-'));
+  const target = path.join(root, 'x.txt');
+  await fs.writeFile(target, 'x\n');
+
+  let releaseHolder;
+  let holderEntered;
+  const holderGate = new Promise(resolve => { releaseHolder = resolve; });
+  const holderReady = new Promise(resolve => { holderEntered = resolve; });
+  const holder = withMutationPath(target, async () => {
+    holderEntered();
+    await holderGate;
+  });
+  await holderReady;
+
+  const controller = new AbortController();
+  let canceledEntered = false;
+  let liveEntered = false;
+  const canceled = withMutationPath(target, async () => {
+    canceledEntered = true;
+  }, { signal: controller.signal });
+  const live = withMutationPath(target, async () => {
+    liveEntered = true;
+  });
+
+  await delay(10);
+  controller.abort();
+  releaseHolder();
+
+  await assert.rejects(canceled, /abort/i);
+  await withTimeout(Promise.all([holder, live]));
+  assert.equal(canceledEntered, false);
+  assert.equal(liveEntered, true);
+});
+
+test('canceling multi-path acquisition releases earlier keys while waiting for a later key', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mutation-coordinator-multipath-cancel-'));
+  const a = path.join(root, 'a.txt');
+  const b = path.join(root, 'b.txt');
+  await fs.writeFile(a, 'a\n');
+  await fs.writeFile(b, 'b\n');
+
+  let releaseB;
+  let bEntered;
+  const bGate = new Promise(resolve => { releaseB = resolve; });
+  const bReady = new Promise(resolve => { bEntered = resolve; });
+  const bHolder = withMutationPath(b, async () => {
+    bEntered();
+    await bGate;
+  });
+  await bReady;
+
+  const controller = new AbortController();
+  let multiEntered = false;
+  const multi = withMutationPaths([b, a], async () => {
+    multiEntered = true;
+  }, { signal: controller.signal });
+  await delay(10);
+
+  let aProbeEntered = false;
+  const aProbe = withMutationPath(a, async () => {
+    aProbeEntered = true;
+  });
+  await delay(10);
+
+  controller.abort();
+  try {
+    await withTimeout(aProbe, 100);
+  } finally {
+    releaseB();
+    await bHolder;
+  }
+
+  await assert.rejects(multi, /abort/i);
+  assert.equal(aProbeEntered, true);
+  assert.equal(multiEntered, false);
+});
+
+test('abort wins the queued grant boundary before callback entry', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mutation-coordinator-abort-grant-'));
+  const target = path.join(root, 'x.txt');
+  await fs.writeFile(target, 'x\n');
+
+  for (let iteration = 0; iteration < 100; iteration += 1) {
+    let releaseHolder;
+    let holderEntered;
+    const holderGate = new Promise(resolve => { releaseHolder = resolve; });
+    const holderReady = new Promise(resolve => { holderEntered = resolve; });
+    const holder = withMutationPath(target, async () => {
+      holderEntered();
+      await holderGate;
+    });
+    await holderReady;
+
+    const controller = new AbortController();
+    let callbackEntered = false;
+    let enteredAfterAbort = false;
+    const pending = withMutationPath(target, async () => {
+      callbackEntered = true;
+      if (controller.signal.aborted) enteredAfterAbort = true;
+    }, { signal: controller.signal });
+    await delay(1);
+
+    queueMicrotask(() => controller.abort());
+    queueMicrotask(() => releaseHolder());
+
+    await assert.rejects(pending, /abort/i, `iteration ${iteration}`);
+    await holder;
+    assert.equal(callbackEntered, false, `iteration ${iteration}: canceled callback must not begin`);
+    assert.equal(enteredAfterAbort, false, `iteration ${iteration}: callback must not start after abort won`);
+  }
+});

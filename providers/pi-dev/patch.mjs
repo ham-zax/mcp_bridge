@@ -455,7 +455,7 @@ export async function applyPatchPlan(plan, operationOverrides = {}) {
         } else {
           throw patchError(`unknown preflight operation: ${item.kind}`);
         }
-      });
+      }, { signal: plan.signal });
 
       applied.push(label);
       changes.push({

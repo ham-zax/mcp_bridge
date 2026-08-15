@@ -362,6 +362,21 @@ The coordinator is per canonical path rather than global. Different canonical fi
 
 Multi-file `apply_patch` remains explicitly non-transactional: each file operation takes only its own lease(s), and an earlier committed operation followed by a later stale/failing target still reports `PATCH_PARTIAL`.
 
+### Queued-cancellation safety follow-up
+
+Independent review found that the original coordinator queued only bare grant callbacks. An `AbortSignal` canceled while waiting was therefore invisible to the queue: after the holder released, the canceled request could still acquire ownership and mutate. Patch could fulfill after cancellation; edit could reject through Pi's request layer after its write had already occurred.
+
+The coordinator acquisition path is now abort-aware. An already-aborted request rejects before acquisition; a queued waiter removes itself on abort; a grant is followed by an abort check; and the signal is checked synchronously immediately before the protected mutation callback begins. The linearization rule is:
+
+```text
+if cancellation is observed before the protected mutation callback begins,
+that callback does not begin
+```
+
+If multi-path acquisition is canceled while waiting for a later sorted key, the normal `finally` release path drops every earlier acquired lease in reverse order. Once a callback has legitimately begun, this change does not invent rollback or new transactional semantics.
+
+Cancellation regressions cover queued patch/edit mutation, canceled-waiter queue cleanup, a later live waiter, partial multi-path acquisition release, and 100 abort-before-grant boundary iterations.
+
 ### RED evidence before implementation
 
 The four Task-12 TODOs were first converted into real regressions and run against the unmodified provider. All four failed immediately on iteration 0 with the expected silent-loss class:
@@ -412,9 +427,11 @@ The full regression suite continues to verify:
 - personal `{ pathMode: user, defaultCwd }` resolution is unchanged;
 - public restricted/trusted-dev catalogs and workspace confinement are unchanged.
 
-### Native Bash / external-writer boundary
+### Native Bash / hard-link / external-writer boundary
 
-This is an **in-process cooperating Files mutation coordinator**, not universal cross-process CAS. Native Bash and arbitrary external writers do not participate in the lock.
+This is an **in-process cooperating Files mutation coordinator keyed by canonical pathname**, not universal cross-process or inode-level CAS. Native Bash and arbitrary external writers do not participate in the lock.
+
+`realpath` canonicalization collapses symlink aliases, including missing-target aliases through a real parent, but two distinct hard-link pathnames remain distinct coordinator keys even when they reference the same inode. Hard-link alias serialization is therefore outside the current same-canonical-path guarantee; this follow-up does not add inode-level locking.
 
 The existing snapshot checks remain valuable: if an external mutation becomes visible before the final comparison, edit/patch rejects it. An external writer that races after that final comparison is outside this coordinator's guarantee. Task 12.5 makes no stronger cross-process claim.
 

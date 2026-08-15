@@ -6,6 +6,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createStrictEditOperations, runRead, runEdit, runWrite } from '../files.mjs';
+import { withMutationPath } from '../mutation-coordinator.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -230,4 +231,35 @@ test('edit snapshot rejects a native Bash mutation before write', async () => {
 
   await assert.rejects(() => ops.writeFile(file, 'ALPHA\n'), /changed during edit/i);
   assert.equal(await fs.readFile(file, 'utf8'), 'external\n');
+});
+
+test('edit canceled while queued for its target lease rejects without mutating', async () => {
+  const defaultCwd = await tempDir('pi-user-edit-cancel-queued-');
+  const file = path.join(defaultCwd, 'x.txt');
+  await fs.writeFile(file, 'alpha\n');
+
+  let releaseHolder;
+  let holderEntered;
+  const holderGate = new Promise(resolve => { releaseHolder = resolve; });
+  const holderReady = new Promise(resolve => { holderEntered = resolve; });
+  const holder = withMutationPath(file, async () => {
+    holderEntered();
+    await holderGate;
+  });
+  await holderReady;
+
+  const controller = new AbortController();
+  const pending = runEdit({
+    pathMode: 'user',
+    defaultCwd,
+    path: 'x.txt',
+    edits: [{ oldText: 'alpha', newText: 'EDITED' }]
+  }, controller.signal);
+  await new Promise(resolve => setTimeout(resolve, 25));
+  controller.abort();
+  releaseHolder();
+
+  await assert.rejects(pending, /abort/i);
+  await holder;
+  assert.equal(await fs.readFile(file, 'utf8'), 'alpha\n');
 });

@@ -51,7 +51,7 @@ function modelFacingPathError(error, absolutePath, relativePath) {
   return wrapped;
 }
 
-export function createStrictEditOperations(edits) {
+export function createStrictEditOperations(edits, signal) {
   let snapshot = null;
   let snapshotPath = null;
   return {
@@ -69,7 +69,7 @@ export function createStrictEditOperations(edits) {
         const current = await fs.readFile(absolutePath);
         if (!current.equals(snapshot)) throw new Error('file changed during edit; reread and reconcile');
         await fs.writeFile(absolutePath, content, 'utf8');
-      });
+      }, { signal });
     }
   };
 }
@@ -116,7 +116,7 @@ export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoo
   const target = policy.pathMode === 'user'
     ? await resolveUserPath(policy.root, path)
     : await resolveExistingWorkspacePath(policy.root, path);
-  const tool = createEditTool(policy.root, { operations: createStrictEditOperations(edits) });
+  const tool = createEditTool(policy.root, { operations: createStrictEditOperations(edits, signal) });
   try {
     return await tool.execute(randomUUID(), { path: target, edits }, signal);
   } catch (error) {
