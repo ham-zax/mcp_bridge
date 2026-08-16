@@ -66,8 +66,8 @@ function spawnWslTermPresent(t, sandbox, name, { cols = 50, rows = 20 } = {}) {
   return spawnPseudoTtyCommand(t, command, sandbox.env);
 }
 
-function spawnWslTermWatch(t, sandbox, name) {
-  const command = `exec '${WSL_TERM}' watch '${name}'`;
+function spawnWslTermWatch(t, sandbox, name, { cols = 50, rows = 20 } = {}) {
+  const command = `stty cols ${cols} rows ${rows}; exec '${WSL_TERM}' watch '${name}'`;
   return spawnPseudoTtyCommand(t, command, sandbox.env);
 }
 
@@ -233,7 +233,7 @@ test('read-only tmux observer does not take model control or inject input', asyn
   }));
   assert.equal(opened.ok, true, JSON.stringify(opened));
 
-  const observer = spawnWslTermWatch(t, sandbox, 'observer');
+  const observer = spawnWslTermWatch(t, sandbox, 'observer', { cols: 50, rows: 20 });
   let actualClient;
   await waitFor(() => {
     actualClient = tmuxClients(sandbox.socketPath).find((client) => client.session === 'observer');
@@ -245,6 +245,8 @@ test('read-only tmux observer does not take model control or inject input', asyn
   const observerSession = listed.result.sessions.find((session) => session.name === 'observer');
   assert.equal(observerSession?.humanLease, false);
   assert.equal(observerSession?.humanAttached, false);
+  assert.equal(observerSession?.cols, 80);
+  assert.equal(observerSession?.rows, 24);
 
   const watcherMarker = `WATCHER_INPUT_${process.pid}_${Date.now()}`;
   observer.stdin.write(`${watcherMarker}\n`);

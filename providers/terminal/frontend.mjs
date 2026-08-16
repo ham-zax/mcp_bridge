@@ -170,11 +170,20 @@ export function createFrontendController({
     }
 
     const childEnv = await frontendEnv(env, statFn);
-    const child = spawnFn(
-      kittyBin,
-      ['--title', `Terminal: ${name}`, wslTermPath, 'present', name],
-      { detached: true, stdio: 'ignore', env: childEnv },
-    );
+    let child;
+    try {
+      child = spawnFn(
+        kittyBin,
+        ['--title', `Terminal: ${name}`, wslTermPath, 'present', name],
+        { detached: true, stdio: 'ignore', env: childEnv },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new TerminalError(
+        'FRONTEND_LAUNCH_FAILED',
+        `Kitty failed to start for ${name}: ${message}; attach manually with ${fallbackMessage(wslTermPath, name)}`,
+      );
+    }
     const launchState = { error: null };
     if (child && typeof child.once === 'function') {
       child.once('error', (error) => { launchState.error = error; });

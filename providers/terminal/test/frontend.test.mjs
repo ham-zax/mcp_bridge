@@ -254,6 +254,30 @@ test('frontend unavailable returns actionable manual attach fallback', async () 
   );
 });
 
+test('synchronous Kitty spawn failure returns a stable frontend error with manual fallback', async () => {
+  const { client } = stateClient([
+    { name: 'demo', humanLease: false, humanAttached: false },
+  ]);
+  const controller = createFrontendController({
+    client,
+    env: { HOME: '/home/tester', PATH: '/bin' },
+    repoRoot: REPO_ROOT,
+    accessFn: async (candidate) => {
+      if (candidate !== '/bin/kitty') throw enoent();
+    },
+    statFn: async () => { throw enoent(); },
+    spawnFn() { throw new Error('spawn exploded'); },
+    ...fakeClock(),
+  });
+
+  await assert.rejects(
+    controller.ensurePresented('demo'),
+    (error) => error?.code === 'FRONTEND_LAUNCH_FAILED'
+      && /spawn exploded/.test(error.message)
+      && error.message.includes(`${WSL_TERM} attach demo`),
+  );
+});
+
 test('readiness timeout terminates only the Kitty process group spawned by this request', async () => {
   const { client } = stateClient([
     { name: 'demo', humanLease: false, humanAttached: false },
