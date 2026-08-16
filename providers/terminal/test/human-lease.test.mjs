@@ -61,6 +61,11 @@ function spawnWslTermAttach(t, sandbox, name) {
   return spawnPseudoTtyCommand(t, command, sandbox.env);
 }
 
+function spawnWslTermPresent(t, sandbox, name, { cols = 50, rows = 20 } = {}) {
+  const command = `stty cols ${cols} rows ${rows}; exec '${WSL_TERM}' present '${name}'`;
+  return spawnPseudoTtyCommand(t, command, sandbox.env);
+}
+
 function spawnWslTermWatch(t, sandbox, name) {
   const command = `exec '${WSL_TERM}' watch '${name}'`;
   return spawnPseudoTtyCommand(t, command, sandbox.env);
@@ -299,6 +304,108 @@ test('bound lease that never becomes a real tmux client expires after attach gra
     name: 'grace-human', text: 'after grace',
   }));
   assert.equal(restored.ok, true, JSON.stringify(restored));
+});
+
+test('wsl-term present keeps model control, then reuses the same exact PTY client for human handoff', async (t) => {
+  const sandbox = await makeSandbox(t);
+  await startBroker(t, sandbox);
+  const opened = await brokerRequest(sandbox.brokerSocket, request('present-open', 'session.open', {
+    name: 'cli-present', command: "printf 'PRESENT_READABLE\\n'; exec cat", cols: 100, rows: 40,
+  }));
+  assert.equal(opened.ok, true, JSON.stringify(opened));
+
+  const present = spawnWslTermPresent(t, sandbox, 'cli-present');
+  let actualClient;
+  await waitFor(async () => {
+    actualClient = tmuxClients(sandbox.socketPath).find((client) => client.session === 'cli-present');
+    if (!actualClient?.readOnly) return false;
+    const listed = await brokerRequest(sandbox.brokerSocket, request('present-list', 'session.list'));
+    const session = listed.result?.sessions.find((candidate) => candidate.name === 'cli-present');
+    return listed.ok && session?.humanLease === false;
+  }, { description: 'wsl-term designated read-only presentation' });
+
+  const modelSend = await brokerRequest(sandbox.brokerSocket, request('present-model-send', 'session.send', {
+    name: 'cli-present', text: 'model while presented',
+  }));
+  assert.equal(modelSend.ok, true, JSON.stringify(modelSend));
+
+  const modelResize = await brokerRequest(sandbox.brokerSocket, request('present-model-resize', 'session.resize', {
+    name: 'cli-present', cols: 111, rows: 37,
+  }));
+  assert.equal(modelResize.ok, true, JSON.stringify(modelResize));
+  assert.equal(modelResize.result.cols, 111);
+  assert.equal(modelResize.result.rows, 37);
+
+  const taken = await brokerRequest(sandbox.brokerSocket, request('present-take', 'control.take_human', {
+    name: 'cli-present',
+  }));
+  assert.equal(taken.ok, true, JSON.stringify(taken));
+  const writableClient = tmuxClients(sandbox.socketPath).find((client) => client.session === 'cli-present');
+  assert.equal(writableClient?.pid, actualClient.pid);
+  assert.equal(writableClient?.readOnly, false);
+
+  const humanResize = spawnSync('stty', ['-F', actualClient.tty, 'cols', '73', 'rows', '27'], {
+    encoding: 'utf8',
+  });
+  assert.equal(humanResize.status, 0, humanResize.stderr);
+  await waitFor(async () => {
+    const listed = await brokerRequest(sandbox.brokerSocket, request('present-human-size', 'session.list'));
+    const session = listed.result?.sessions.find((candidate) => candidate.name === 'cli-present');
+    return listed.ok && session?.cols === 73 && session?.rows === 27;
+  }, { description: 'writable human frontend resize' });
+
+  const blocked = await brokerRequest(sandbox.brokerSocket, request('present-blocked', 'session.send', {
+    name: 'cli-present', text: 'blocked while human owns',
+  }));
+  assert.equal(blocked.ok, false, JSON.stringify(blocked));
+  assert.equal(blocked.error.code, 'HUMAN_HAS_CONTROL');
+
+  const given = await brokerRequest(sandbox.brokerSocket, request('present-give', 'control.give_model', {
+    name: 'cli-present',
+  }));
+  assert.equal(given.ok, true, JSON.stringify(given));
+  const readOnlyAgain = tmuxClients(sandbox.socketPath).find((client) => client.session === 'cli-present');
+  assert.equal(readOnlyAgain?.pid, actualClient.pid);
+  assert.equal(readOnlyAgain?.readOnly, true);
+
+  const restored = await brokerRequest(sandbox.brokerSocket, request('present-restored', 'session.send', {
+    name: 'cli-present', text: 'restored after give',
+  }));
+  assert.equal(restored.ok, true, JSON.stringify(restored));
+
+  const detached = spawnSync('tmux', [
+    '-N', '-S', sandbox.socketPath, 'detach-client', '-t', actualClient.tty,
+  ], { encoding: 'utf8' });
+  assert.equal(detached.status, 0, detached.stderr);
+  await onceExit(present);
+});
+
+test('wsl-term present does not let a smaller passive viewport resize the model-owned PTY', async (t) => {
+  const sandbox = await makeSandbox(t);
+  await startBroker(t, sandbox);
+  const opened = await brokerRequest(sandbox.brokerSocket, request('present-size-open', 'session.open', {
+    name: 'cli-present-size', command: 'cat', cols: 100, rows: 40,
+  }));
+  assert.equal(opened.ok, true, JSON.stringify(opened));
+
+  const present = spawnWslTermPresent(t, sandbox, 'cli-present-size', { cols: 50, rows: 20 });
+  let actualClient;
+  await waitFor(() => {
+    actualClient = tmuxClients(sandbox.socketPath).find((client) => client.session === 'cli-present-size');
+    return Boolean(actualClient?.readOnly);
+  }, { description: 'small read-only presentation client' });
+
+  const listed = await brokerRequest(sandbox.brokerSocket, request('present-size-list', 'session.list'));
+  assert.equal(listed.ok, true, JSON.stringify(listed));
+  const session = listed.result.sessions.find((candidate) => candidate.name === 'cli-present-size');
+  assert.equal(session?.cols, 100);
+  assert.equal(session?.rows, 40);
+
+  const detached = spawnSync('tmux', [
+    '-N', '-S', sandbox.socketPath, 'detach-client', '-t', actualClient.tty,
+  ], { encoding: 'utf8' });
+  assert.equal(detached.status, 0, detached.stderr);
+  await onceExit(present);
 });
 
 test('wsl-term exact-PTY attach blocks model mutation, keeps reads available, and restores writes after detach', async (t) => {

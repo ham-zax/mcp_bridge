@@ -68,6 +68,18 @@ function listTmuxClients() {
   });
 }
 
+function setWindowSizeManual(name) {
+  const result = spawnSync(
+    tmuxBin(),
+    [...tmuxArgs(), 'set-window-option', '-t', `=${name}:0`, 'window-size', 'manual'],
+    { encoding: 'utf8', env: process.env },
+  );
+  if (result.status !== 0) {
+    const message = String(result.stderr || '').trim() || 'tmux set-window-option window-size manual failed';
+    throw new Error(message);
+  }
+}
+
 function resizeWindowToTerminal(name, clientPid) {
   const cols = process.stdout.columns;
   const rows = process.stdout.rows;
@@ -129,9 +141,13 @@ async function listSessions(client) {
   return 0;
 }
 
-async function attachSession(client, name, { lease: providedLease } = {}) {
+async function attachSession(client, name, {
+  lease: providedLease,
+  readOnly = false,
+  commandName = 'attach',
+} = {}) {
   validateSessionName(name);
-  requireInteractive('attach');
+  requireInteractive(commandName);
 
   const lease = providedLease ?? await client.request('lease.acquire_human', {
     name,
@@ -141,7 +157,13 @@ async function attachSession(client, name, { lease: providedLease } = {}) {
   let resizeHandler = null;
   const signalHandlers = new Map();
   try {
-    const args = [...tmuxArgs(), 'attach-session', '-t', `=${name}`];
+    if (readOnly) setWindowSizeManual(name);
+    const args = [
+      ...tmuxArgs(),
+      'attach-session',
+      ...(readOnly ? ['-r'] : []),
+      '-t', `=${name}`,
+    ];
     child = spawn(tmuxBin(), args, {
       stdio: 'inherit',
       env: process.env,
@@ -157,7 +179,7 @@ async function attachSession(client, name, { lease: providedLease } = {}) {
       clientPid: child.pid,
     });
 
-    resizeWindowToTerminal(name, child.pid);
+    if (!readOnly) resizeWindowToTerminal(name, child.pid);
     resizeHandler = () => {
       try {
         resizeWindowToTerminal(name, child.pid);
@@ -185,6 +207,10 @@ async function attachSession(client, name, { lease: providedLease } = {}) {
       await client.request('lease.release_human', { name, leaseId: lease.leaseId });
     } catch {}
   }
+}
+
+async function presentSession(client, name) {
+  return attachSession(client, name, { readOnly: true, commandName: 'present' });
 }
 
 async function newSession(client, name) {
@@ -220,9 +246,9 @@ async function takeSession(client, name) {
 
 export async function runCli(argv = process.argv.slice(2)) {
   const [command, name, ...rest] = argv;
-  const commands = ['list', 'new', 'watch', 'attach', 'give', 'take'];
+  const commands = ['list', 'new', 'watch', 'present', 'attach', 'give', 'take'];
   if (rest.length > 0 || !commands.includes(command)) {
-    throw new Error('usage: wsl-term list | wsl-term new <session> | wsl-term watch <session> | wsl-term attach <session> | wsl-term give <session> | wsl-term take <session>');
+    throw new Error('usage: wsl-term list | wsl-term new <session> | wsl-term watch <session> | wsl-term present <session> | wsl-term attach <session> | wsl-term give <session> | wsl-term take <session>');
   }
   if (command !== 'list' && (!name || name.length === 0)) {
     throw new Error(`usage: wsl-term ${command} <session>`);
@@ -236,6 +262,7 @@ export async function runCli(argv = process.argv.slice(2)) {
   switch (command) {
     case 'list': return listSessions(client);
     case 'new': return newSession(client, name);
+    case 'present': return presentSession(client, name);
     case 'attach': return attachSession(client, name);
     case 'give': return giveSession(client, name);
     case 'take': return takeSession(client, name);
