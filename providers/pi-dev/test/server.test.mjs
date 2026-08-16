@@ -192,7 +192,14 @@ test('personal user mode exposes apply_patch alongside edit with user-path descr
     assert.match(bash.description, /large.*unfamiliar.*rg|rg.*large.*unfamiliar/i);
     assert.match(bash.inputSchema.properties.cwd.description, /relative.*default.*absolute/i);
     const edit = listed.tools.find(x => x.name === 'edit');
-    assert.match(edit.description, /one existing text file|single-file/i);
+    assert.deepEqual(Object.keys(edit.inputSchema.properties), ['targets']);
+    assert.deepEqual(edit.inputSchema.required, ['targets']);
+    assert.equal(edit.inputSchema.properties.path, undefined);
+    assert.equal(edit.inputSchema.properties.edits, undefined);
+    const targetSchema = edit.inputSchema.properties.targets.items;
+    assert.deepEqual(targetSchema.required, ['path', 'edits']);
+    assert.deepEqual(targetSchema.properties.edits.items.required, ['oldText', 'newText']);
+    assert.match(edit.description, /exact.*one or more existing text files|one or more existing text files.*exact/i);
     assert.match(edit.description, /unique/i);
     assert.match(edit.description, /apply_patch/i);
     const write = listed.tools.find(x => x.name === 'write');
@@ -747,12 +754,25 @@ test('edit returns one diff artifact without generic success prose', async () =>
   await withClient(env, async client => {
     const result = await client.callTool({
       name: 'edit',
-      arguments: { path: 'x.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }
+      arguments: { targets: [{ path: 'x.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }] }
     });
     const text = textOf(result);
     assert.match(text, /^x\.txt\n/);
     assert.match(text, /ALPHA/);
     assert.doesNotMatch(text, /Successfully replaced|Done!/);
+  });
+});
+
+test('edit v2 rejects historical root path and edits arguments', async () => {
+  const { workspaceRoot, env } = await fixture();
+  await fs.writeFile(path.join(workspaceRoot, 'x.txt'), 'alpha\n');
+  await withClient(env, async client => {
+    const result = await client.callTool({
+      name: 'edit',
+      arguments: { path: 'x.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }
+    });
+    assert.equal(result.isError, true);
+    assert.equal(await fs.readFile(path.join(workspaceRoot, 'x.txt'), 'utf8'), 'alpha\n');
   });
 });
 
@@ -827,11 +847,13 @@ test('edit diagnostics keep model-facing paths workspace-relative', async () => 
     const result = await client.callTool({
       name: 'edit',
       arguments: {
-        path: 'x.txt',
-        edits: [
-          { oldText: 'abc', newText: 'ABC' },
-          { oldText: 'bcd', newText: 'BCD' }
-        ]
+        targets: [{
+          path: 'x.txt',
+          edits: [
+            { oldText: 'abc', newText: 'ABC' },
+            { oldText: 'bcd', newText: 'BCD' }
+          ]
+        }]
       }
     });
     assert.equal(result.isError, true);

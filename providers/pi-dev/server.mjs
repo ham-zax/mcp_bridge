@@ -135,15 +135,18 @@ server.registerTool('read', {
 
 server.registerTool('edit', {
   description: pathMode === 'user'
-    ? 'Apply guarded exact, disjoint replacements to one existing text file; each oldText must identify a unique match and concurrent change fails rather than blindly overwriting. Prefer apply_patch for multi-file, add/delete/move, or structural work; relative paths use the configured default cwd and absolute paths are accepted'
-    : 'Apply guarded exact, disjoint replacements to one existing text file below the workspace root; each oldText must identify a unique match and concurrent change fails rather than blindly overwriting',
+    ? 'Apply guarded exact, unique, disjoint replacements to one or more existing text files. Use edit when the exact old text is already known; use apply_patch for contextual/structural work, add/delete/move, or ambiguous anchors. Relative paths use the configured default cwd and absolute paths are accepted'
+    : 'Apply guarded exact, unique, disjoint replacements to one or more existing text files below the workspace root. Use edit when the exact old text is already known; use apply_patch for contextual/structural work or ambiguous anchors',
   inputSchema: {
-    path: modelPath,
-    edits: z.array(z.object({ oldText: z.string().min(1), newText: z.string() })).min(1)
+    targets: z.array(z.object({
+      path: modelPath,
+      edits: z.array(z.object({ oldText: z.string().min(1), newText: z.string() })).min(1)
+    })).min(1)
   }
 }, async (args, extra) => invoke(async () => {
   const result = await runEdit({ ...pathPolicy, ...args }, extra.signal);
-  return { content: [{ type: 'text', text: renderEditText(args.path, result.details?.diff) }] };
+  const text = result.targets.map(target => renderEditText(target.path, target.diff)).join('\n');
+  return { content: [{ type: 'text', text }] };
 }));
 
 server.registerTool('write', {

@@ -13,7 +13,7 @@ import {
   resolveNewWorkspacePath,
   resolveUserPath
 } from './boundary.mjs';
-import { withMutationPath } from './mutation-coordinator.mjs';
+import { withMutationPath, withMutationPaths } from './mutation-coordinator.mjs';
 
 function normalizeExactText(text) {
   const withoutBom = text.startsWith('\uFEFF') ? text.slice(1) : text;
@@ -32,8 +32,16 @@ function exactOccurrenceCount(content, needle) {
   }
 }
 
+function decodeValidUtf8(buffer) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
+  } catch {
+    throw new Error('edit target must be valid UTF-8 text');
+  }
+}
+
 function validateExactEdits(buffer, edits) {
-  const content = normalizeExactText(buffer.toString('utf8'));
+  const content = normalizeExactText(decodeValidUtf8(buffer));
   for (let i = 0; i < edits.length; i += 1) {
     const oldText = normalizeExactText(edits[i].oldText);
     if (!oldText) throw new Error(`edits[${i}].oldText must not be empty`);
@@ -111,17 +119,70 @@ export async function runRead({ pathMode = 'workspace', defaultCwd, workspaceRoo
   }
 }
 
-export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoot, path, edits }, signal) {
+export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoot, targets }, signal) {
   const policy = await resolveFilePolicy({ pathMode, workspaceRoot, defaultCwd });
-  const target = policy.pathMode === 'user'
-    ? await resolveUserPath(policy.root, path)
-    : await resolveExistingWorkspacePath(policy.root, path);
-  const tool = createEditTool(policy.root, { operations: createStrictEditOperations(edits, signal) });
-  try {
-    return await tool.execute(randomUUID(), { path: target, edits }, signal);
-  } catch (error) {
-    throw modelFacingPathError(error, target, path);
+  const requestedTargets = Array.isArray(targets) ? targets : [];
+  if (requestedTargets.length === 0) throw new Error('edit targets must contain at least one file');
+
+  const resolved = [];
+  for (const request of requestedTargets) {
+    const canonicalPath = policy.pathMode === 'user'
+      ? await resolveUserPath(policy.root, request.path)
+      : await resolveExistingWorkspacePath(policy.root, request.path);
+    resolved.push({ requestedPath: request.path, canonicalPath, edits: request.edits });
   }
+
+  const seen = new Set();
+  for (const target of resolved) {
+    if (seen.has(target.canonicalPath)) {
+      throw new Error(`duplicate edit target resolves to the same file: ${target.requestedPath}`);
+    }
+    seen.add(target.canonicalPath);
+  }
+
+  return withMutationPaths(resolved.map(target => target.canonicalPath), async () => {
+    const plans = [];
+    for (const target of resolved) {
+      const stat = await fs.stat(target.canonicalPath);
+      if (!stat.isFile()) throw new Error(`${target.requestedPath} must resolve to a regular file`);
+      const snapshot = await fs.readFile(target.canonicalPath);
+      decodeValidUtf8(snapshot);
+      validateExactEdits(snapshot, target.edits);
+      let proposed = null;
+      const tool = createEditTool(policy.root, {
+        operations: {
+          access: absolutePath => fs.access(absolutePath, constants.R_OK | constants.W_OK),
+          readFile: async () => Buffer.from(snapshot),
+          writeFile: async (_absolutePath, content) => { proposed = content; }
+        }
+      });
+      let result;
+      try {
+        result = await tool.execute(randomUUID(), {
+          path: target.canonicalPath,
+          edits: target.edits
+        }, signal);
+      } catch (error) {
+        throw modelFacingPathError(error, target.canonicalPath, target.requestedPath);
+      }
+      if (proposed === null) throw new Error(`edit planning produced no output for ${target.requestedPath}`);
+      plans.push({ ...target, identity: { dev: stat.dev, ino: stat.ino }, snapshot, proposed, diff: result.details?.diff ?? '' });
+    }
+
+    for (const plan of plans) {
+      const current = await fs.readFile(plan.canonicalPath);
+      if (!current.equals(plan.snapshot)) {
+        throw new Error(`${plan.requestedPath} changed during edit; reread and reconcile`);
+      }
+      await fs.writeFile(plan.canonicalPath, plan.proposed, 'utf8');
+    }
+
+    const results = plans.map(plan => ({ path: plan.requestedPath, diff: plan.diff }));
+    return {
+      targets: results,
+      details: results.length === 1 ? { diff: results[0].diff } : undefined
+    };
+  }, { signal });
 }
 
 export async function runWrite({ pathMode = 'workspace', defaultCwd, workspaceRoot, path, content }, signal) {

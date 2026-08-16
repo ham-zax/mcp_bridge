@@ -42,8 +42,7 @@ test('user edit and write keep exact-edit and create-only mutation safety', asyn
   await runEdit({
     pathMode: 'user',
     defaultCwd,
-    path: 'existing.txt',
-    edits: [{ oldText: 'alpha', newText: 'ALPHA' }]
+    targets: [{ path: 'existing.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }]
   });
   assert.equal(await fs.readFile(existing, 'utf8'), 'ALPHA\nbeta\n');
 
@@ -63,15 +62,105 @@ test('edit performs multiple exact disjoint replacements and returns a diff', as
   await fs.writeFile(file, 'alpha\nbeta\ngamma\n');
   const result = await runEdit({
     workspaceRoot,
-    path: 'repo/x.txt',
-    edits: [
-      { oldText: 'alpha', newText: 'ALPHA' },
-      { oldText: 'gamma', newText: 'GAMMA' }
-    ]
+    targets: [{
+      path: 'repo/x.txt',
+      edits: [
+        { oldText: 'alpha', newText: 'ALPHA' },
+        { oldText: 'gamma', newText: 'GAMMA' }
+      ]
+    }]
   });
   assert.equal(await fs.readFile(file, 'utf8'), 'ALPHA\nbeta\nGAMMA\n');
   assert.match(result.details.diff, /ALPHA/);
   assert.match(result.details.diff, /GAMMA/);
+});
+
+test('edit v2 applies exact replacements across multiple existing files in one call', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-multi-');
+  const a = path.join(workspaceRoot, 'a.txt');
+  const b = path.join(workspaceRoot, 'b.txt');
+  await fs.writeFile(a, 'alpha\n');
+  await fs.writeFile(b, 'beta\n');
+  const result = await runEdit({
+    workspaceRoot,
+    targets: [
+      { path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] },
+      { path: 'b.txt', edits: [{ oldText: 'beta', newText: 'BETA' }] }
+    ]
+  });
+  assert.equal(await fs.readFile(a, 'utf8'), 'ALPHA\n');
+  assert.equal(await fs.readFile(b, 'utf8'), 'BETA\n');
+  assert.equal(result.targets.length, 2);
+});
+
+test('edit v2 preflights every target before mutating any file', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-preflight-');
+  const a = path.join(workspaceRoot, 'a.txt');
+  const b = path.join(workspaceRoot, 'b.txt');
+  await fs.writeFile(a, 'alpha\n');
+  await fs.writeFile(b, 'beta\n');
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [
+        { path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] },
+        { path: 'b.txt', edits: [{ oldText: 'missing', newText: 'BETA' }] }
+      ]
+    }),
+    /exact text.*not found/i
+  );
+  assert.equal(await fs.readFile(a, 'utf8'), 'alpha\n');
+  assert.equal(await fs.readFile(b, 'utf8'), 'beta\n');
+});
+
+test('edit v2 rejects duplicate canonical aliases before mutation', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-alias-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  const link = path.join(workspaceRoot, 'alias.txt');
+  await fs.writeFile(file, 'alpha\n');
+  await fs.symlink(file, link);
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [
+        { path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] },
+        { path: 'alias.txt', edits: [{ oldText: 'alpha', newText: 'OTHER' }] }
+      ]
+    }),
+    /duplicate edit target/i
+  );
+  assert.equal(await fs.readFile(file, 'utf8'), 'alpha\n');
+});
+
+test('edit v2 rejects invalid UTF-8 before mutating earlier targets', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-utf8-');
+  const a = path.join(workspaceRoot, 'a.txt');
+  const b = path.join(workspaceRoot, 'b.txt');
+  await fs.writeFile(a, 'alpha\n');
+  await fs.writeFile(b, Buffer.from([0xff, 0xfe, 0xfd]));
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [
+        { path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] },
+        { path: 'b.txt', edits: [{ oldText: 'x', newText: 'y' }] }
+      ]
+    }),
+    /valid UTF-8/i
+  );
+  assert.equal(await fs.readFile(a, 'utf8'), 'alpha\n');
+  assert.deepEqual(await fs.readFile(b), Buffer.from([0xff, 0xfe, 0xfd]));
+});
+
+test('edit v2 supports exact substring removal with empty newText', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-remove-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'alpha beta gamma\n');
+  await runEdit({
+    workspaceRoot,
+    targets: [{ path: 'a.txt', edits: [{ oldText: ' beta', newText: '' }] }]
+  });
+  assert.equal(await fs.readFile(file, 'utf8'), 'alpha gamma\n');
 });
 
 test('fuzzy-only Unicode quote match is rejected', async () => {
@@ -80,8 +169,7 @@ test('fuzzy-only Unicode quote match is rejected', async () => {
   await assert.rejects(
     () => runEdit({
       workspaceRoot,
-      path: 'x.txt',
-      edits: [{ oldText: 'const x = "hello";', newText: 'const x = "bye";' }]
+      targets: [{ path: 'x.txt', edits: [{ oldText: 'const x = "hello";', newText: 'const x = "bye";' }] }]
     }),
     /exact text.*not found/i
   );
@@ -93,8 +181,7 @@ test('CRLF file accepts LF oldText and preserves CRLF', async () => {
   await fs.writeFile(file, 'alpha\r\nbeta\r\n');
   await runEdit({
     workspaceRoot,
-    path: 'x.txt',
-    edits: [{ oldText: 'alpha\nbeta', newText: 'ALPHA\nbeta' }]
+    targets: [{ path: 'x.txt', edits: [{ oldText: 'alpha\nbeta', newText: 'ALPHA\nbeta' }] }]
   });
   assert.equal(await fs.readFile(file, 'utf8'), 'ALPHA\r\nbeta\r\n');
 });
@@ -152,14 +239,12 @@ test('two personal edits of the same exact region produce one safe conflict', as
     runEdit({
       pathMode: 'user',
       defaultCwd,
-      path: 'x.txt',
-      edits: [{ oldText: 'alpha', newText: 'ACTOR_A' }]
+      targets: [{ path: 'x.txt', edits: [{ oldText: 'alpha', newText: 'ACTOR_A' }] }]
     }),
     runEdit({
       pathMode: 'user',
       defaultCwd,
-      path: 'x.txt',
-      edits: [{ oldText: 'alpha', newText: 'ACTOR_B' }]
+      targets: [{ path: 'x.txt', edits: [{ oldText: 'alpha', newText: 'ACTOR_B' }] }]
     })
   ]);
 
@@ -179,15 +264,13 @@ test('a stale exact edit rejects after another actor changes the observed region
   await runEdit({
     pathMode: 'user',
     defaultCwd,
-    path: 'x.txt',
-    edits: [{ oldText: 'alpha', newText: 'ACTOR_B' }]
+    targets: [{ path: 'x.txt', edits: [{ oldText: 'alpha', newText: 'ACTOR_B' }] }]
   });
   await assert.rejects(
     () => runEdit({
       pathMode: 'user',
       defaultCwd,
-      path: 'x.txt',
-      edits: [{ oldText: 'alpha', newText: 'ACTOR_A' }]
+      targets: [{ path: 'x.txt', edits: [{ oldText: 'alpha', newText: 'ACTOR_A' }] }]
     }),
     /exact text.*not found|changed during edit/i
   );
@@ -203,14 +286,12 @@ test('independent personal edits in different files both succeed', async () => {
     runEdit({
       pathMode: 'user',
       defaultCwd,
-      path: 'a.txt',
-      edits: [{ oldText: 'alpha', newText: 'ALPHA' }]
+      targets: [{ path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }]
     }),
     runEdit({
       pathMode: 'user',
       defaultCwd,
-      path: 'b.txt',
-      edits: [{ oldText: 'beta', newText: 'BETA' }]
+      targets: [{ path: 'b.txt', edits: [{ oldText: 'beta', newText: 'BETA' }] }]
     })
   ]);
 
@@ -252,8 +333,7 @@ test('edit canceled while queued for its target lease rejects without mutating',
   const pending = runEdit({
     pathMode: 'user',
     defaultCwd,
-    path: 'x.txt',
-    edits: [{ oldText: 'alpha', newText: 'EDITED' }]
+    targets: [{ path: 'x.txt', edits: [{ oldText: 'alpha', newText: 'EDITED' }] }]
   }, controller.signal);
   await new Promise(resolve => setTimeout(resolve, 25));
   controller.abort();
