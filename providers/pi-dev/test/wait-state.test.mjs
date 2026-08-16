@@ -31,7 +31,9 @@ function pendingRecord(name = 'build-ready') {
     armedAtMs: 1000,
     deadlineAtMs: 301000,
     status: 'pending',
-    baseline: null,
+    sourceArmed: true,
+    baseline: { host: '127.0.0.1', port: 43210 },
+    lastCheckedAtMs: 1000,
   };
 }
 
@@ -97,6 +99,45 @@ test('wait store rejects invalid names and corrupt state', async (t) => {
   await store.ensureRoot();
   await writeFile(path.join(store.rootDir, 'broken.json'), '{not json', { mode: 0o600 });
   await assert.rejects(() => store.read('broken'), (error) => error.code === 'WAIT_STATE_CORRUPT');
+});
+
+test('wait store rejects semantically corrupt version-1 records instead of allowing immortal or re-armable state', async (t) => {
+  const store = await fixtureStore(t);
+  await store.ensureRoot();
+  const valid = {
+    version: 1,
+    name: 'semantic-corrupt',
+    definition: {
+      condition: { kind: 'tcp_listen', host: '127.0.0.1', port: 43210 },
+      timeoutSeconds: 30,
+    },
+    condition: { kind: 'tcp_listen', host: '127.0.0.1', port: 43210 },
+    timeoutSeconds: 30,
+    armedAtMs: 1000,
+    deadlineAtMs: 31000,
+    status: 'pending',
+    sourceArmed: true,
+    baseline: { host: '127.0.0.1', port: 43210 },
+    lastCheckedAtMs: 1000,
+  };
+  const corruptions = [
+    ['missing deadline', ({ deadlineAtMs: _omit, ...rest }) => rest],
+    ['unknown status', (record) => ({ ...record, status: 'forever' })],
+    ['unarmed pending', (record) => ({ ...record, sourceArmed: false, baseline: null })],
+    ['definition mismatch', (record) => ({ ...record, condition: { kind: 'tcp_listen', host: '127.0.0.1', port: 43211 } })],
+    ['terminal without completion time', (record) => ({ ...record, status: 'matched' })],
+    ['matched after deadline', (record) => ({ ...record, status: 'matched', completedAtMs: 31000 })],
+  ];
+
+  for (const [label, mutate] of corruptions) {
+    const candidate = mutate(structuredClone(valid));
+    await writeFile(store.fileFor('semantic-corrupt'), `${JSON.stringify(candidate)}\n`, { mode: 0o600 });
+    await assert.rejects(
+      () => store.read('semantic-corrupt'),
+      (error) => error?.code === 'WAIT_STATE_CORRUPT',
+      label,
+    );
+  }
 });
 
 test('same-name kernel lock serializes concurrent writers', async (t) => {

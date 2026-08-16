@@ -6,8 +6,33 @@ const DEFAULT_RETRY_WINDOW_MS = 1000;
 const DEFAULT_RETRY_INTERVAL_MS = 25;
 const DEFAULT_REQUEST_TIMEOUT_MS = 3000;
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function abortError() {
+  const error = new Error('broker request aborted');
+  error.name = 'AbortError';
+  error.code = 'ABORT_ERR';
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw abortError();
+}
+
+function delay(ms, signal) {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      fn(value);
+    };
+    const onAbort = () => finish(reject, abortError());
+    const timer = setTimeout(() => finish(resolve), ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
 }
 
 function retryableConnectionError(error) {
@@ -38,20 +63,26 @@ export class BrokerClient {
     this.nextId = 1;
   }
 
-  async request(op, params = {}) {
+  async request(op, params = {}, { signal } = {}) {
+    throwIfAborted(signal);
     const id = this.nextId++;
     const deadline = Date.now() + this.retryWindowMs;
     while (true) {
+      throwIfAborted(signal);
       try {
-        return await this.requestOnce({ id, op, params });
+        return await this.requestOnce({ id, op, params }, { signal });
       } catch (error) {
+        if (signal?.aborted || error?.name === 'AbortError' || error?.code === 'ABORT_ERR') {
+          throw abortError();
+        }
         if (!retryableConnectionError(error) || Date.now() >= deadline) throw error;
-        await delay(Math.min(this.retryIntervalMs, Math.max(0, deadline - Date.now())));
+        await delay(Math.min(this.retryIntervalMs, Math.max(0, deadline - Date.now())), signal);
       }
     }
   }
 
-  requestOnce(request) {
+  requestOnce(request, { signal } = {}) {
+    throwIfAborted(signal);
     return new Promise((resolve, reject) => {
       const socket = net.createConnection(this.socketPath);
       let buffered = '';
@@ -65,6 +96,7 @@ export class BrokerClient {
 
       const cleanup = () => {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
         socket.removeAllListeners();
         socket.destroy();
       };
@@ -80,7 +112,13 @@ export class BrokerClient {
         cleanup();
         reject(error);
       };
+      const onAbort = () => finishReject(abortError());
 
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
       socket.setEncoding('utf8');
       socket.once('connect', () => {
         socket.write(`${JSON.stringify(request)}\n`);

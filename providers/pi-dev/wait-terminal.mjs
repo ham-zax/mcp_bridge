@@ -1,5 +1,13 @@
 const DEFAULT_MAX_READ_BYTES = 64 * 1024;
 const MAX_LITERAL_BYTES = 1024;
+const BROKER_TRANSPORT_CODES = new Set([
+  'ENOENT',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EPIPE',
+  'BROKER_CONNECTION_CLOSED',
+  'BROKER_REQUEST_TIMEOUT',
+]);
 
 function waitError(code, message, details) {
   const error = new Error(message);
@@ -11,6 +19,25 @@ function waitError(code, message, details) {
 
 function throwIfAborted(signal) {
   if (signal?.aborted) throw waitError('WAIT_ABORTED', 'wait request was aborted');
+}
+
+async function brokerRequest(client, op, params, signal) {
+  throwIfAborted(signal);
+  try {
+    return await client.request(op, params, { signal });
+  } catch (error) {
+    if (signal?.aborted || error?.name === 'AbortError' || error?.code === 'ABORT_ERR') {
+      throw waitError('WAIT_ABORTED', 'wait request was aborted');
+    }
+    if (BROKER_TRANSPORT_CODES.has(error?.code)) {
+      throw waitError(
+        'WAIT_SOURCE_UNAVAILABLE',
+        `Terminal broker unavailable during ${op}`,
+        { causeCode: error.code },
+      );
+    }
+    throw error;
+  }
 }
 
 function requireCondition(condition) {
@@ -60,13 +87,14 @@ function replaced(baseline, actualGeneration, details) {
   };
 }
 
-function sourceEnded(baseline, observed) {
+function sourceEnded(baseline, observed = {}) {
+  const exitStatus = observed.paneDeadStatus ?? null;
   return {
     status: 'failed',
     baseline,
     code: 'WAIT_SOURCE_ENDED',
-    details: { exitStatus: observed.paneDeadStatus },
-    evidence: `exit=${observed.paneDeadStatus ?? 'unknown'}`,
+    details: { exitStatus },
+    evidence: `exit=${exitStatus ?? 'unknown'}`,
   };
 }
 
@@ -94,7 +122,7 @@ export class TerminalWaitSource {
   async arm(condition, signal) {
     const { condition: validated } = requireCondition(condition);
     throwIfAborted(signal);
-    const observed = await this.client.request('session.observe', { name: validated.session });
+    const observed = await brokerRequest(this.client, 'session.observe', { name: validated.session }, signal);
     throwIfAborted(signal);
     if (validated.kind === 'terminal_exit') {
       return {
@@ -118,7 +146,13 @@ export class TerminalWaitSource {
     const { condition, literalBytes } = requireCondition(record?.condition);
     let baseline = requireBaseline(record);
     throwIfAborted(signal);
-    let observed = await this.client.request('session.observe', { name: condition.session });
+    let observed;
+    try {
+      observed = await brokerRequest(this.client, 'session.observe', { name: condition.session }, signal);
+    } catch (error) {
+      if (error?.code === 'SESSION_NOT_FOUND') return sourceEnded(baseline);
+      throw error;
+    }
     throwIfAborted(signal);
 
     if (observed.generation !== baseline.generation) {
@@ -157,16 +191,17 @@ export class TerminalWaitSource {
         throwIfAborted(signal);
         let read;
         try {
-          read = await this.client.request('session.read', {
+          read = await brokerRequest(this.client, 'session.read', {
             name: condition.session,
             cursor: baseline.cursor,
             maxBytes: this.maxReadBytes,
             expectedGeneration: baseline.generation,
-          });
+          }, signal);
         } catch (error) {
           if (error?.code === 'SESSION_GENERATION_MISMATCH') {
             return replaced(baseline, error?.details?.actualGeneration, error.details);
           }
+          if (error?.code === 'SESSION_NOT_FOUND') return sourceEnded(baseline);
           if (error?.code === 'CURSOR_EXPIRED' || error?.code === 'CURSOR_AHEAD') {
             return cursorFailure(error.code, baseline, error.details);
           }
@@ -206,7 +241,13 @@ export class TerminalWaitSource {
       }
 
       throwIfAborted(signal);
-      const refreshed = await this.client.request('session.observe', { name: condition.session });
+      let refreshed;
+      try {
+        refreshed = await brokerRequest(this.client, 'session.observe', { name: condition.session }, signal);
+      } catch (error) {
+        if (error?.code === 'SESSION_NOT_FOUND') return sourceEnded(baseline);
+        throw error;
+      }
       throwIfAborted(signal);
       if (refreshed.generation !== baseline.generation) {
         return replaced(baseline, refreshed.generation);

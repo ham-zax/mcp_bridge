@@ -90,8 +90,10 @@ export class TmuxBackend {
     } catch (error) {
       const stderr = String(error?.stderr || '').trim();
       const message = stderr || error?.message || 'tmux command failed';
+      const targetMissing = /can't find (?:session|window|pane)|no such (?:session|window|pane)/i.test(message);
       const unavailable = /no such file|error connecting|no server running|connection refused/i.test(message);
-      throw new TerminalError(unavailable ? 'TMUX_UNAVAILABLE' : 'TMUX_ERROR', message, {
+      const code = targetMissing ? 'SESSION_NOT_FOUND' : (unavailable ? 'TMUX_UNAVAILABLE' : 'TMUX_ERROR');
+      throw new TerminalError(code, message, {
         command: args[0],
         exitCode: Number.isInteger(error?.code) ? error.code : undefined,
       });

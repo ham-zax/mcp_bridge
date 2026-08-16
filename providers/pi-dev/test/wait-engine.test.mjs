@@ -138,6 +138,225 @@ test('request canceled while queued for wait lock never checks or mutates later'
   assert.ok(fx.checks() > beforeChecks);
 });
 
+test('source match completing after the absolute deadline persists timeout instead of matched', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-deadline-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let nowMs = 1000;
+  let checkStarted = false;
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  const source = {
+    pollIntervalMs: 250,
+    async arm() {
+      return { status: 'pending', baseline: { token: 'stable' } };
+    },
+    async check(record) {
+      checkStarted = true;
+      nowMs = 2001;
+      return { status: 'matched', baseline: record.baseline, evidence: 'late-ready' };
+    },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source }, now: () => nowMs });
+
+  const created = await engine.run({
+    name: 'late-match', condition: { kind: 'fake' }, timeout_seconds: 1, hold_seconds: 0,
+  });
+  assert.equal(checkStarted, true);
+  assert.equal(created.status, 'timeout');
+  const saved = await store.read('late-match');
+  assert.equal(saved.status, 'timeout');
+  assert.equal(saved.deadlineAtMs, 2000);
+  assert.ok(saved.completedAtMs >= saved.deadlineAtMs);
+});
+
+test('initial arm result completing after the absolute deadline is persisted as timeout', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-late-arm-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let nowMs = 1000;
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  const source = {
+    async arm() {
+      nowMs = 2001;
+      return { status: 'matched', baseline: { boundary: 'late-arm' }, evidence: 'late-arm-match' };
+    },
+    async check() { assert.fail('late terminal arm result must not be checked again'); },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source }, now: () => nowMs });
+  const result = await engine.run({
+    name: 'late-arm', condition: { kind: 'fake' }, timeout_seconds: 1, hold_seconds: 0,
+  });
+  assert.equal(result.status, 'timeout');
+  const saved = await store.read('late-arm');
+  assert.equal(saved.status, 'timeout');
+  assert.equal(saved.sourceArmed, true);
+  assert.deepEqual(saved.baseline, { boundary: 'late-arm' });
+  assert.equal(saved.deadlineAtMs, 2000);
+});
+
+test('fast source match before absolute deadline still persists matched', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-fast-match-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let nowMs = 1000;
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  const source = {
+    async arm() {
+      return { status: 'pending', baseline: { token: 'stable' } };
+    },
+    async check(record) {
+      nowMs = 1500;
+      return { status: 'matched', baseline: record.baseline, evidence: 'ready-in-time' };
+    },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source }, now: () => nowMs });
+  const result = await engine.run({
+    name: 'fast-match', condition: { kind: 'fake' }, timeout_seconds: 1, hold_seconds: 0,
+  });
+  assert.equal(result.status, 'matched');
+  assert.equal((await store.read('fast-match')).completedAtMs, 1500);
+});
+
+test('already expired durable pending record times out without invoking its source check', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-expired-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  await store.create({
+    name: 'already-expired',
+    definition: { condition: { kind: 'fake' }, timeoutSeconds: 1 },
+    condition: { kind: 'fake' },
+    timeoutSeconds: 1,
+    armedAtMs: 1000,
+    deadlineAtMs: 2000,
+    status: 'pending',
+    sourceArmed: true,
+    baseline: { token: 'stable' },
+    lastCheckedAtMs: 1000,
+  });
+  let checks = 0;
+  const source = {
+    async arm() { assert.fail('expired durable wait must not re-arm'); },
+    async check() {
+      checks += 1;
+      return { status: 'matched', baseline: { token: 'stable' }, evidence: 'too-late' };
+    },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source }, now: () => 2500 });
+  const result = await engine.run({ name: 'already-expired', hold_seconds: 0 });
+  assert.equal(result.status, 'timeout');
+  assert.equal(checks, 0);
+});
+
+test('abort during initial source arm leaves no resumable unarmed wait and retry creates a fresh boundary', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-arm-abort-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  let armStartedResolve;
+  const armStarted = new Promise((resolve) => { armStartedResolve = resolve; });
+  let releaseArm;
+  const armGate = new Promise((resolve) => { releaseArm = resolve; });
+  let armCount = 0;
+  const source = {
+    async arm() {
+      armCount += 1;
+      armStartedResolve();
+      await armGate;
+      return { status: 'pending', baseline: { boundary: armCount } };
+    },
+    async check(record) {
+      return { status: 'pending', baseline: record.baseline };
+    },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source } });
+  const condition = { kind: 'fake' };
+  const controller = new AbortController();
+  const create = engine.run({
+    name: 'arm-abort', condition, timeout_seconds: 30, hold_seconds: 0,
+  }, controller.signal);
+  await armStarted;
+  controller.abort();
+  releaseArm();
+  await assert.rejects(create, (error) => error?.code === 'WAIT_ABORTED');
+  assert.equal(await store.read('arm-abort'), null);
+  await assert.rejects(
+    () => engine.run({ name: 'arm-abort', hold_seconds: 0 }),
+    (error) => error?.code === 'WAIT_NOT_FOUND',
+  );
+
+  const retried = await engine.run({
+    name: 'arm-abort', condition, timeout_seconds: 30, hold_seconds: 0,
+  });
+  assert.equal(retried.status, 'pending');
+  const saved = await store.read('arm-abort');
+  assert.equal(saved.sourceArmed, true);
+  assert.deepEqual(saved.baseline, { boundary: 2 });
+});
+
+test('same-definition retry after a successfully armed create preserves one arm boundary and deadline', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-create-retry-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  let armCount = 0;
+  const source = {
+    async arm() {
+      armCount += 1;
+      return { status: 'pending', baseline: { boundary: armCount } };
+    },
+    async check(record) {
+      return { status: 'pending', baseline: record.baseline };
+    },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source } });
+  const args = {
+    name: 'create-retry', condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 0,
+  };
+  await engine.run(args);
+  const first = await store.read('create-retry');
+  await engine.run(args);
+  const second = await store.read('create-retry');
+  assert.equal(armCount, 1);
+  assert.equal(second.deadlineAtMs, first.deadlineAtMs);
+  assert.deepEqual(second.baseline, first.baseline);
+});
+
+test('hold_seconds bounds the whole resumed check loop instead of allowing a late full probe', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-hold-budget-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  const source = {
+    pollIntervalMs: 250,
+    async arm() {
+      return { status: 'pending', baseline: { probe: 0 } };
+    },
+    async check(record, signal) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve({
+          status: 'pending',
+          baseline: { probe: (record.baseline?.probe ?? 0) + 1 },
+        }), 700);
+        const onAbort = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
+          const error = new Error('probe aborted');
+          error.name = 'AbortError';
+          error.code = 'ABORT_ERR';
+          reject(error);
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        if (signal?.aborted) onAbort();
+      });
+    },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source } });
+  await engine.run({
+    name: 'hold-budget', condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 0,
+  });
+
+  const started = Date.now();
+  const result = await engine.run({ name: 'hold-budget', hold_seconds: 1 });
+  const elapsed = Date.now() - started;
+  assert.equal(result.status, 'pending');
+  assert.ok(elapsed >= 850, `hold returned unexpectedly early: ${elapsed}ms`);
+  assert.ok(elapsed < 1250, `hold overran total budget: ${elapsed}ms`);
+});
+
 test('transient systemd unavailability leaves the same durable wait pending for recovery resume', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-systemd-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));

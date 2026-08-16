@@ -14,6 +14,8 @@ import path from 'node:path';
 const WAIT_NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const DEFAULT_LOCK_WAIT_MS = 250;
 const DEFAULT_RETENTION_MS = 24 * 60 * 60 * 1000;
+const MAX_WAIT_TIMEOUT_SECONDS = 86400;
+const WAIT_STATUSES = new Set(['pending', 'matched', 'timeout', 'cancelled', 'failed']);
 const TERMINAL_STATUSES = new Set(['matched', 'timeout', 'cancelled', 'failed']);
 
 export class WaitError extends Error {
@@ -34,6 +36,78 @@ function validateName(name) {
 
 function throwIfAborted(signal) {
   if (signal?.aborted) throw new WaitError('WAIT_ABORTED', 'wait request was aborted');
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return value.map(stableJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableJson(value[key])]));
+  }
+  return value;
+}
+
+function sameJsonValue(a, b) {
+  return JSON.stringify(stableJson(a)) === JSON.stringify(stableJson(b));
+}
+
+function safeTimestamp(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function validateWaitRecord(record, expectedName) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    throw new Error('wait record must be an object');
+  }
+  if (record.version !== 1) throw new Error('unsupported wait record version');
+  const name = validateName(record.name);
+  if (expectedName !== undefined && name !== expectedName) throw new Error('wait record name mismatch');
+  if (!WAIT_STATUSES.has(record.status)) throw new Error('invalid wait status');
+  if (!record.definition || typeof record.definition !== 'object' || Array.isArray(record.definition)) {
+    throw new Error('wait definition is missing');
+  }
+  if (!record.condition || typeof record.condition !== 'object' || Array.isArray(record.condition)) {
+    throw new Error('wait condition is missing');
+  }
+  if (!record.definition.condition || typeof record.definition.condition !== 'object'
+      || Array.isArray(record.definition.condition)
+      || !sameJsonValue(record.condition, record.definition.condition)) {
+    throw new Error('wait condition does not match definition');
+  }
+  if (!Number.isSafeInteger(record.timeoutSeconds)
+      || record.timeoutSeconds < 1
+      || record.timeoutSeconds > MAX_WAIT_TIMEOUT_SECONDS
+      || record.definition.timeoutSeconds !== record.timeoutSeconds) {
+    throw new Error('wait timeout is invalid');
+  }
+  if (!safeTimestamp(record.armedAtMs)) throw new Error('wait armed timestamp is invalid');
+  if (!safeTimestamp(record.deadlineAtMs)
+      || record.deadlineAtMs !== record.armedAtMs + record.timeoutSeconds * 1000) {
+    throw new Error('wait deadline is invalid');
+  }
+  if (record.sourceArmed !== true) throw new Error('durable wait source must be fully armed');
+  if (!record.baseline || typeof record.baseline !== 'object' || Array.isArray(record.baseline)) {
+    throw new Error('wait baseline is invalid');
+  }
+  if (!safeTimestamp(record.lastCheckedAtMs) || record.lastCheckedAtMs < record.armedAtMs) {
+    throw new Error('wait last-check timestamp is invalid');
+  }
+  if (record.status === 'pending') {
+    if (record.completedAtMs !== undefined) throw new Error('pending wait cannot be completed');
+  } else {
+    if (!safeTimestamp(record.completedAtMs) || record.completedAtMs < record.armedAtMs) {
+      throw new Error('terminal wait completion timestamp is invalid');
+    }
+    if (record.status === 'matched' && record.completedAtMs >= record.deadlineAtMs) {
+      throw new Error('matched wait completed at or after its deadline');
+    }
+    if (record.status === 'timeout' && record.completedAtMs < record.deadlineAtMs) {
+      throw new Error('timeout wait completed before its deadline');
+    }
+    if (record.status === 'failed' && (typeof record.code !== 'string' || record.code.length === 0)) {
+      throw new Error('failed wait code is missing');
+    }
+  }
+  return record;
 }
 
 function lockAddress(rootDir, name) {
@@ -156,10 +230,7 @@ export class WaitStore {
     const file = this.fileFor(name);
     try {
       const parsed = JSON.parse(await readFile(file, 'utf8'));
-      if (!parsed || parsed.version !== 1 || parsed.name !== name || typeof parsed.status !== 'string') {
-        throw new Error('invalid wait record');
-      }
-      return parsed;
+      return validateWaitRecord(parsed, name);
     } catch (error) {
       if (error?.code === 'ENOENT') return null;
       if (error instanceof WaitError) throw error;
@@ -170,10 +241,16 @@ export class WaitStore {
   async write(record) {
     if (!record || typeof record !== 'object') throw new WaitError('WAIT_STATE_CORRUPT', 'wait record must be an object');
     const name = validateName(record.name);
+    let validated;
+    try {
+      validated = validateWaitRecord({ ...record, version: 1 }, name);
+    } catch (error) {
+      throw new WaitError('WAIT_STATE_CORRUPT', `invalid wait state for ${name}: ${error.message}`);
+    }
     await this.ensureRoot();
     const file = this.fileFor(name);
     const temp = path.join(this.rootDir, `.${name}.${process.pid}.${crypto.randomUUID()}.tmp`);
-    const payload = `${JSON.stringify({ ...record, version: 1 })}\n`;
+    const payload = `${JSON.stringify(validated)}\n`;
     const handle = await open(temp, 'wx', 0o600);
     try {
       await handle.writeFile(payload);
@@ -189,7 +266,7 @@ export class WaitStore {
         if (error?.code !== 'ENOENT') throw error;
       });
     }
-    return { ...record, version: 1 };
+    return { ...validated };
   }
 
   async create(record) {

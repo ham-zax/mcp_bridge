@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -8,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { BrokerClient } from '../../terminal/broker-client.mjs';
-import { makeSandbox, startBroker } from '../../terminal/test/helpers.mjs';
+import { makeSandbox, onceExit, startBroker } from '../../terminal/test/helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const server = path.resolve(here, '..', 'server.mjs');
@@ -62,6 +63,10 @@ function textOf(result) {
   assert.equal(result.structuredContent, undefined);
   assert.ok(result.content.every(block => block.type === 'text'));
   return result.content.map(block => block.text).join('\n');
+}
+
+async function readWaitRecord(stateDir, name) {
+  return JSON.parse(await fs.readFile(path.join(stateDir, 'waits', `${name}.json`), 'utf8'));
 }
 
 async function runServerProcess(env) {
@@ -288,6 +293,169 @@ test('Terminal output wait through personal MCP does not consume the Terminal mo
     assert.match(unread.text, /READY_FROM_WAIT/);
     const empty = await broker.request('model.read', { name: 'mcp-wait-cursor' });
     assert.equal(empty.text, '');
+  });
+});
+
+test('personal http_ready wait times out when readiness arrives only after the durable absolute deadline', async (t) => {
+  const httpServer = http.createServer((_req, res) => {
+    setTimeout(() => {
+      if (res.destroyed) return;
+      res.writeHead(204);
+      res.end();
+    }, 1500);
+  });
+  await new Promise((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(0, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise((resolve) => httpServer.close(resolve)));
+  const url = `http://127.0.0.1:${httpServer.address().port}/ready`;
+  const { stateDir, env } = await userFixture();
+
+  await withClient(env, async client => {
+    const result = await client.callTool({
+      name: 'wait',
+      arguments: {
+        name: 'late-http',
+        condition: { kind: 'http_ready', url },
+        timeout_seconds: 1,
+        hold_seconds: 2,
+      },
+    });
+    assert.equal(textOf(result), 'timeout late-http');
+    const saved = await readWaitRecord(stateDir, 'late-http');
+    assert.equal(saved.status, 'timeout');
+    assert.ok(saved.completedAtMs >= saved.deadlineAtMs);
+  });
+});
+
+test('personal http_ready hold_seconds is a total resumed-call budget', async (t) => {
+  const httpServer = http.createServer((_req, res) => {
+    setTimeout(() => {
+      if (res.destroyed) return;
+      res.writeHead(503);
+      res.end('not ready');
+    }, 700);
+  });
+  await new Promise((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(0, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise((resolve) => httpServer.close(resolve)));
+  const url = `http://127.0.0.1:${httpServer.address().port}/slow`;
+  const { stateDir, env } = await userFixture();
+
+  await withClient(env, async client => {
+    const created = await client.callTool({
+      name: 'wait',
+      arguments: {
+        name: 'http-hold-budget',
+        condition: { kind: 'http_ready', url },
+        timeout_seconds: 30,
+        hold_seconds: 0,
+      },
+    });
+    assert.match(textOf(created), /^pending http-hold-budget /);
+
+    const started = Date.now();
+    const resumed = await client.callTool({
+      name: 'wait', arguments: { name: 'http-hold-budget', hold_seconds: 1 },
+    });
+    const elapsed = Date.now() - started;
+    assert.match(textOf(resumed), /^pending http-hold-budget /);
+    assert.ok(elapsed >= 750, `hold returned unexpectedly early: ${elapsed}ms`);
+    assert.ok(elapsed < 1400, `hold exceeded total one-second budget by source timeout: ${elapsed}ms`);
+    assert.equal((await readWaitRecord(stateDir, 'http-hold-budget')).status, 'pending');
+  });
+});
+
+test('armed personal Terminal wait survives broker outage abort and restart without baseline drift', async (t) => {
+  const sandbox = await makeSandbox(t);
+  const broker1 = await startBroker(t, sandbox);
+  const control = new BrokerClient({ socketPath: sandbox.brokerSocket });
+  await control.request('session.open', { name: 'mcp-broker-recovery', command: 'cat' });
+
+  const { stateDir, env } = await userFixture();
+  env.MCP_DEV_TERMINAL_SOCKET = sandbox.brokerSocket;
+  await withClient(env, async client => {
+    const created = await client.callTool({
+      name: 'wait',
+      arguments: {
+        name: 'broker-recovery',
+        condition: { kind: 'terminal_output', session: 'mcp-broker-recovery', literal: 'BROKER_BACK' },
+        timeout_seconds: 30,
+        hold_seconds: 0,
+      },
+    });
+    assert.match(textOf(created), /^pending broker-recovery /);
+    const before = await readWaitRecord(stateDir, 'broker-recovery');
+
+    broker1.kill('SIGTERM');
+    await onceExit(broker1);
+    const unavailable = await client.callTool({
+      name: 'wait', arguments: { name: 'broker-recovery', hold_seconds: 2 },
+    });
+    assert.equal(unavailable.isError, true);
+    assert.match(textOf(unavailable), /^WAIT_SOURCE_UNAVAILABLE:/);
+    const afterUnavailable = await readWaitRecord(stateDir, 'broker-recovery');
+    assert.equal(afterUnavailable.status, 'pending');
+    assert.equal(afterUnavailable.deadlineAtMs, before.deadlineAtMs);
+    assert.deepEqual(afterUnavailable.baseline, before.baseline);
+
+    const controller = new AbortController();
+    const started = Date.now();
+    const aborted = client.callTool(
+      { name: 'wait', arguments: { name: 'broker-recovery', hold_seconds: 5 } },
+      undefined,
+      { signal: controller.signal, timeout: 10000 },
+    );
+    setTimeout(() => controller.abort(), 50);
+    await assert.rejects(aborted, /abort/i);
+    assert.ok(Date.now() - started < 400, 'broker-down wait abort was not prompt');
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const afterAbort = await readWaitRecord(stateDir, 'broker-recovery');
+    assert.equal(afterAbort.status, 'pending');
+    assert.equal(afterAbort.deadlineAtMs, before.deadlineAtMs);
+    assert.deepEqual(afterAbort.baseline, before.baseline);
+
+    await startBroker(t, sandbox);
+    const recovered = new BrokerClient({ socketPath: sandbox.brokerSocket });
+    await recovered.request('session.send', { name: 'mcp-broker-recovery', text: 'BROKER_BACK' });
+    await recovered.request('session.send', { name: 'mcp-broker-recovery', key: 'Enter' });
+    const matched = await client.callTool({
+      name: 'wait', arguments: { name: 'broker-recovery', hold_seconds: 2 },
+    });
+    assert.match(textOf(matched), /^matched broker-recovery output mcp-broker-recovery BROKER_BACK /);
+  });
+});
+
+test('explicit Terminal close persists stable WAIT_SOURCE_ENDED instead of raw tmux diagnostics', async (t) => {
+  const sandbox = await makeSandbox(t);
+  await startBroker(t, sandbox);
+  const broker = new BrokerClient({ socketPath: sandbox.brokerSocket });
+  await broker.request('session.open', { name: 'mcp-explicit-close', command: 'cat' });
+  const { stateDir, env } = await userFixture();
+  env.MCP_DEV_TERMINAL_SOCKET = sandbox.brokerSocket;
+
+  await withClient(env, async client => {
+    const created = await client.callTool({
+      name: 'wait',
+      arguments: {
+        name: 'explicit-close-wait',
+        condition: { kind: 'terminal_output', session: 'mcp-explicit-close', literal: 'NEVER' },
+        hold_seconds: 0,
+      },
+    });
+    assert.match(textOf(created), /^pending explicit-close-wait /);
+    await broker.request('session.close', { name: 'mcp-explicit-close', force: true });
+    const ended = await client.callTool({
+      name: 'wait', arguments: { name: 'explicit-close-wait', hold_seconds: 0 },
+    });
+    assert.equal(ended.isError, true);
+    assert.match(textOf(ended), /^WAIT_SOURCE_ENDED:/);
+    const saved = await readWaitRecord(stateDir, 'explicit-close-wait');
+    assert.equal(saved.status, 'failed');
+    assert.equal(saved.code, 'WAIT_SOURCE_ENDED');
   });
 });
 

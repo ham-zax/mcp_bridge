@@ -87,7 +87,7 @@ export class WaitEngine {
     return source;
   }
 
-  async applySourceResult(record, result, nowMs) {
+  sourceResultRecord(record, result, nowMs) {
     if (!result || !sourceResultStatus(result.status)) {
       throw new WaitError('WAIT_SOURCE_ERROR', 'wait source returned an invalid result');
     }
@@ -97,6 +97,7 @@ export class WaitEngine {
       sourceArmed: true,
       lastCheckedAtMs: nowMs,
     };
+    delete next.completedAtMs;
     if (result.status === 'pending') {
       next.status = 'pending';
       delete next.evidence;
@@ -106,25 +107,101 @@ export class WaitEngine {
       next.status = result.status;
       next.completedAtMs = nowMs;
       if (result.evidence !== undefined) next.evidence = result.evidence;
+      else delete next.evidence;
       if (result.code !== undefined) next.code = result.code;
+      else delete next.code;
       if (result.details !== undefined) next.details = result.details;
+      else delete next.details;
     }
+    return next;
+  }
+
+  timeoutRecord(record, nowMs = this.now()) {
+    return {
+      ...record,
+      status: 'timeout',
+      completedAtMs: Math.max(nowMs, record.deadlineAtMs),
+      ...(record.evidence === undefined ? {} : { evidence: record.evidence }),
+    };
+  }
+
+  pendingFromSourceResult(record, result, nowMs) {
+    return this.sourceResultRecord(record, { ...result, status: 'pending' }, nowMs);
+  }
+
+  async persistTimeout(record) {
+    return this.store.write(this.timeoutRecord(record, this.now()));
+  }
+
+  async runSourceOperation(operation, {
+    signal,
+    waitDeadlineAtMs,
+    callDeadlineAtMs = null,
+  }) {
+    throwIfAborted(signal);
+    const beforeMs = this.now();
+    if (beforeMs >= waitDeadlineAtMs) return { boundary: 'wait' };
+    if (callDeadlineAtMs !== null && beforeMs >= callDeadlineAtMs) return { boundary: 'hold' };
+
+    const controller = new AbortController();
+    let boundary = null;
+    let timer = null;
+    const onCallerAbort = () => {
+      boundary = 'caller';
+      controller.abort();
+    };
+    signal?.addEventListener('abort', onCallerAbort, { once: true });
+    if (signal?.aborted) onCallerAbort();
+
+    const waitRemaining = waitDeadlineAtMs - beforeMs;
+    const holdRemaining = callDeadlineAtMs === null ? Infinity : callDeadlineAtMs - beforeMs;
+    const boundaryDelay = Math.max(0, Math.min(waitRemaining, holdRemaining));
+    const timedBoundary = waitRemaining <= holdRemaining ? 'wait' : 'hold';
+    if (Number.isFinite(boundaryDelay)) {
+      timer = setTimeout(() => {
+        if (boundary !== null) return;
+        boundary = timedBoundary;
+        controller.abort();
+      }, boundaryDelay);
+    }
+
+    try {
+      const result = await operation(controller.signal);
+      if (signal?.aborted || boundary === 'caller') {
+        throw new WaitError('WAIT_ABORTED', 'wait request was aborted');
+      }
+      const afterMs = this.now();
+      if (afterMs >= waitDeadlineAtMs) return { boundary: 'wait' };
+      if (callDeadlineAtMs !== null && afterMs >= callDeadlineAtMs) return { boundary: 'hold' };
+      return { boundary: null, result };
+    } catch (error) {
+      if (signal?.aborted || boundary === 'caller') {
+        throw new WaitError('WAIT_ABORTED', 'wait request was aborted');
+      }
+      const nowMs = this.now();
+      if (boundary === 'wait' || nowMs >= waitDeadlineAtMs) return { boundary: 'wait' };
+      if (boundary === 'hold' || (callDeadlineAtMs !== null && nowMs >= callDeadlineAtMs)) {
+        return { boundary: 'hold' };
+      }
+      throw error;
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+      signal?.removeEventListener('abort', onCallerAbort);
+    }
+  }
+
+  async commitSourceResult(record, result, { signal, callDeadlineAtMs = null } = {}) {
+    throwIfAborted(signal);
+    let nowMs = this.now();
+    if (nowMs >= record.deadlineAtMs) return this.persistTimeout(record);
+    if (callDeadlineAtMs !== null && nowMs >= callDeadlineAtMs) return record;
+
+    let next = this.sourceResultRecord(record, result, nowMs);
+    throwIfAborted(signal);
+    nowMs = this.now();
+    if (nowMs >= record.deadlineAtMs) return this.persistTimeout(record);
+    if (callDeadlineAtMs !== null && nowMs >= callDeadlineAtMs) return record;
     return this.store.write(next);
-  }
-
-  async armIfNeeded(record, source, signal) {
-    if (record.sourceArmed === true) return record;
-    throwIfAborted(signal);
-    const result = await source.arm(record.condition, signal);
-    throwIfAborted(signal);
-    return this.applySourceResult(record, result, this.now());
-  }
-
-  async checkOnce(record, source, signal) {
-    throwIfAborted(signal);
-    const result = await source.check(record, signal);
-    throwIfAborted(signal);
-    return this.applySourceResult(record, result, this.now());
   }
 
   pollInterval(source, condition) {
@@ -144,6 +221,8 @@ export class WaitEngine {
       MAX_HOLD_SECONDS,
       DEFAULT_HOLD_SECONDS,
     );
+    const callStartedAtMs = this.now();
+    const callDeadlineAtMs = holdSeconds > 0 ? callStartedAtMs + holdSeconds * 1000 : null;
     throwIfAborted(signal);
 
     return this.store.withLock(name, async () => {
@@ -183,7 +262,7 @@ export class WaitEngine {
           }
         } else {
           const armedAtMs = this.now();
-          record = await this.store.create({
+          const unpersisted = {
             name,
             definition,
             condition: definition.condition,
@@ -191,9 +270,28 @@ export class WaitEngine {
             armedAtMs,
             deadlineAtMs: armedAtMs + timeoutSeconds * 1000,
             status: 'pending',
-            sourceArmed: false,
-            baseline: null,
-          });
+          };
+          const source = this.sourceFor(unpersisted.condition);
+          throwIfAborted(signal);
+          const armResult = await source.arm(unpersisted.condition, signal);
+          throwIfAborted(signal);
+          let nowMs = this.now();
+          let armedRecord = this.pendingFromSourceResult(unpersisted, armResult, nowMs);
+          if (nowMs >= unpersisted.deadlineAtMs) {
+            armedRecord = this.timeoutRecord(armedRecord, nowMs);
+          } else if (callDeadlineAtMs === null || nowMs < callDeadlineAtMs) {
+            armedRecord = this.sourceResultRecord(unpersisted, armResult, nowMs);
+          }
+          throwIfAborted(signal);
+          nowMs = this.now();
+          if (nowMs >= unpersisted.deadlineAtMs) {
+            armedRecord = this.timeoutRecord(armedRecord, nowMs);
+          } else if (callDeadlineAtMs !== null && nowMs >= callDeadlineAtMs
+              && armedRecord.status !== 'pending') {
+            armedRecord = this.pendingFromSourceResult(unpersisted, armResult, nowMs);
+          }
+          throwIfAborted(signal);
+          record = await this.store.create(armedRecord);
         }
       } else if (!record) {
         throw new WaitError('WAIT_NOT_FOUND', `wait not found: ${name}`);
@@ -201,21 +299,41 @@ export class WaitEngine {
 
       if (TERMINAL_STATUSES.has(record.status)) return publicResult(record);
       const source = this.sourceFor(record.condition);
-      record = await this.armIfNeeded(record, source, signal);
-      if (TERMINAL_STATUSES.has(record.status)) return publicResult(record);
+      if (this.now() >= record.deadlineAtMs) {
+        record = await this.persistTimeout(record);
+        return publicResult(record);
+      }
+      if (callDeadlineAtMs !== null && this.now() >= callDeadlineAtMs) return publicResult(record);
 
-      const callDeadlineAtMs = this.now() + holdSeconds * 1000;
       const pollMs = this.pollInterval(source, record.condition);
       while (true) {
         throwIfAborted(signal);
         const nowMs = this.now();
         if (nowMs >= record.deadlineAtMs) {
-          record = await this.store.write({ ...record, status: 'timeout', completedAtMs: nowMs });
+          record = await this.persistTimeout(record);
           return publicResult(record);
         }
-        record = await this.checkOnce(record, source, signal);
+        if (callDeadlineAtMs !== null && nowMs >= callDeadlineAtMs) return publicResult(record);
+
+        const operation = await this.runSourceOperation(
+          (operationSignal) => source.check(record, operationSignal),
+          {
+            signal,
+            waitDeadlineAtMs: record.deadlineAtMs,
+            callDeadlineAtMs,
+          },
+        );
+        if (operation.boundary === 'wait') {
+          record = await this.persistTimeout(record);
+          return publicResult(record);
+        }
+        if (operation.boundary === 'hold') return publicResult(record);
+
+        record = await this.commitSourceResult(record, operation.result, { signal, callDeadlineAtMs });
         if (TERMINAL_STATUSES.has(record.status)) return publicResult(record);
-        if (holdSeconds === 0 || this.now() >= callDeadlineAtMs) return publicResult(record);
+        if (holdSeconds === 0 || (callDeadlineAtMs !== null && this.now() >= callDeadlineAtMs)) {
+          return publicResult(record);
+        }
 
         const remainingCall = callDeadlineAtMs - this.now();
         const remainingWait = record.deadlineAtMs - this.now();
