@@ -6,6 +6,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import { BrokerClient } from './broker-client.mjs';
+import { createFrontendController } from './frontend.mjs';
+import { TerminalError } from './protocol.mjs';
 
 const PUBLIC_KEYS = {
   ENTER: 'Enter',
@@ -71,27 +73,42 @@ function renderSession(session) {
   ].join(' ');
 }
 
-export function createTerminalMcpServer({ client } = {}) {
+export function createTerminalMcpServer({ client, frontend } = {}) {
   if (!client || typeof client.request !== 'function') {
     throw new TypeError('client with request() is required');
   }
+  const frontendController = frontend ?? createFrontendController({ client });
 
   const server = new McpServer({ name: 'terminal', version: '0.1.0' });
   const name = z.string().min(1).max(64).regex(/^[A-Za-z0-9._-]+$/);
   const dimension = z.number().int().positive().max(1000);
 
   server.registerTool('terminal_open', {
-    description: 'Open one model-owned durable tmux PTY/process in the private harness namespace (production default wsl-agent), not the user\'s default tmux server. Use this for interactive or persistent work that should survive MCP or broker restart; prefer Dev Bash for bounded noninteractive commands. Omitting command starts the normal interactive shell. Human-first collaborative creation is an operator-side interactive-TTY workflow, not something the model should emulate through Bash.',
+    description: 'Open one model-owned durable tmux PTY/process in the private harness namespace (production default wsl-agent), not the user\'s default tmux server. Use this for interactive or persistent work that should survive MCP or broker restart; prefer Dev Bash for bounded noninteractive commands. Omitting command starts the normal interactive shell. Headless is the default; set present=true only when the human should see a visible collaborative frontend from the start.',
     inputSchema: {
       name,
       command: z.string().optional(),
       cwd: z.string().min(1).optional(),
       cols: dimension.optional(),
       rows: dimension.optional(),
+      present: z.boolean().optional(),
     },
   }, async (args) => invoke(async () => {
-    const result = await client.request('session.open', compactParams(args));
-    return textResult(`opened ${result.name} pid=${result.panePid} ${result.cols}x${result.rows}`);
+    const { present = false, ...openArgs } = args;
+    const result = await client.request('session.open', compactParams(openArgs));
+    if (!present) {
+      return textResult(`opened ${result.name} pid=${result.panePid} ${result.cols}x${result.rows}`);
+    }
+    try {
+      await frontendController.ensurePresented(result.name);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new TerminalError(
+        'TERMINAL_FRONTEND_PARTIAL',
+        `session ${result.name} is already live headless, but frontend presentation failed: ${message}`,
+      );
+    }
+    return textResult(`opened ${result.name} pid=${result.panePid} ${result.cols}x${result.rows} presented`);
   }));
 
   server.registerTool('terminal_read', {
@@ -149,10 +166,17 @@ export function createTerminalMcpServer({ client } = {}) {
   }));
 
   server.registerTool('terminal_yield', {
-    description: 'Yield a model-owned collaborative Terminal session only to its already attached designated human client; this does not create or attach a human client. After success, model send/resize/ordinary close is blocked until the human gives control back.',
+    description: 'Yield a model-owned collaborative Terminal session to human control. Reuse an already attached designated human frontend when present; if none is attached, ensure the personal Kitty frontend for the exact tmux PTY and then yield. After success, model send/resize/ordinary close is blocked until the human gives control back.',
     inputSchema: { name },
   }, async (args) => invoke(async () => {
-    const result = await client.request('control.take_human', { name: args.name });
+    let result;
+    try {
+      result = await client.request('control.take_human', { name: args.name });
+    } catch (error) {
+      if (error?.code !== 'HUMAN_CLIENT_NOT_FOUND') throw error;
+      await frontendController.ensurePresented(args.name);
+      result = await client.request('control.take_human', { name: args.name });
+    }
     return textResult(`yielded ${result.name} to human control`);
   }));
 

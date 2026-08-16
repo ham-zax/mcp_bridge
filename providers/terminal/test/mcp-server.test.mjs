@@ -59,8 +59,8 @@ function recordingBroker() {
   return { client, calls };
 }
 
-async function withInMemoryServer(t, broker, fn) {
-  const server = serverModule.createTerminalMcpServer({ client: broker });
+async function withInMemoryServer(t, broker, fn, options = {}) {
+  const server = serverModule.createTerminalMcpServer({ client: broker, ...options });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'terminal-mcp-test', version: '1.0.0' });
   t.after(async () => {
@@ -91,12 +91,14 @@ test('Terminal MCP exposes exactly seven public tools with the frozen schemas', 
     assert.ok(tools.every((tool) => tool.name !== 'terminal'));
 
     const open = tools.find((tool) => tool.name === 'terminal_open');
-    assert.deepEqual(Object.keys(open.inputSchema.properties).sort(), ['cols', 'command', 'cwd', 'name', 'rows']);
+    assert.deepEqual(Object.keys(open.inputSchema.properties).sort(), ['cols', 'command', 'cwd', 'name', 'present', 'rows']);
     assert.deepEqual(open.inputSchema.required, ['name']);
     assert.match(open.description, /durable.*PTY|PTY.*durable/i);
     assert.match(open.description, /survive.*MCP.*broker|MCP.*broker.*restart/i);
     assert.match(open.description, /Bash.*bounded|bounded.*Bash/i);
     assert.match(open.description, /omit.*command.*shell|command.*omit.*shell/i);
+    assert.match(open.description, /present.*human|human.*present|visible.*frontend/i);
+    assert.match(open.description, /headless.*default|default.*headless/i);
 
     const send = tools.find((tool) => tool.name === 'terminal_send');
     assert.match(send.description, /exactly one.*text.*key|text.*key.*exactly one/i);
@@ -119,8 +121,8 @@ test('Terminal MCP exposes exactly seven public tools with the frozen schemas', 
     const yieldTool = tools.find((tool) => tool.name === 'terminal_yield');
     assert.deepEqual(Object.keys(yieldTool.inputSchema.properties).sort(), ['name']);
     assert.deepEqual(yieldTool.inputSchema.required, ['name']);
-    assert.match(yieldTool.description, /already attached.*designated human/i);
-    assert.match(yieldTool.description, /does not.*attach|does not.*create/i);
+    assert.match(yieldTool.description, /reuse.*attached|attached.*reuse/i);
+    assert.match(yieldTool.description, /Kitty|frontend/i);
 
     const close = tools.find((tool) => tool.name === 'terminal_close');
     assert.match(close.description, /kills.*tmux session|destroy.*PTY.*process/i);
@@ -197,6 +199,128 @@ test('Terminal MCP maps public calls to private broker operations and returns na
       { op: 'session.close', params: { name: 'demo', force: true } },
     ]);
   });
+});
+
+test('Terminal MCP optionally presents an opened session and reports partial frontend failure without reopening', async (t) => {
+  const { client: broker, calls } = recordingBroker();
+  const frontendCalls = [];
+  const frontend = {
+    async ensurePresented(name) {
+      frontendCalls.push(name);
+      return { name, status: 'launch-attempted' };
+    },
+  };
+  await withInMemoryServer(t, broker, async (client) => {
+    const presented = await client.callTool({
+      name: 'terminal_open',
+      arguments: { name: 'visible', command: 'cat', present: true },
+    });
+    assert.equal(presented.isError, undefined, textOf(presented));
+    assert.match(textOf(presented), /presented|frontend/i);
+  }, { frontend });
+  assert.deepEqual(frontendCalls, ['visible']);
+  assert.deepEqual(calls, [
+    { op: 'session.open', params: { name: 'visible', command: 'cat' } },
+  ]);
+
+  const { client: failingBroker, calls: failingCalls } = recordingBroker();
+  const failingFrontend = {
+    async ensurePresented() {
+      throw new TerminalError('FRONTEND_UNAVAILABLE', 'attach manually with /repo/bin/wsl-term attach partial');
+    },
+  };
+  await withInMemoryServer(t, failingBroker, async (client) => {
+    const partial = await client.callTool({
+      name: 'terminal_open',
+      arguments: { name: 'partial', present: true },
+    });
+    assert.equal(partial.isError, true);
+    assert.match(textOf(partial), /^TERMINAL_FRONTEND_PARTIAL:/);
+    assert.match(textOf(partial), /already live|live.*headless|headless.*live/i);
+    assert.match(textOf(partial), /wsl-term attach partial/);
+  }, { frontend: failingFrontend });
+  assert.deepEqual(failingCalls, [
+    { op: 'session.open', params: { name: 'partial' } },
+  ]);
+});
+
+test('terminal_yield reuses an attached client and only ensures a frontend when none is attached', async (t) => {
+  const existingCalls = [];
+  const existingBroker = {
+    async request(op, params) {
+      existingCalls.push({ op, params });
+      if (op === 'control.take_human') return { name: params.name, humanHasControl: true };
+      throw new Error(`unexpected broker op: ${op}`);
+    },
+  };
+  let existingFrontendCalls = 0;
+  await withInMemoryServer(t, existingBroker, async (client) => {
+    const result = await client.callTool({ name: 'terminal_yield', arguments: { name: 'existing' } });
+    assert.equal(result.isError, undefined, textOf(result));
+    assert.match(textOf(result), /yielded.*existing/i);
+  }, {
+    frontend: { async ensurePresented() { existingFrontendCalls += 1; } },
+  });
+  assert.equal(existingFrontendCalls, 0);
+  assert.deepEqual(existingCalls, [
+    { op: 'control.take_human', params: { name: 'existing' } },
+  ]);
+
+  const launchedCalls = [];
+  let takeAttempts = 0;
+  const launchedBroker = {
+    async request(op, params) {
+      launchedCalls.push({ op, params });
+      if (op !== 'control.take_human') throw new Error(`unexpected broker op: ${op}`);
+      takeAttempts += 1;
+      if (takeAttempts === 1) {
+        throw new TerminalError('HUMAN_CLIENT_NOT_FOUND', 'no collaborative human client is attached');
+      }
+      return { name: params.name, humanHasControl: true };
+    },
+  };
+  const launchedFrontendCalls = [];
+  await withInMemoryServer(t, launchedBroker, async (client) => {
+    const result = await client.callTool({ name: 'terminal_yield', arguments: { name: 'launched' } });
+    assert.equal(result.isError, undefined, textOf(result));
+    assert.match(textOf(result), /yielded.*launched/i);
+  }, {
+    frontend: {
+      async ensurePresented(name) {
+        launchedFrontendCalls.push(name);
+        return { name, status: 'launch-attempted' };
+      },
+    },
+  });
+  assert.deepEqual(launchedFrontendCalls, ['launched']);
+  assert.deepEqual(launchedCalls, [
+    { op: 'control.take_human', params: { name: 'launched' } },
+    { op: 'control.take_human', params: { name: 'launched' } },
+  ]);
+});
+
+test('terminal_yield preserves frontend failure and does not retry control', async (t) => {
+  const calls = [];
+  const broker = {
+    async request(op, params) {
+      calls.push({ op, params });
+      throw new TerminalError('HUMAN_CLIENT_NOT_FOUND', 'no collaborative human client is attached');
+    },
+  };
+  const frontend = {
+    async ensurePresented() {
+      throw new TerminalError('FRONTEND_UNAVAILABLE', 'attach manually with /repo/bin/wsl-term attach demo');
+    },
+  };
+  await withInMemoryServer(t, broker, async (client) => {
+    const result = await client.callTool({ name: 'terminal_yield', arguments: { name: 'demo' } });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^FRONTEND_UNAVAILABLE:/);
+    assert.match(textOf(result), /wsl-term attach demo/);
+  }, { frontend });
+  assert.deepEqual(calls, [
+    { op: 'control.take_human', params: { name: 'demo' } },
+  ]);
 });
 
 test('Terminal MCP supports the frozen control-key vocabulary', async (t) => {
