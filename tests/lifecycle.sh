@@ -21,7 +21,7 @@ contains() { grep -Eq "$2" "$1"; }
 
 test_scripts_are_executable() {
   local script
-  for script in setup.sh start.sh stop.sh status.sh tunnel-up.sh tunnel-down.sh; do
+  for script in setup.sh bootstrap-personal.sh start.sh stop.sh status.sh tunnel-up.sh tunnel-down.sh; do
     [ -x "$ROOT/scripts/$script" ] || return 1
   done
   [ -x "$ROOT/bin/start" ] && [ -x "$ROOT/bin/status" ] && [ -x "$ROOT/bin/stop" ] && \
@@ -106,6 +106,16 @@ test_systemd_installer_handles_missing_home() {
   contains "$ROOT/scripts/install-systemd-user.sh" 'getent passwd'
 }
 
+test_personal_bootstrap_startup_consent_contract() {
+  local script="$ROOT/scripts/bootstrap-personal.sh"
+  [ -x "$script" ] && \
+  contains "$script" '\-\-enable-startup' && \
+  contains "$script" 'startup services were not installed' && \
+  contains "$script" 'loginctl enable-linger' && \
+  contains "$script" 'systemctl --user enable --now' && \
+  ! contains "$script" 'wsl\.exe|schtasks|Task Scheduler'
+}
+
 test_lifecycle_lock_is_used_everywhere() {
   contains "$ROOT/lib/bridge/common.sh" 'bridge_lock_acquire' && \
   contains "$ROOT/bin/start" 'bridge_lock_acquire' && \
@@ -126,6 +136,7 @@ run_test 'legacy tunnel scripts are thin start/stop aliases' test_compatibility_
 run_test 'status keeps duplicate and PID/listener diagnostics' test_status_has_core_diagnostics
 run_test 'systemd user unit autostarts the canonical bridge' test_systemd_user_autostart_contract
 run_test 'systemd installer derives user home when HOME is missing' test_systemd_installer_handles_missing_home
+run_test 'personal bootstrap keeps startup behind explicit consent' test_personal_bootstrap_startup_consent_contract
 run_test 'manual lifecycle and watchdog share an exclusive lock' test_lifecycle_lock_is_used_everywhere
 
 # ---------- Runtime/state selection ----------
