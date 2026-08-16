@@ -15,11 +15,32 @@ run_test() {
 }
 contains() { grep -Eq "$2" "$1"; }
 
+is_public_path() {
+  case "$1" in
+    docs/superpowers/* | \
+    docs/personal/* | \
+    docs/benchmarks/terminal-preflight.md | \
+    docs/benchmarks/herdr-terminal-comparison.md | \
+    experiments/herdr/* | \
+    config/profiles/personal.env | \
+    config/templates/mcp-personal.json | \
+    providers/terminal/* | \
+    scripts/install-terminal-broker-user.sh | \
+    systemd/wsl-agent-tmux.service.in | \
+    systemd/wsl-agent-terminal-broker.service.in | \
+    providers/code-router/* | \
+    bin/wsl-term)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 public_tracked_files() {
   git -C "$ROOT" ls-files | while IFS= read -r path; do
-    case "$path" in
-      docs/superpowers/*) continue ;;
-    esac
+    is_public_path "$path" || continue
     printf '%s\n' "$path"
   done
 }
@@ -62,6 +83,31 @@ test_profiles_are_distinct() {
   grep -Fq 'MCP_SHELL_ALLOW_PATTERNS=' "$ROOT/config/profiles/restricted.env" || return 1
   grep -Fqx 'MCP_SHELL_ALLOW_DANGEROUS=' "$ROOT/config/profiles/restricted.env" || return 1
   ! grep -Eq '^MCP_SHELL_ALLOW_(COMMANDS|PATTERNS|DANGEROUS)=' "$ROOT/config/profiles/trusted-dev.env"
+}
+
+test_private_only_paths_are_not_public() {
+  local path
+  declare -F is_public_path >/dev/null || return 1
+  for path in \
+    config/profiles/personal.env \
+    config/templates/mcp-personal.json \
+    docs/personal/example \
+    docs/benchmarks/terminal-preflight.md \
+    docs/benchmarks/herdr-terminal-comparison.md \
+    experiments/herdr/example \
+    providers/terminal/example \
+    scripts/install-terminal-broker-user.sh \
+    systemd/wsl-agent-tmux.service.in \
+    systemd/wsl-agent-terminal-broker.service.in \
+    providers/code-router/example \
+    bin/wsl-term; do
+    if is_public_path "$path"; then
+      echo "private-only path classified as public: $path" >&2
+      return 1
+    fi
+  done
+  is_public_path config/profiles/restricted.env || return 1
+  is_public_path providers/pi-dev/server.mjs || return 1
 }
 
 test_renderer_generates_both_profiles() {
@@ -285,6 +331,7 @@ run_test 'public bin entrypoints exist and are executable' test_public_entrypoin
 run_test 'publication directory structure exists' test_public_structure
 run_test 'setup requires explicit trust profile' test_explicit_profile_contract
 run_test 'trusted-dev is unrestricted while restricted is not' test_profiles_are_distinct
+run_test 'private-only paths stay outside the public publication surface' test_private_only_paths_are_not_public
 run_test 'renderer generates valid external state for both profiles' test_renderer_generates_both_profiles
 run_test 'setup and smoke preserve pinned Pi deployment contract' test_pi_install_and_smoke_contract
 run_test '.env remains ignored' test_env_is_ignored

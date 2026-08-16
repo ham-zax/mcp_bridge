@@ -4,40 +4,34 @@
 **Authority:** `docs/superpowers/plans/2026-08-15-personal-wsl-codex-harness-phase-2.md`
 **Execution shape:** Hybrid — independent task worktrees with one integration branch and explicit convergence gates.
 
-## Current frontier — 2026-08-15
+## Current frontier — 2026-08-16
 
 The original Wave-1 split below is retained as execution history. The authoritative current state is:
 
 ```text
 INTEGRATION BRANCH
 feat/personal-harness-wave1-integration
-implementation/evidence milestone: ed67415
-planning docs are synchronized above that milestone
-combined automated gate: PASS after installing pinned code-router dependencies
+final accepted integration tip: 2435fc02378bed22791ebd543df7e937bedfb1ad
+accepted production implementation milestone: 02b3b4f32da6f672aaedf211b6abb5b3e3365680
+combined automated gate: PASS
+live product gates: TERMINAL_ACCEPTED + REAL_WAIT_ACCEPTANCE=PASS
 
 COMPLETE / INTEGRATED
-Tasks 1-5   personal Files/Bash + apply_patch + toolbox
-Task 6      durable tmux/broker core
-Task 6.5    Herdr benchmark -> TMUX_BROKER_WINS
-Task 6.6    retained dead-pane reconciliation
-Task 9      rooted CodeDB router
-Task 10     code_search / code_context / code_symbol facade
+Tasks 1-6.6 personal Files/Bash + apply_patch + toolbox + durable tmux/broker foundation
+Task 7      COMPLETE + LIVE_ACCEPTED; real ChatGPT verdict TERMINAL_ACCEPTED
+Tasks 9-10 rooted CodeDB router + code_search / code_context / code_symbol facade
 Task 11     RTK decision -> no harness integration; explicit helper only
-Task 12     concurrency trigger -> SILENT_LOST_UPDATE reproduced; focused design opened
+Task 12     concurrency trigger evidence retained
+Task 12.5   SAME_PATH_ATOMICITY_FIXED + CANCELLATION_SAFETY_FIXED; MODEL_VISIBLE_HASH_NEEDED = NO
+Task 13     FINAL: FORMAT_TRIGGER_NOT_FIRED; production codec work NONE
+Task 8      COMPLETE + LIVE_ACCEPTED; SPLIT_LAYER; one Dev wait(...) action; TASK8_CODE_ACCEPTED=YES; REAL_WAIT_ACCEPTANCE=PASS
+Task 14     COMPLETE + LIVE_ACCEPTED; final 15-action catalog and Codex-like workflow accepted
 
-NEXT PARALLEL FRONTIER
-Task 7      Terminal MCP + wsl-term + single-writer human takeover
-Task 12.5   atomic same-path Files mutation serialization
-Task 13     structured-format trigger audit (may run after final Terminal/Code payload shapes are stable)
-
-AFTER TASK 7
-Task 8      evidence-driven await/resume decision
-
-FINAL
-Task 14     consolidated live ChatGPT acceptance
+FINAL PHASE-2 STATE
+PERSONAL_HARNESS_PHASE2 = COMPLETE
 ```
 
-Do not reopen the Herdr backend or automatic RTK decisions during Phase 2 without materially contradictory new evidence. Do not add model-visible CAS/hash fields before Task 12.5 proves atomic enforcement of the existing implicit snapshot precondition.
+Do not reopen the Herdr backend or automatic RTK decisions during Phase 2 without materially contradictory new evidence. Task 12.5 has proven provider-internal atomic enforcement and cancellation safety; `MODEL_VISIBLE_HASH_NEEDED = NO` unless future real stale-read evidence reopens that trigger.
 
 ## Why three agents can start now
 
@@ -75,10 +69,10 @@ Task 7 may proceed as written                  focused design amendment first
 In parallel:
 Agent 2 -> Task 4 apply_patch, based on Agent-1 foundation contract.
 
-Task 8 await/resume waits for both Task 7 real product-path evidence and the Task-6.5 Herdr wait verdict.
-Tasks 9-10 Code router/facade open after the integration gate in a fresh mission.
+The Task-6.5 Herdr verdict is complete, Task 7 passed the real ChatGPT product path, and Task 8 subsequently passed both independent code review and refreshed ChatGPT product acceptance. Herdr lifecycle behavior remains reference evidence only.
+Tasks 9-10 Code router/facade are complete.
 Task 11 RTK remains independent after raw Bash stays proven.
-Tasks 12-14 are final evidence/consolidation work.
+Tasks 12-14 are complete; the remaining work after this historical coordination plan is repository integration/maintenance, not Phase-2 capability implementation.
 ```
 
 ## Mission files
@@ -197,7 +191,7 @@ Task 6.5 is intentionally read-only with respect to production `providers/termin
 
 ## Current integration and decision gates
 
-The completed task commits have been assembled on `feat/personal-harness-wave1-integration`; `ed67415` is the stable implementation/evidence milestone before planning-doc synchronization. The combined automated gate is green after installing the Code provider's pinned dependencies in that worktree.
+The final Phase-2 harness is assembled on `feat/personal-harness-wave1-integration` at `2435fc02378bed22791ebd543df7e937bedfb1ad`, with production implementation milestone `02b3b4f32da6f672aaedf211b6abb5b3e3365680`. The complete automated/focused gate is green, the candidate was rollback-gated live-activated, Actions were refreshed, real ChatGPT Terminal acceptance passed with `TERMINAL_ACCEPTED`, and Task 8 passed `REAL_WAIT_ACCEPTANCE=PASS`.
 
 Current decisions:
 
@@ -208,14 +202,24 @@ Herdr runtime/hybrid            REJECTED_WITH_EVIDENCE
 Code facade                     CODE_SMALL_EXPLICIT_FACADE
 RTK automatic harness shaping   REJECTED_WITH_EVIDENCE
 RTK explicit helper             optional outside harness architecture
-CAS/consistency trigger         FIRED -> Task 12.5
+same-path Files atomicity       SAME_PATH_ATOMICITY_FIXED
+queued mutation cancellation    CANCELLATION_SAFETY_FIXED
+Files synchronization scope     canonical-path cooperative only; not hard-link/inode or external-process serialization
+model-visible revision/hash     MODEL_VISIBLE_HASH_NEEDED = NO
+format trigger                  FORMAT_TRIGGER_NOT_FIRED
+TOON                            REJECTED_WITH_EVIDENCE
+GCF generic                     DEFERRED_WITH_TRIGGER
+GCF graph                       DEFERRED_WITH_TRIGGER
+production codec implementation NONE
 ```
 
-**Task 7 is now unblocked** because Task 6.6 fixed retained dead-pane reconciliation and the tmux/broker backend decision is frozen.
+**Task 7 is COMPLETE + LIVE_ACCEPTED.** Real ChatGPT proved connector/Code access, incremental zero-duplicate Terminal reads, resize, retained exit 7, broker-only restart survival with identical tmux/pane PIDs, exact-PTY human takeover with model write/resize/close blocked, model observation during takeover, control restoration after detach, and normal cleanup.
 
-Task 8 still waits for Task 7's real ChatGPT product-path evidence. Herdr's lifecycle states are reference evidence only; Herdr is not a runtime dependency.
+**Task 8 is COMPLETE + LIVE_ACCEPTED.** The selected architecture is `SPLIT_LAYER`: Terminal keeps private generation/transcript facts; one durable personal `wait(...)` action in `dev` owns named timeout/check/resume for Terminal output/exit plus minimal local readiness conditions. Independent review returned `TASK8_CODE_ACCEPTED=YES`, the schema/context-value gate passed, and refreshed ChatGPT product acceptance returned `REAL_WAIT_ACCEPTANCE=PASS`. Agent lifecycle remains deferred with trigger.
 
-Task 12.5 can run in parallel with Task 7 because it owns Pi mutation internals/tests while Task 7 owns Terminal/provider integration. Task 13 should audit only the actual final model-facing payload classes and should not reopen codecs by default.
+A post-Task-7 same-name Terminal reopen probe found stale transcript replay from the prior incarnation. Task 8 fixed it with fresh per-incarnation state plus generation-guarded explicit reads before wait depends on session identity.
+
+Task 12.5 is FINAL + INTEGRATED with both `SAME_PATH_ATOMICITY_FIXED` and `CANCELLATION_SAFETY_FIXED`; model-visible revision/hash fields are not needed. Task 13 is FINAL + INTEGRATED: inspection of the finished MCP surface confirms native `TextContent` only, no `structuredContent`, incremental/native terminal reads, concise list output, and concise administrative acknowledgements, so the format trigger remains not fired. Task 14 final consolidation and live Codex-like workflow acceptance are complete.
 
 ## Required handoff format for every agent
 

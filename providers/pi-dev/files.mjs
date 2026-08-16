@@ -7,10 +7,13 @@ import {
   createWriteTool
 } from '@earendil-works/pi-coding-agent';
 import {
+  canonicalDefaultCwd,
   canonicalWorkspaceRoot,
   resolveExistingWorkspacePath,
-  resolveNewWorkspacePath
+  resolveNewWorkspacePath,
+  resolveUserPath
 } from './boundary.mjs';
+import { withMutationPath } from './mutation-coordinator.mjs';
 
 function normalizeExactText(text) {
   const withoutBom = text.startsWith('\uFEFF') ? text.slice(1) : text;
@@ -48,7 +51,7 @@ function modelFacingPathError(error, absolutePath, relativePath) {
   return wrapped;
 }
 
-export function createStrictEditOperations(edits) {
+export function createStrictEditOperations(edits, signal) {
   let snapshot = null;
   let snapshotPath = null;
   return {
@@ -62,9 +65,11 @@ export function createStrictEditOperations(edits) {
     },
     writeFile: async (absolutePath, content) => {
       if (!snapshot || snapshotPath !== absolutePath) throw new Error('edit snapshot is missing');
-      const current = await fs.readFile(absolutePath);
-      if (!current.equals(snapshot)) throw new Error('file changed during edit; reread and reconcile');
-      await fs.writeFile(absolutePath, content, 'utf8');
+      await withMutationPath(absolutePath, async () => {
+        const current = await fs.readFile(absolutePath);
+        if (!current.equals(snapshot)) throw new Error('file changed during edit; reread and reconcile');
+        await fs.writeFile(absolutePath, content, 'utf8');
+      }, { signal });
     }
   };
 }
@@ -81,10 +86,24 @@ const exclusiveWriteOperations = {
   )
 };
 
-export async function runRead({ workspaceRoot, path, offset, limit }, signal) {
-  const root = await canonicalWorkspaceRoot(workspaceRoot);
-  const target = await resolveExistingWorkspacePath(root, path);
-  const tool = createReadTool(root);
+async function resolveFilePolicy({ pathMode = 'workspace', workspaceRoot, defaultCwd }) {
+  if (pathMode === 'workspace') {
+    const root = await canonicalWorkspaceRoot(workspaceRoot);
+    return { root, pathMode };
+  }
+  if (pathMode === 'user') {
+    const root = await canonicalDefaultCwd(defaultCwd);
+    return { root, pathMode };
+  }
+  throw new Error('MCP_DEV_PATH_MODE must be workspace or user');
+}
+
+export async function runRead({ pathMode = 'workspace', defaultCwd, workspaceRoot, path, offset, limit }, signal) {
+  const policy = await resolveFilePolicy({ pathMode, workspaceRoot, defaultCwd });
+  const target = policy.pathMode === 'user'
+    ? await resolveUserPath(policy.root, path)
+    : await resolveExistingWorkspacePath(policy.root, path);
+  const tool = createReadTool(policy.root);
   try {
     return await tool.execute(randomUUID(), { path: target, offset, limit }, signal);
   } catch (error) {
@@ -92,10 +111,12 @@ export async function runRead({ workspaceRoot, path, offset, limit }, signal) {
   }
 }
 
-export async function runEdit({ workspaceRoot, path, edits }, signal) {
-  const root = await canonicalWorkspaceRoot(workspaceRoot);
-  const target = await resolveExistingWorkspacePath(root, path);
-  const tool = createEditTool(root, { operations: createStrictEditOperations(edits) });
+export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoot, path, edits }, signal) {
+  const policy = await resolveFilePolicy({ pathMode, workspaceRoot, defaultCwd });
+  const target = policy.pathMode === 'user'
+    ? await resolveUserPath(policy.root, path)
+    : await resolveExistingWorkspacePath(policy.root, path);
+  const tool = createEditTool(policy.root, { operations: createStrictEditOperations(edits, signal) });
   try {
     return await tool.execute(randomUUID(), { path: target, edits }, signal);
   } catch (error) {
@@ -103,10 +124,12 @@ export async function runEdit({ workspaceRoot, path, edits }, signal) {
   }
 }
 
-export async function runWrite({ workspaceRoot, path, content }, signal) {
-  const root = await canonicalWorkspaceRoot(workspaceRoot);
-  const target = await resolveNewWorkspacePath(root, path);
-  const tool = createWriteTool(root, { operations: exclusiveWriteOperations });
+export async function runWrite({ pathMode = 'workspace', defaultCwd, workspaceRoot, path, content }, signal) {
+  const policy = await resolveFilePolicy({ pathMode, workspaceRoot, defaultCwd });
+  const target = policy.pathMode === 'user'
+    ? await resolveUserPath(policy.root, path, { mustExist: false })
+    : await resolveNewWorkspacePath(policy.root, path);
+  const tool = createWriteTool(policy.root, { operations: exclusiveWriteOperations });
   try {
     return await tool.execute(randomUUID(), { path: target, content }, signal);
   } catch (error) {

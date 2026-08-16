@@ -29,3 +29,14 @@ export function renderEditText(relativePath, diff) {
 export function renderWriteText(relativePath) {
   return `Created ${relativePath}`;
 }
+
+export function renderPatchText(result) {
+  return result.changes.map(change => {
+    if (change.kind === 'add') return `A ${change.path} (+${change.additions})`;
+    if (change.kind === 'delete') return `D ${change.path} (-${change.deletions})`;
+    if (change.kind === 'move') {
+      return `R ${change.path} -> ${change.moveTo} (+${change.additions} -${change.deletions})`;
+    }
+    return `M ${change.path} (+${change.additions} -${change.deletions})`;
+  }).join('\n');
+}
