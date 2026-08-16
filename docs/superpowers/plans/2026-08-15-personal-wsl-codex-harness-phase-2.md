@@ -27,7 +27,7 @@
 - Task 7 is implemented, integrated, locally accepted, live-activated, and accepted through the real ChatGPT -> Cloudflare/OAuth -> 1MCP -> Terminal -> broker -> tmux path; final verdict is `TERMINAL_ACCEPTED`.
 - `apply_patch` does not replace `edit` or `write` until its own correctness/ergonomics benchmark produces an explicit `PATCH_WINS`, `BOTH_EARN_PLACE`, or `EDIT_WINS` verdict.
 - The Code domain must never return to exposing CodeDB's entire 10-tool catalog directly without an explicit later decision.
-- Task 8 await/resume is now designed from the accepted live Terminal evidence. The coordinator-reviewed focused design selects `SPLIT_LAYER`, one personal `wait(...)` action, durable transcript-offset output observation, and no Herdr runtime dependency. Implementation has not started.
+- Task 8 await/resume is implemented, independently accepted, live-activated, and accepted through the refreshed ChatGPT product path. The final `SPLIT_LAYER` design exposes one personal Dev `wait(...)` action, durable transcript-offset output observation, generic local readiness conditions, and no Herdr runtime dependency.
 - Native Bash remains the sole harness execution path. Automatic/selective RTK integration is rejected with evidence. `rtk test` and `rtk err` may be invoked explicitly through Bash as optional local helpers, with native/full output as recovery; no RTK classifier, MCP action, schema field, or hook belongs in the harness.
 - The stronger-consistency trigger fired and Task 12.5 is now fixed: cooperating same-canonical-path Files mutations serialize final compare+mutation, queued cancellation is abort-aware, and the original silent-lost-update corpus remains green. The guarantee is canonical-path cooperative synchronization only, not inode/hard-link or native Bash/external-process serialization. `MODEL_VISIBLE_HASH_NEEDED = NO` unless future real stale-read evidence reopens that trigger.
 - GCF/TOON remain evidence-triggered for genuinely structured bulk payloads; they are not mandatory Phase-2 implementation work and are not applied to source, patches, normal terminal output, or active diagnostics unless a new real payload class triggers a focused benchmark.
@@ -48,20 +48,20 @@ The task prose below remains executable/reproducible history, but this table is 
 | Task 6.5 — Herdr challenger | **COMPLETE** | `TMUX_BROKER_WINS`; benchmark source `792e9b5`; integrated evidence `cf11ef6` |
 | Task 6.6 — retained dead-pane reconciliation | **COMPLETE** | source `3ade00f`; integrated fix `44000c6`; mixed live/dead double-restart test passes |
 | Task 7 — Terminal MCP + human takeover | **COMPLETE + LIVE ACCEPTED** | integrated six-tool native-TextContent Terminal surface; real product verdict `TERMINAL_ACCEPTED` |
-| Task 8 — await/resume | **DESIGN COMPLETE + COORDINATOR REVIEWED; IMPLEMENTATION READY** | focused spec `docs/superpowers/specs/2026-08-16-terminal-await-resume-design.md`; executable plan `docs/superpowers/plans/2026-08-16-terminal-await-resume.md`; implementation not started |
+| Task 8 — await/resume | **COMPLETE + LIVE ACCEPTED** | final source/integration `02b3b4f`; independent verdict `TASK8_CODE_ACCEPTED=YES`; product verdict `REAL_WAIT_ACCEPTANCE=PASS` |
 | Task 9 — rooted multi-repo CodeDB router | **COMPLETE** | source `d010aaf`; integrated `46fcb48` |
 | Task 10 — small Code facade | **COMPLETE** | `CODE_SMALL_EXPLICIT_FACADE`; source `fa46650`; integrated `a04cf41` |
 | Task 11 — RTK | **COMPLETE / NO HARNESS INTEGRATION** | RTK 0.45 verdict: explicit helper only; evidence integrated through `aac4f3f` |
 | Task 12 — concurrency/CAS trigger | **COMPLETE; TRIGGER FIRED** | source `c01e52b`; integrated `61ae4af`; focused design created |
 | Task 12.5 — atomic same-path mutation enforcement | **FINAL + INTEGRATED** | `SAME_PATH_ATOMICITY_FIXED`; `CANCELLATION_SAFETY_FIXED`; `MODEL_VISIBLE_HASH_NEEDED = NO` |
 | Task 13 — structured-format trigger audit | **FINAL + INTEGRATED** | final Task-7 inspection confirms `FORMAT_TRIGGER_NOT_FIRED`; no production codec work |
-| Task 14 — final consolidation/live acceptance | **PENDING TASK 8 IMPLEMENTATION + PRODUCT GATE** | Task-7 live acceptance is complete; final consolidation follows Task-8 local/product acceptance |
+| Task 14 — final consolidation/live acceptance | **COMPLETE + LIVE ACCEPTED** | final catalog/workflow evidence in `docs/benchmarks/personal-harness-final.md`; complete automated/focused gate green |
 
 Current assembled integration branch:
 
 ```text
 feat/personal-harness-wave1-integration
-accepted live Task-7 / Files-Code-Terminal milestone: 6d7e76c2812947cc2f9dab2c0616373efb80c85e
+accepted live Files-Code-Terminal-Wait milestone: 02b3b4f32da6f672aaedf211b6abb5b3e3365680
 ```
 
 Planning commits are synchronized on top of that milestone, so do not encode the docs-only tip SHA as an architectural dependency. The source task branches remain intact for provenance. Do not squash them yet; squash/rewrite history only at the final merge boundary after the remaining production surfaces pass live acceptance.
@@ -78,6 +78,7 @@ FILES / SHELL
   edit            # guarded simple exact replacement
   apply_patch     # retained for multi-file / structural mutation
   write           # create-oriented
+  wait            # durable named local/Terminal readiness state
   bash            # always native Bash; RTK is never an automatic layer
 
 TERMINAL
@@ -87,7 +88,6 @@ TERMINAL
   terminal_resize
   terminal_list
   terminal_close
-  # wait/resume actions exist only if Task 8's focused sub-spec qualifies them
 
 CODE
   code_search
@@ -1392,7 +1392,7 @@ git commit -m "feat: expose persistent terminal sessions"
 
 ### Task 8: Derive Await/Resume Semantics From Real Terminal Evidence
 
-**Status:** **DESIGN COMPLETE + COORDINATOR REVIEWED; IMPLEMENTATION READY.** Real Task-7 product acceptance is `TERMINAL_ACCEPTED`. The approved boundary is `SPLIT_LAYER` with one personal `wait(...)` action, independent durable Terminal transcript cursors, generic local readiness sources, and coding-agent lifecycle deferred with trigger. The focused implementation plan is `docs/superpowers/plans/2026-08-16-terminal-await-resume.md`. Implementation has not started.
+**Status:** **COMPLETE + LIVE ACCEPTED.** Real Task-7 product acceptance is `TERMINAL_ACCEPTED`. Task 8 implements the approved `SPLIT_LAYER` boundary with one personal Dev `wait(...)` action, independent durable Terminal transcript cursors, eight first-phase local/Terminal conditions, and coding-agent lifecycle deferred with trigger. Exact accepted source/integration head is `02b3b4f32da6f672aaedf211b6abb5b3e3365680`; independent verdict is `TASK8_CODE_ACCEPTED=YES`; refreshed ChatGPT product verdict is `REAL_WAIT_ACCEPTANCE=PASS`.
 
 A post-acceptance coordinator probe also found that explicit close + same-name reopen can replay the prior transcript on the current Task-7 deployment. This is a scoped adapter/session-state defect and is now a required Task-8 Task-1 regression: new Terminal incarnations get fresh per-session transcript/model-cursor state, and wait transcript reads are generation-guarded.
 
@@ -1405,7 +1405,7 @@ A post-acceptance coordinator probe also found that explicit close + same-name r
 - Consumes: real ChatGPT -> Cloudflare -> OAuth -> 1MCP -> Terminal latency/read/poll behavior from Task 7 product acceptance plus Task 6.5's reference evidence that Herdr-style coding-agent lifecycle waits are useful but do not cover generic local readiness.
 - Produces: `NO_WAIT_TOOL_NEEDED` or an approved focused wait/resume design. This task does **not** predeclare a `terminal_wait` API and does **not** introduce Herdr as a runtime dependency.
 
-- [ ] **Step 1: Measure real polling debt before designing another subsystem**
+- [x] **Step 1: Measure real polling debt before designing another subsystem**
 
 Run at least:
 
@@ -1421,7 +1421,7 @@ HTTP/service readiness where relevant
 
 Record number of `terminal_read` calls, wall time, context returned, reconnect behavior, and whether polling is materially wasteful.
 
-- [ ] **Step 2: Classify the observed condition types**
+- [x] **Step 2: Classify the observed condition types**
 
 Distinguish actual needs such as:
 
@@ -1436,7 +1436,7 @@ systemd/service state
 
 Do not add hypothetical conditions merely to make the first abstraction look generic.
 
-- [ ] **Step 3: Decide the ownership boundary**
+- [x] **Step 3: Decide the ownership boundary**
 
 Compare:
 
@@ -1462,7 +1462,7 @@ For output waiting, prefer the already-durable transcript/cursor data source ove
 
 Use observed request lifetime, reconnect semantics, state ownership, cancellation, polling cost, and context cost as criteria. If normal incremental reads are sufficient, record `NO_WAIT_TOOL_NEEDED` and stop.
 
-- [ ] **Step 4: If a wait abstraction is justified, write a focused sub-spec before code**
+- [x] **Step 4: If a wait abstraction is justified, write a focused sub-spec before code**
 
 `docs/superpowers/specs/YYYY-MM-DD-terminal-await-design.md` must define:
 
@@ -1480,11 +1480,11 @@ notification/resume semantics
 
 Do not freeze `terminal_wait(...)`, `await_condition(...)`, or any other signature until this evidence-driven sub-spec is approved.
 
-- [ ] **Step 5: Implement only the approved minimal abstraction via TDD**
+- [x] **Step 5: Implement only the approved minimal abstraction via TDD**
 
 If the sub-spec is approved, add only its first qualified condition set. The wait/control process must never own or kill the underlying Terminal PTY merely because a wait times out or is cancelled.
 
-- [ ] **Step 6: Run real-product acceptance**
+- [x] **Step 6: Run real-product acceptance**
 
 Prove:
 
@@ -1496,7 +1496,7 @@ receive completion evidence
 avoid rereading the whole terminal transcript
 ```
 
-- [ ] **Step 7: Commit the decision and optional implementation separately**
+- [x] **Step 7: Commit the decision and optional implementation separately**
 
 If `NO_WAIT_TOOL_NEEDED`, commit evidence with a `docs:` commit. If implementation occurs, commit the approved sub-spec first and implementation second.
 
@@ -1943,19 +1943,19 @@ Any codec implementation, if triggered, belongs to the focused follow-up project
 - Consumes: frozen Task-4/6.5/10/11/12 verdicts plus the implemented Task 12.5 consistency fix, Task 7 live Terminal acceptance, Task 8 wait/resume decision, and Task 13 format-trigger audit.
 - Produces: final private `personal` profile and documented Codex-like workflow.
 
-- [ ] **Step 1: Remove losing experimental actions/providers**
+- [x] **Step 1: Remove losing experimental actions/providers**
 
 No losing tool remains advertised merely because it was implemented during an experiment.
 
 Expected final domains:
 
 ```text
-Dev       -> read, edit, apply_patch, write, bash
-Terminal  -> six persistent PTY actions, plus only the wait/resume actions approved by the Task 8 focused sub-spec
+Dev       -> read, edit, write, wait, apply_patch, bash
+Terminal  -> exactly six persistent PTY actions
 Code      -> code_search, code_context, code_symbol
 ```
 
-- [ ] **Step 2: Measure the final catalog**
+- [x] **Step 2: Measure the final catalog**
 
 Record actual:
 
@@ -1968,13 +1968,12 @@ representative result tokens
 
 Do not enforce an arbitrary four-tool ceiling. Flag any action whose schema cost is high relative to observed use.
 
-- [ ] **Step 3: Run the complete automated gate**
+- [x] **Step 3: Run the complete automated gate**
 
 ```bash
 bash tests/harness.sh
 bash tests/publication.sh
 bash tests/lifecycle.sh
-bash tests/public-export.sh
 (cd providers/pi-dev && npm test)
 (cd providers/terminal && npm test)
 (cd providers/code-router && npm test)
@@ -1986,13 +1985,13 @@ git diff --check
 
 If a conditional provider was not retained, omit only its nonexistent test command.
 
-- [ ] **Step 4: Render the personal live deployment**
+- [x] **Step 4: Render the personal live deployment**
 
 Use an external control process or user systemd. Never execute a bridge replacement from inside an MCP Shell/Terminal process owned by the 1MCP instance being replaced.
 
 Preserve existing OAuth identity/session continuity exactly as hardened by the current migration machinery.
 
-- [ ] **Step 5: Perform ChatGPT catalog acceptance**
+- [x] **Step 5: Perform ChatGPT catalog acceptance**
 
 After provider composition is live:
 
@@ -2003,7 +2002,7 @@ start a fresh MCP-backed session
 
 Verify removed actions are absent and all retained actions are present.
 
-- [ ] **Step 6: Run one complete Codex-like end-to-end workflow through ChatGPT**
+- [x] **Step 6: Run one complete Codex-like end-to-end workflow through ChatGPT**
 
 Use a disposable or explicitly selected repository:
 
@@ -2033,7 +2032,7 @@ bridge issues: 0
 public health: OK
 ```
 
-- [ ] **Step 7: Commit final consolidation**
+- [x] **Step 7: Commit final consolidation**
 
 ```bash
 git add docs/architecture.md docs/benchmarks docs/personal \
@@ -2087,12 +2086,12 @@ Do not execute all tasks concurrently. Recommended waves:
 Wave 0-3.5  COMPLETE: Tasks 1-6.5
 Wave 3.6      COMPLETE ON INTEGRATION BRANCH: Task 6.6 dead-pane reconciliation
 Wave 4        COMPLETE + LIVE ACCEPTED: Task 7 tmux/broker MCP + human takeover; `TERMINAL_ACCEPTED`
-Wave 5        NEXT IMPLEMENTATION: Task 8 reviewed split-layer await/resume plan, then local/schema gate and rollback-gated product acceptance
+Wave 5        COMPLETE + LIVE ACCEPTED: Task 8 split-layer wait/resume; `TASK8_CODE_ACCEPTED=YES`, `REAL_WAIT_ACCEPTANCE=PASS`
 Wave 6        COMPLETE ON INTEGRATION BRANCH: Tasks 9-10 Code router + explicit facade
 Wave 7A       COMPLETE: Task 11 RTK decision — no harness integration
 Wave 7B       COMPLETE + INTEGRATED: Task 12 -> Task 12.5 atomicity + cancellation safety
 Wave 7C       COMPLETE + FINAL: Task 13 `FORMAT_TRIGGER_NOT_FIRED`
-Wave 8        FINAL FRONTIER AFTER TASK 8: fresh rollback anchor -> wait activation -> Actions Refresh -> real wait resume acceptance -> Task 14 consolidation
+Wave 8        COMPLETE + LIVE ACCEPTED: Task 14 consolidation and final Phase-2 verification
 ```
 
 Only use parallel agents when owned paths do not overlap. A designated integrator owns `config/templates/*`, `scripts/render-config.mjs`, `tests/harness.sh`, the live deployment, and Git staging/commits whenever two lanes converge.
@@ -2119,7 +2118,7 @@ Before execution begins, verify:
 - [x] The mutation-consistency trigger fired and a focused atomic same-path design exists; Task 12.5 implements it before any model-visible hash field is considered.
 - [x] Structured codecs remain evidence-triggered; Task 13 is final with `FORMAT_TRIGGER_NOT_FIRED` and no production codec work.
 - [x] Task-7 live activation/restart was performed outside the MCP process tree being replaced with a validated rollback bundle.
-- [x] ChatGPT Actions Refresh + fresh-session Task-7 acceptance passed; Task 8 must repeat the same rollback-gated product procedure after adding `wait`.
+- [x] ChatGPT Actions Refresh + fresh-session Task-7 acceptance passed; Task 8 repeated the rollback-gated product procedure and passed full real wait acceptance.
 
 ---
 

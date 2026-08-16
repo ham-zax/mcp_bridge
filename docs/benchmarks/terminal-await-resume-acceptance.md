@@ -448,9 +448,54 @@ The model-facing schema/registration paths have no diff from the independently r
 
 ## Product gate
 
-No live deployment mutation occurred. The next allowed action is external focused-plan Task 7 after independent implementation review and fresh rollback capture of the accepted Task-7 harness.
+The independently reviewed Task-8 implementation was activated at exact integration head:
 
 ```text
-REAL_WAIT_ACCEPTANCE: NOT_RUN
-TASK8_COMPLETE: NO
+02b3b4f32da6f672aaedf211b6abb5b3e3365680
+```
+
+The refreshed ChatGPT connector exposed the personal Dev catalog with `wait`, and the real product path then passed all eight first-phase condition kinds plus restart, timeout, hold, Terminal-generation, and cursor-independence behavior. Detailed final evidence is recorded in `docs/benchmarks/personal-harness-final.md`.
+
+Live acceptance highlights:
+
+```text
+terminal_output                    PASS; wait cursor independent from model unread cursor
+terminal_exit                      PASS; exact retained status 7
+process_exit                       PASS
+tcp_listen                         PASS
+file_exists                        PASS
+file_changed                       PASS
+http_ready                         PASS; 503 -> 204 transition
+systemd_user                       PASS; activating -> active/exited with provider bus env absent
+broker outage/recovery             PASS; WAIT_SOURCE_UNAVAILABLE then same wait matched after restart
+1MCP/dev-provider replacement      PASS; same durable file_changed wait resumed and matched
+WAIT_HOLD_EXPIRED                  PASS; no durable record; name-only resume -> WAIT_NOT_FOUND
+hold_seconds=0                     PASS
+durable timeout precedence         PASS
+explicit Terminal destruction      PASS; WAIT_SOURCE_ENDED
+same-name Terminal replacement     PASS; WAIT_SOURCE_REPLACED
+exact-PTY human lease              PASS; HUMAN_HAS_CONTROL then model-control restoration
+WAIT_HOLD_CONCURRENCY              PASS; retained independent same-provider qualification
+```
+
+The final personal provider catalog is:
+
+```text
+Dev       read edit write wait apply_patch bash
+Code      code_search code_context code_symbol
+Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_close
+```
+
+Measured normalized catalog:
+
+```text
+actions                 15
+schema bytes          9,272
+o200k_base tokens     2,173
+```
+
+```text
+TASK8_CODE_ACCEPTED: YES
+REAL_WAIT_ACCEPTANCE: PASS
+TASK8_COMPLETE: YES
 ```

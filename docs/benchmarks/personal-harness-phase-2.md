@@ -444,3 +444,31 @@ MODEL_VISIBLE_HASH_NEEDED = NO
 The reproduced cooperating same-path defect is eliminated with the existing implicit snapshot precondition once its final compare+mutation is atomic inside the provider. No actual stale-read workflow evidence in Task 12.5 requires `expected_sha256`, `revision`, `etag`, `if_hash`, or an equivalent MCP field.
 
 A future revision token remains evidence-triggered only. If later real stale-read ergonomics justify one, it must be enforced inside the same coordinator critical section rather than replacing atomic enforcement.
+
+## Final carry-forward audit
+
+Phase-2 consolidation closed every original ledger item explicitly:
+
+```text
+Pi Files/Bash foundation                IMPLEMENTED + LIVE
+personal user-boundary migration        IMPLEMENTED + LIVE
+apply_patch                             IMPLEMENTED + LIVE; BOTH_EARN_PLACE with edit
+CLI toolbox                             IMPLEMENTED
+persistent Terminal                     IMPLEMENTED + LIVE_ACCEPTED
+human PTY attach                        IMPLEMENTED + LIVE_ACCEPTED
+await/resume                            IMPLEMENTED + LIVE_ACCEPTED; REAL_WAIT_ACCEPTANCE=PASS
+CodeDB multi-repo router                IMPLEMENTED
+Code facade                             IMPLEMENTED + LIVE; code_search/context/symbol
+automatic/selective RTK harness layer   REJECTED_WITH_EVIDENCE
+explicit rtk test / rtk err             OPTIONAL_OUTSIDE_HARNESS
+stronger same-path consistency          IMPLEMENTED without model-visible hash field
+model-visible revision/hash             NOT_NEEDED_CURRENTLY; reopen on real stale-read evidence
+TOON                                    REJECTED_WITH_EVIDENCE
+GCF generic                             DEFERRED_WITH_TRIGGER
+GCF graph                               DEFERRED_WITH_TRIGGER
+coding-agent lifecycle detection        DEFERRED_WITH_TRIGGER
+Windows-host control                    OUT_OF_SCOPE
+password vault / automatic sudo         REJECTED_FOR_THIS_PROJECT
+```
+
+The final live/tool/context evidence is consolidated in `docs/benchmarks/personal-harness-final.md`.

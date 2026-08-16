@@ -46,4 +46,39 @@ The bridge owns exactly one config-scoped 1MCP process, one cloudflared process,
 
 ## Development harness direction
 
-The architectural capability domains are Code, Files, Shell, and Terminal. Current provider packages are transitional implementations. Later CodeDB/Pi work may replace them without changing the transport/lifecycle/trust-profile boundaries.
+The architectural capability domains are Code, Files, Shell, and Terminal. Provider packages remain implementation details; those boundaries may evolve without changing the transport/lifecycle/trust-profile model.
+
+The accepted private `personal` profile is:
+
+```text
+Dev
+  read
+  edit
+  write
+  wait
+  apply_patch
+  bash
+
+Code
+  code_search
+  code_context
+  code_symbol
+
+Terminal
+  terminal_open
+  terminal_read
+  terminal_send
+  terminal_resize
+  terminal_list
+  terminal_close
+```
+
+`wait` belongs to Dev rather than Terminal. Its durable engine owns named timeout/resume state and generic local readiness checks; Terminal contributes only private generation/transcript observation through the broker. This keeps the public Terminal surface at six actions while preserving independent wait and model-read cursors.
+
+tmux is the Terminal PTY/process lifetime authority. The Terminal broker owns metadata, transcripts, cursors, and human/model leases, but a broker/provider/1MCP restart must not become the PTY lifetime boundary.
+
+Code is a small replaceable facade. The current implementation routes each call to the nearest canonical Git root and maintains one correctly rooted CodeDB child per active repository rather than exposing the raw CodeDB tool catalog or switching projects inside one neutral child.
+
+Native Bash remains the execution path. RTK is not an automatic harness layer; explicit `rtk test`/`rtk err` use is optional and native output remains the recovery/source-of-truth path.
+
+Public `restricted` and `trusted-dev` profiles remain separate and do not inherit private Code, Terminal, `wait`, or personal Terminal-socket dependencies.
