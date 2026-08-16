@@ -24,7 +24,7 @@ test('broker unit is a separate cgroup ordered after tmux without reverse lifeti
   assert.match(unit, /^After=wsl-agent-tmux\.service$/m);
   assert.match(unit, /^Environment=MCP_TERMINAL_SOCKET=%t\/wsl-agent-terminal\.sock$/m);
   assert.match(unit, /^Environment=MCP_TERMINAL_STATE_ROOT=@STATE_ROOT@$/m);
-  assert.match(unit, /^Environment=MCP_TERMINAL_DEFAULT_CWD=\/home\/hamza$/m);
+  assert.match(unit, /^Environment=MCP_TERMINAL_DEFAULT_CWD=@USER_HOME@$/m);
   assert.match(unit, /^ExecStart=@NODE_BIN@ @REPO_ROOT@\/providers\/terminal\/broker\.mjs$/m);
   assert.doesNotMatch(unit, /KillMode=process/);
   assert.doesNotMatch(unit, /^PartOf=/m);

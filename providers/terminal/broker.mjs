@@ -46,7 +46,7 @@ export function loadConfig() {
   return {
     socketPath: process.env.MCP_TERMINAL_SOCKET || path.join(runtimeDir(), 'wsl-agent-terminal.sock'),
     stateRoot: process.env.MCP_TERMINAL_STATE_ROOT || path.join(stateBase(), 'wsl-agent-terminal'),
-    defaultCwd: process.env.MCP_TERMINAL_DEFAULT_CWD || '/home/hamza',
+    defaultCwd: process.env.MCP_TERMINAL_DEFAULT_CWD || process.env.HOME || os.homedir(),
     tmuxSocketName: process.env.MCP_TERMINAL_TMUX_SOCKET_NAME || 'wsl-agent',
     tmuxSocketPath: process.env.MCP_TERMINAL_TMUX_SOCKET_PATH || undefined,
     tmuxBin: process.env.MCP_TERMINAL_TMUX_BIN || 'tmux',

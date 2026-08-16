@@ -6,6 +6,18 @@ import test from 'node:test';
 import { TmuxBackend } from '../tmux.mjs';
 import { makeSandbox, tmuxValue, waitFor } from './helpers.mjs';
 
+test('tmux backend defaults cwd to the current user home', () => {
+  const previousHome = process.env.HOME;
+  process.env.HOME = '/tmp/wsl-portable-terminal-home';
+  try {
+    const tmux = new TmuxBackend({ stateRoot: '/tmp/wsl-portable-terminal-state' });
+    assert.equal(tmux.defaultCwd, '/tmp/wsl-portable-terminal-home');
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+  }
+});
+
 test('dedicated tmux backend covers create, send, resize, capture, list, dead status, and close', async (t) => {
   const sandbox = await makeSandbox(t);
   const tmux = new TmuxBackend({

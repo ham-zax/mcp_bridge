@@ -3,6 +3,8 @@ import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
+import { loadConfig } from '../broker.mjs';
+
 import {
   brokerRequest,
   makeSandbox,
@@ -16,6 +18,22 @@ import {
 function request(id, op, params = {}) {
   return { id, op, params };
 }
+
+test('broker config defaults cwd to the current user home', () => {
+  const previousHome = process.env.HOME;
+  const previousDefaultCwd = process.env.MCP_TERMINAL_DEFAULT_CWD;
+  process.env.HOME = '/tmp/wsl-portable-broker-home';
+  delete process.env.MCP_TERMINAL_DEFAULT_CWD;
+  try {
+    const config = loadConfig();
+    assert.equal(config.defaultCwd, '/tmp/wsl-portable-broker-home');
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    if (previousDefaultCwd === undefined) delete process.env.MCP_TERMINAL_DEFAULT_CWD;
+    else process.env.MCP_TERMINAL_DEFAULT_CWD = previousDefaultCwd;
+  }
+});
 
 test('broker restart preserves tmux server, PTY process, transcript capture, and recovered session', async (t) => {
   const sandbox = await makeSandbox(t);

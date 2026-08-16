@@ -122,7 +122,10 @@ test_personal_runtime_files_have_no_machine_home() {
   ! grep -R -nF "$private_home" \
     "$ROOT/config/profiles/personal.env" \
     "$ROOT/config/templates/mcp-personal.json" \
-    "$ROOT/systemd/wsl-agent-terminal-broker.service.in" >/dev/null
+    "$ROOT/systemd/wsl-agent-terminal-broker.service.in" \
+    "$ROOT/providers/terminal/tmux.mjs" \
+    "$ROOT/providers/terminal/broker.mjs" \
+    "$ROOT/providers/code-router/server.mjs" >/dev/null
 }
 
 

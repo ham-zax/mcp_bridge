@@ -61,6 +61,7 @@ For the personal profile:
 - The resolved cwd is used consistently for Dev and Code.
 - The Terminal broker unit uses the rendered user home as `MCP_TERMINAL_DEFAULT_CWD`.
 - The raw personal MCP template contains no machine-specific home path.
+- Runtime fallbacks inside Terminal and Code Router use the current process/user home (`$HOME`, with the platform home lookup as fallback), never a named user's home directory. This keeps direct/provider startup portable even if an expected rendered cwd environment variable is absent.
 
 `MCP_WORKSPACE_ROOT` remains the public-profile workspace root. It is not silently reused as the personal home/default cwd because a copied `.env.example` value may not exist on another WSL installation.
 
@@ -155,7 +156,7 @@ Historical plans/benchmarks remain historical evidence and are not rewritten mer
 
 Automated tests must prove at least:
 
-1. Personal rendering under a synthetic `HOME` uses that home for Dev/Code by default and contains no `/home/hamza` operational default.
+1. Personal rendering and direct Terminal/Code runtime defaults under a synthetic `HOME` use that home and contain no `/home/hamza` operational default.
 2. `MCP_PERSONAL_DEFAULT_CWD` overrides the default and must be absolute.
 3. The Terminal broker unit renders its default cwd from the target user's home.
 4. Bootstrap without `--enable-startup` does not install units, call `systemctl enable/start`, or change linger state.

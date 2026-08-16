@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -56,7 +57,7 @@ export class CodeRouter {
   }
 }
 
-export function createCodeFacadeServer({ router, defaultCwd = '/home/hamza' } = {}) {
+export function createCodeFacadeServer({ router, defaultCwd = process.env.HOME || os.homedir() } = {}) {
   if (!router || typeof router.call !== 'function') throw new TypeError('router with call() is required');
   if (typeof defaultCwd !== 'string' || defaultCwd.length === 0) throw new TypeError('defaultCwd must be a non-empty path');
 
@@ -134,7 +135,7 @@ export async function createCodeRouter({ bin = defaultCodeDbBin(), maxActive = 4
 export async function runCodeFacadeStdio({
   bin = defaultCodeDbBin(),
   maxActive = 4,
-  defaultCwd = process.env.MCP_CODE_DEFAULT_CWD ?? '/home/hamza'
+  defaultCwd = process.env.MCP_CODE_DEFAULT_CWD || process.env.HOME || os.homedir()
 } = {}) {
   const router = await createCodeRouter({ bin, maxActive });
   const server = createCodeFacadeServer({ router, defaultCwd });

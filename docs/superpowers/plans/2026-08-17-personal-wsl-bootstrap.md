@@ -47,10 +47,18 @@
 - Modify: `config/templates/mcp-personal.json`
 - Modify: `systemd/wsl-agent-terminal-broker.service.in`
 - Modify: `tests/harness.sh`
+- Modify: `providers/terminal/tmux.mjs`
+- Modify: `providers/terminal/broker.mjs`
+- Modify: `providers/terminal/test/tmux.test.mjs`
+- Modify: `providers/terminal/test/broker.test.mjs`
+- Modify: `providers/terminal/test/systemd.test.mjs`
+- Modify: `providers/code-router/server.mjs`
+- Modify: `providers/code-router/test/server.test.mjs`
 
 **Interfaces:**
 - Consumes: deployment env `MCP_PERSONAL_DEFAULT_CWD` (optional), process `$HOME`, profile `MCP_DEV_PATH_MODE=user`.
 - Produces: one absolute `personalDefaultCwd` used by Dev and Code; Terminal unit `MCP_TERMINAL_DEFAULT_CWD=@USER_HOME@`.
+- Produces: portable direct-runtime fallback defaults for Terminal and Code Router using the current process/user home rather than a named user path.
 
 - [ ] **Step 1: Extend the rendering regression for synthetic HOME and override behavior**
 
@@ -79,6 +87,8 @@ systemd/wsl-agent-terminal-broker.service.in
 ```
 
 to contain no `/home/hamza`.
+
+During exact-tree qualification, also scan production provider/runtime code for machine-specific home fallbacks. If found, add synthetic-`HOME` behavior tests before replacing those fallbacks with the current process/user home. This qualification found and fixed such defaults in Terminal's backend/broker and Code Router's facade/stdio path.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 

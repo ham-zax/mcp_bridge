@@ -15,6 +15,34 @@ const { CodeRouter } = serverModule;
 
 const execFileAsync = promisify(execFile);
 
+test('code facade defaults omitted cwd to the current user home', async t => {
+  const previousHome = process.env.HOME;
+  process.env.HOME = '/tmp/wsl-portable-code-home';
+  const calls = [];
+  const router = {
+    async call(call) {
+      calls.push(call);
+      return { repoRoot: '/repo', result: { content: [{ type: 'text', text: 'symbol' }] } };
+    }
+  };
+  const server = serverModule.createCodeFacadeServer({ router });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'code-facade-default-home-test', version: '1.0.0' });
+  t.after(async () => {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    await client.close();
+    await server.close();
+  });
+
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  await client.callTool({ name: 'code_symbol', arguments: { name: 'Demo' } });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cwd, '/tmp/wsl-portable-code-home');
+});
+
 async function gitRepo(t, prefix) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
+import os from 'node:os';
 import { promisify } from 'node:util';
 import {
   chmod,
@@ -63,7 +64,7 @@ export class TmuxBackend {
     socketName = 'wsl-agent',
     socketPath,
     stateRoot,
-    defaultCwd = '/home/hamza',
+    defaultCwd = process.env.HOME || os.homedir(),
     transcriptBudgetBytes = 16 * 1024 * 1024,
     nodeBin = process.execPath,
   } = {}) {
