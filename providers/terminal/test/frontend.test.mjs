@@ -278,13 +278,16 @@ test('synchronous Kitty spawn failure returns a stable frontend error with manua
   );
 });
 
-test('readiness timeout terminates only the Kitty process group spawned by this request', async () => {
+test('readiness timeout waits for owned Kitty process-group cleanup before returning failure', async () => {
   const { client } = stateClient([
     { name: 'demo', humanLease: false, humanAttached: false },
   ]);
   const child = fakeChild(56789);
   const killed = [];
   const clock = fakeClock();
+  let releaseCleanup;
+  const cleanupGate = new Promise((resolve) => { releaseCleanup = resolve; });
+  let cleanupWaitStarted = false;
   const controller = createFrontendController({
     client,
     env: { HOME: '/home/tester', PATH: '/bin' },
@@ -294,18 +297,33 @@ test('readiness timeout terminates only the Kitty process group spawned by this 
     },
     statFn: async () => { throw enoent(); },
     spawnFn: () => child,
-    killProcessGroup: async (pid) => { killed.push(pid); },
+    killProcessGroup: async (pid, signal) => { killed.push({ pid, signal }); },
+    waitForChildExit: async () => {
+      cleanupWaitStarted = true;
+      await cleanupGate;
+      return true;
+    },
     readinessTimeoutMs: 30,
     pollIntervalMs: 10,
     now: clock.now,
     sleep: clock.sleep,
   });
 
-  await assert.rejects(
-    controller.ensurePresented('demo'),
-    (error) => error?.code === 'FRONTEND_NOT_READY'
-      && error.message.includes(`${WSL_TERM} attach demo`),
+  let settled = false;
+  let capturedError;
+  const failure = controller.ensurePresented('demo').then(
+    () => { settled = true; },
+    (error) => { settled = true; capturedError = error; },
   );
-  assert.deepEqual(killed, [56789]);
+  for (let attempt = 0; attempt < 100 && !cleanupWaitStarted && !settled; attempt += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(cleanupWaitStarted, true, 'frontend failure must enter bounded owned-process cleanup');
+  assert.equal(settled, false, 'frontend failure must remain pending until owned-process cleanup settles');
+  releaseCleanup();
+  await failure;
+  assert.equal(capturedError?.code, 'FRONTEND_NOT_READY');
+  assert.ok(capturedError.message.includes(`${WSL_TERM} attach demo`));
+  assert.deepEqual(killed, [{ pid: 56789, signal: 'SIGTERM' }]);
   assert.equal(child.unrefCalled, false);
 });

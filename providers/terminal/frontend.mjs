@@ -71,13 +71,34 @@ async function frontendEnv(env, statFn) {
   return childEnv;
 }
 
-async function defaultKillProcessGroup(pid) {
+async function defaultKillProcessGroup(pid, signal = 'SIGTERM') {
   if (!Number.isSafeInteger(pid) || pid <= 0) return;
   try {
-    process.kill(-pid, 'SIGTERM');
+    process.kill(-pid, signal);
   } catch (error) {
     if (error?.code !== 'ESRCH') throw error;
   }
+}
+
+function defaultWaitForChildExit(child, timeoutMs) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer;
+    const finish = (exited) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off?.('exit', onExit);
+      child.off?.('close', onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    child.once?.('exit', onExit);
+    child.once?.('close', onExit);
+    timer = setTimeout(() => finish(false), timeoutMs);
+    timer.unref?.();
+  });
 }
 
 function fallbackMessage(wslTermPath, name) {
@@ -92,10 +113,12 @@ export function createFrontendController({
   statFn = stat,
   spawnFn = spawn,
   killProcessGroup = defaultKillProcessGroup,
+  waitForChildExit = defaultWaitForChildExit,
   sleep = delay,
   now = Date.now,
   readinessTimeoutMs = DEFAULT_READY_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+  cleanupTimeoutMs = 500,
 } = {}) {
   const inflight = new Map();
   const wslTermPath = path.join(repoRoot, 'bin', 'wsl-term');
@@ -154,6 +177,20 @@ export function createFrontendController({
     }
   }
 
+  async function cleanupLaunchedFrontend(child) {
+    if (!child || !Number.isSafeInteger(child.pid) || child.pid <= 0) return;
+    try {
+      await killProcessGroup(child.pid, 'SIGTERM');
+      const exited = await waitForChildExit(child, cleanupTimeoutMs);
+      if (!exited) {
+        await killProcessGroup(child.pid, 'SIGKILL');
+        await waitForChildExit(child, cleanupTimeoutMs);
+      }
+    } catch {
+      // Preserve the original actionable frontend error rather than masking it with cleanup failure.
+    }
+  }
+
   async function doEnsurePresented(name) {
     let state = await sessionState(name);
     if (state.humanAttached) return { name, status: 'reused' };
@@ -198,7 +235,7 @@ export function createFrontendController({
     try {
       await waitForPresented(name, child, launchState);
     } catch (error) {
-      await killProcessGroup(child.pid);
+      await cleanupLaunchedFrontend(child);
       throw error;
     }
     if (typeof child.unref === 'function') child.unref();

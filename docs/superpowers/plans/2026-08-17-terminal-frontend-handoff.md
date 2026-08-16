@@ -259,7 +259,7 @@
 **Steps:**
 - [ ] Record the exact verified feature-branch SHA and confirm the feature worktree is clean.
 - [ ] Stop before activation unless the user has explicitly authorized integration/live activation. Implementation completion alone is not permission to merge, rewrite `main`, push, or restart services.
-- [ ] Preferred activation: integrate the verified candidate into the canonical `/home/hamza/repo/satori_bridge` checkout using the approved branch-finishing decision, preserving unrelated changes and avoiding history rewrites.
+- [ ] Preferred activation: integrate the verified candidate into the canonical `/home/hamza/repo/satori_bridge` checkout using the approved branch-finishing decision, preserving unrelated changes and avoiding history rewrites. If the candidate is already integrated into canonical `main`, do not reset or rewrite history; record that state, verify the live source paths resolve to the integrated candidate, and proceed only after explicit rollout authorization.
 - [ ] After integration, verify `git rev-parse HEAD` in the canonical checkout contains the verified candidate and the checkout is clean enough for deployment.
 - [ ] Verify the rendered personal MCP config resolves Terminal provider execution to `/home/hamza/repo/satori_bridge/providers/terminal/mcp-server.mjs` from the activated candidate.
 - [ ] Verify the installed `wsl-agent-terminal-broker.service` `WorkingDirectory` and `ExecStart` resolve to `/home/hamza/repo/satori_bridge` and its `providers/terminal/broker.mjs` from the activated candidate.
@@ -291,8 +291,8 @@
 - [ ] Acceptance D — return: user presses `Ctrl-b T` or runs `wsl-term give`; same Kitty remains attached read-only and model send resumes.
 - [ ] Acceptance E — second yield: call `terminal_yield` again and verify the existing Kitty window is reused with no duplicate launch.
 - [ ] Acceptance F — headless-to-human: open a separate headless session, reach a harmless interaction point, call `terminal_yield`, and verify Kitty launches automatically and becomes the writable exact-session frontend.
-- [ ] Acceptance G — sudo: run `sudo -k && sudo -v` in a disposable Terminal session; yield; user types the password only in Kitty; return model control; verify `sudo -n true`; confirm the secret is absent from broker state/logs/transcript fixtures where the existing guarantee applies.
-- [ ] Acceptance H — failure fallback: with a deliberately invalid Kitty override in a disposable provider/test path, verify the PTY survives and the error gives the exact manual attach fallback without falsely claiming GUI success.
+- [ ] Acceptance G — sudo: run `sudo -k && sudo -v` in a disposable Terminal session; yield; the user types the password only in Kitty and never sends it through ChatGPT/MCP; return model control and verify `sudo -n true`. Rely on the automated synthetic-secret regression for content-level proof that human secret input is absent from Terminal state and broker logs; never ask for or search using the real password.
+- [ ] Acceptance H — failure fallback: use a disposable provider/test environment where every Kitty discovery candidate is unavailable, or a controlled candidate that exits/fails before readiness; verify the PTY survives and the error gives the exact manual attach fallback without falsely claiming GUI success. An invalid `MCP_TERMINAL_KITTY_BIN` alone is insufficient because discovery intentionally falls back to the user install and PATH.
 - [ ] Acceptance I — presented-client restart: with a designated read-only Kitty client attached and the model owning the session, record tmux/pane and tmux-client identity; restart the broker and reconcile/restart the provider/1MCP; verify the same tmux/pane and Kitty client remain attached, `humanAttached` is reconstructed, and `terminal_yield` reuses that client without launching a second Kitty window.
 - [ ] Clean up only test-only Terminal sessions/windows after evidence is recorded.
 
