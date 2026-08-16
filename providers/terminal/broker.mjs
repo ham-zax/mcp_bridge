@@ -288,6 +288,7 @@ export async function createBroker(config = loadConfig()) {
           listed.push({
             ...session,
             humanLease: control.humanHasControl,
+            humanAttached: control.designated !== null,
           });
         }
         return { sessions: listed };

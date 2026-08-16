@@ -116,6 +116,7 @@ test('broker enforces human ownership below model write paths while read and lis
   assert.equal(listed.ok, true, JSON.stringify(listed));
   const listedSession = listed.result.sessions.find((session) => session.name === 'human-owned');
   assert.equal(listedSession?.humanLease, true);
+  assert.equal(listedSession?.humanAttached, false);
 
   let read;
   await waitFor(async () => {
@@ -201,7 +202,9 @@ test('real tmux client ownership reconciles stale leases and survives broker res
 
   const listed = await brokerRequest(sandbox.brokerSocket, request('real-list-after-restart', 'session.list'));
   assert.equal(listed.ok, true, JSON.stringify(listed));
-  assert.equal(listed.result.sessions.find((session) => session.name === 'real-human')?.humanLease, true);
+  const restartedSession = listed.result.sessions.find((session) => session.name === 'real-human');
+  assert.equal(restartedSession?.humanLease, true);
+  assert.equal(restartedSession?.humanAttached, true);
   const blockedAfterRestart = await brokerRequest(sandbox.brokerSocket, request('real-blocked-after-restart', 'session.resize', {
     name: 'real-human', cols: 90, rows: 30,
   }));
@@ -239,7 +242,9 @@ test('read-only tmux observer does not take model control or inject input', asyn
 
   const listed = await brokerRequest(sandbox.brokerSocket, request('observer-list', 'session.list'));
   assert.equal(listed.ok, true, JSON.stringify(listed));
-  assert.equal(listed.result.sessions.find((session) => session.name === 'observer')?.humanLease, false);
+  const observerSession = listed.result.sessions.find((session) => session.name === 'observer');
+  assert.equal(observerSession?.humanLease, false);
+  assert.equal(observerSession?.humanAttached, false);
 
   const watcherMarker = `WATCHER_INPUT_${process.pid}_${Date.now()}`;
   observer.stdin.write(`${watcherMarker}\n`);
@@ -321,7 +326,7 @@ test('wsl-term present keeps model control, then reuses the same exact PTY clien
     if (!actualClient?.readOnly) return false;
     const listed = await brokerRequest(sandbox.brokerSocket, request('present-list', 'session.list'));
     const session = listed.result?.sessions.find((candidate) => candidate.name === 'cli-present');
-    return listed.ok && session?.humanLease === false;
+    return listed.ok && session?.humanLease === false && session?.humanAttached === true;
   }, { description: 'wsl-term designated read-only presentation' });
 
   const modelSend = await brokerRequest(sandbox.brokerSocket, request('present-model-send', 'session.send', {
@@ -422,7 +427,8 @@ test('wsl-term exact-PTY attach blocks model mutation, keeps reads available, an
     actualClient = tmuxClients(sandbox.socketPath).find((client) => client.session === 'cli-attach');
     if (!actualClient) return false;
     const listed = await brokerRequest(sandbox.brokerSocket, request('cli-attach-list', 'session.list'));
-    return listed.ok && listed.result.sessions.find((session) => session.name === 'cli-attach')?.humanLease === true;
+    const session = listed.result.sessions.find((candidate) => candidate.name === 'cli-attach');
+    return listed.ok && session?.humanLease === true && session?.humanAttached === true;
   }, { description: 'wsl-term human control' });
 
   for (const [id, op, params] of [
