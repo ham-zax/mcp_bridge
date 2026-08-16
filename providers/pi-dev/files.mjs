@@ -51,9 +51,13 @@ function validateExactEdits(buffer, edits) {
   }
 }
 
-function modelFacingPathError(error, absolutePath, relativePath) {
+function modelFacingPathMessage(error, absolutePath, relativePath) {
   const message = error instanceof Error ? error.message : String(error);
-  const sanitized = message.split(absolutePath).join(relativePath);
+  return message.split(absolutePath).join(relativePath);
+}
+
+function modelFacingPathError(error, absolutePath, relativePath) {
+  const sanitized = modelFacingPathMessage(error, absolutePath, relativePath);
   const wrapped = new Error(sanitized);
   if (error && typeof error === 'object' && 'code' in error) wrapped.code = error.code;
   return wrapped;
@@ -165,6 +169,8 @@ async function mutatePlannedTarget(plan, signal, operations) {
   throwIfAborted(signal);
   let handle;
   let mutationStarted = false;
+  let mutationCompleted = false;
+  let primaryError = null;
   try {
     handle = await operations.openFile(
       plan.canonicalPath,
@@ -192,14 +198,24 @@ async function mutatePlannedTarget(plan, signal, operations) {
       await writeHandleBytes(handle, proposed);
       await handle.truncate(proposed.length);
     }
+    mutationCompleted = true;
     return { state: 'APPLIED' };
   } catch (error) {
+    primaryError = error;
     if (error && typeof error === 'object' && !('mutationStarted' in error)) {
       error.mutationStarted = mutationStarted;
     }
     throw error;
   } finally {
-    if (handle) await handle.close();
+    if (handle) {
+      try {
+        await handle.close();
+      } catch (closeError) {
+        if (!primaryError && !mutationCompleted) throw closeError;
+        // A close failure must not overwrite the real mutation error, and once the
+        // complete write/truncate sequence succeeded the target is already APPLIED.
+      }
+    }
   }
 }
 
@@ -274,7 +290,7 @@ export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoo
         await mutatePlannedTarget(plan, signal, operations);
         applied.push(plan.requestedPath);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = modelFacingPathMessage(error, plan.canonicalPath, plan.requestedPath);
         const unattempted = plans.slice(index + 1).map(item => item.requestedPath);
         if (applied.length === 0 && !error?.mutationStarted) {
           throw modelFacingPathError(error, plan.canonicalPath, plan.requestedPath);

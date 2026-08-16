@@ -337,6 +337,64 @@ test('edit v2 reports applied failed and unattempted targets after a later stale
   assert.equal(await fs.readFile(path.join(workspaceRoot, 'c.txt'), 'utf8'), 'gamma\n');
 });
 
+
+
+test('edit v2 partial filesystem diagnostics sanitize canonical paths to requested labels', async () => {
+  const defaultCwd = await tempDir('pi-edit-v2-partial-path-');
+  const a = path.join(defaultCwd, 'a.txt');
+  const b = path.join(defaultCwd, 'b.txt');
+  await fs.writeFile(a, 'alpha\n');
+  await fs.writeFile(b, 'beta\n');
+  await assert.rejects(
+    () => runEdit({
+      pathMode: 'user', defaultCwd,
+      targets: [
+        { path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] },
+        { path: 'b.txt', edits: [{ oldText: 'beta', newText: 'BETA' }] }
+      ]
+    }, undefined, {
+      beforeGuard: async (plan) => {
+        if (plan.requestedPath === 'b.txt') await fs.unlink(plan.canonicalPath);
+      }
+    }),
+    (error) => {
+      assert.equal(error.code, 'EDIT_PARTIAL');
+      const message = error.editPartial.failed[0].message;
+      assert.match(message, /b\.txt/);
+      assert.doesNotMatch(message, new RegExp(defaultCwd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      return true;
+    }
+  );
+});
+
+
+
+test('edit v2 does not turn a completed mutation into a retryable failure when close fails', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-close-after-apply-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'alpha\n');
+  const result = await runEdit({
+    workspaceRoot,
+    targets: [{ path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }]
+  }, undefined, {
+    openFile: async (target, flags) => {
+      const real = await fs.open(target, flags);
+      return {
+        stat: (...args) => real.stat(...args),
+        read: (...args) => real.read(...args),
+        write: (...args) => real.write(...args),
+        truncate: (...args) => real.truncate(...args),
+        close: async () => {
+          await real.close();
+          throw new Error('injected close failure');
+        }
+      };
+    }
+  });
+  assert.equal(result.targets.length, 1);
+  assert.equal(await fs.readFile(file, 'utf8'), 'ALPHA\n');
+});
+
 test('edit v2 writes longer output completely through the guarded descriptor', async () => {
   const workspaceRoot = await tempDir('pi-edit-v2-longer-');
   const file = path.join(workspaceRoot, 'a.txt');
