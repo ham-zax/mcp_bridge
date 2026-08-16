@@ -29,7 +29,7 @@ Each call resolves the nearest canonical Git root and routes to a correctly root
 Private persistent PTY control:
 
 ```text
-terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_close
+terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 ```
 
 The MCP provider talks to a local broker over a Unix socket. tmux owns PTY/process lifetime; the broker owns metadata, transcript/cursor state, and human/model control leases.

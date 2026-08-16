@@ -1,5 +1,6 @@
 export const OPERATIONS = new Set([
   'session.open',
+  'session.open_human',
   'session.list',
   'session.read',
   'session.observe',
@@ -10,6 +11,8 @@ export const OPERATIONS = new Set([
   'lease.acquire_human',
   'lease.bind_human',
   'lease.release_human',
+  'control.give_model',
+  'control.take_human',
 ]);
 
 export class TerminalError extends Error {

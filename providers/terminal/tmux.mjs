@@ -21,6 +21,9 @@ const SESSION_NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const MODULE_DIR = import.meta.dirname;
 const PANE_ENTRY = path.join(MODULE_DIR, 'pane-entry.mjs');
 const TRANSCRIPT_WRITER = path.join(MODULE_DIR, 'transcript-writer.mjs');
+const COLLAB_CLIENT_PID_OPTION = '@wsl_agent_collab_client_pid';
+const COLLAB_CLIENT_TTY_OPTION = '@wsl_agent_collab_client_tty';
+const COLLAB_CLIENT_CREATED_OPTION = '@wsl_agent_collab_client_created';
 
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", `'"'"'`)}'`;
@@ -123,6 +126,15 @@ export class TmuxBackend {
     await this.run(['show-options', '-g', '-v', 'exit-empty']);
   }
 
+  async installCollaborativeBindings() {
+    await this.run(['bind-key', '-T', 'prefix', 'T', 'switch-client', '-r']);
+  }
+
+  async assertSession(name) {
+    validateSessionName(name);
+    await this.run(['has-session', '-t', `=${name}`]);
+  }
+
   async resolveCwd(value) {
     const requested = value === undefined || value === ''
       ? this.defaultCwd
@@ -196,12 +208,91 @@ export class TmuxBackend {
     const { stdout } = await this.run([
       'list-clients',
       '-F',
-      '#{client_pid}|#{client_session}|#{client_tty}|#{client_readonly}',
+      '#{client_pid}|#{client_session}|#{client_tty}|#{client_readonly}|#{client_created}',
     ]);
     return stdout.split('\n').filter(Boolean).map((line) => {
-      const [pid, session, tty, readOnly] = line.split('|');
-      return { pid: Number(pid), session, tty, readOnly: readOnly === '1' };
+      const [pid, session, tty, readOnly, created] = line.split('|');
+      return { pid: Number(pid), session, tty, readOnly: readOnly === '1', created };
     });
+  }
+
+  async setCollaborativeClient(name, client) {
+    await this.assertSession(name);
+    if (!client || !Number.isSafeInteger(client.pid) || client.pid <= 0) {
+      throw new TerminalError('INVALID_ARGUMENT', 'collaborative client pid must be a positive integer');
+    }
+    if (typeof client.tty !== 'string' || client.tty.length === 0) {
+      throw new TerminalError('INVALID_ARGUMENT', 'collaborative client tty must be a non-empty string');
+    }
+    if (typeof client.created !== 'string' || client.created.length === 0) {
+      throw new TerminalError('INVALID_ARGUMENT', 'collaborative client creation time is required');
+    }
+    if (client.session !== name) {
+      throw new TerminalError('INVALID_ARGUMENT', `client ${client.pid} is not attached to session ${name}`);
+    }
+    await this.run(['set-option', '-t', name, COLLAB_CLIENT_PID_OPTION, String(client.pid)]);
+    await this.run(['set-option', '-t', name, COLLAB_CLIENT_TTY_OPTION, client.tty]);
+    await this.run(['set-option', '-t', name, COLLAB_CLIENT_CREATED_OPTION, client.created]);
+    return { pid: client.pid, tty: client.tty, created: client.created };
+  }
+
+  async clearCollaborativeClient(name) {
+    await this.assertSession(name);
+    await this.run(['set-option', '-q', '-u', '-t', name, COLLAB_CLIENT_PID_OPTION]);
+    await this.run(['set-option', '-q', '-u', '-t', name, COLLAB_CLIENT_TTY_OPTION]);
+    await this.run(['set-option', '-q', '-u', '-t', name, COLLAB_CLIENT_CREATED_OPTION]);
+  }
+
+  async collaborativeClient(name, clients = undefined) {
+    await this.assertSession(name);
+    const { stdout } = await this.run([
+      'display-message', '-p', '-t', `${name}:0.0`,
+      `#{${COLLAB_CLIENT_PID_OPTION}}|#{${COLLAB_CLIENT_TTY_OPTION}}|#{${COLLAB_CLIENT_CREATED_OPTION}}`,
+    ]);
+    const [pidRaw, tty = '', created = ''] = stdout.trimEnd().split('|');
+    const pid = Number(pidRaw);
+    if (!Number.isSafeInteger(pid) || pid <= 0 || tty.length === 0 || created.length === 0) return null;
+
+    const currentClients = clients ?? await this.listClients();
+    const client = currentClients.find((candidate) => (
+      candidate.session === name
+      && candidate.pid === pid
+      && candidate.tty === tty
+      && candidate.created === created
+    ));
+    if (client) return client;
+
+    await this.clearCollaborativeClient(name);
+    return null;
+  }
+
+  async setClientReadOnly({ name, pid, tty, created, readOnly }) {
+    validateSessionName(name);
+    if (!Number.isSafeInteger(pid) || pid <= 0 || typeof tty !== 'string' || tty.length === 0
+        || typeof created !== 'string' || created.length === 0) {
+      throw new TerminalError('INVALID_ARGUMENT', 'client pid, tty, and creation time are required');
+    }
+    if (typeof readOnly !== 'boolean') {
+      throw new TerminalError('INVALID_ARGUMENT', 'readOnly must be a boolean');
+    }
+    const findClient = async () => (await this.listClients()).find((client) => (
+      client.session === name && client.pid === pid && client.tty === tty && client.created === created
+    ));
+    const before = await findClient();
+    if (!before) {
+      throw new TerminalError('HUMAN_CLIENT_NOT_FOUND', `collaborative human client is not attached to session ${name}`);
+    }
+    if (before.readOnly === readOnly) return before;
+
+    await this.run(['switch-client', '-c', tty, '-r']);
+    const after = await findClient();
+    if (!after || after.readOnly !== readOnly) {
+      throw new TerminalError(
+        'HUMAN_CLIENT_STATE_MISMATCH',
+        `unable to make collaborative human client ${readOnly ? 'read-only' : 'writable'} for session ${name}`,
+      );
+    }
+    return after;
   }
 
   async readSessionMetadata(name) {

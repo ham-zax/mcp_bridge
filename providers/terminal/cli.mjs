@@ -22,6 +22,10 @@ function tmuxArgs() {
   return args;
 }
 
+function tmuxBin() {
+  return process.env.MCP_TERMINAL_TMUX_BIN || 'tmux';
+}
+
 function renderSession(session) {
   const state = session.paneDead
     ? `dead exit=${session.paneDeadStatus ?? 'unknown'}`
@@ -42,12 +46,39 @@ function waitForChild(child) {
   });
 }
 
-function resizeWindowToTerminal(name) {
+function requireInteractive(command) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(`wsl-term ${command} requires an interactive TTY`);
+  }
+}
+
+function listTmuxClients() {
+  const result = spawnSync(
+    tmuxBin(),
+    [...tmuxArgs(), 'list-clients', '-F', '#{client_pid}|#{client_session}|#{client_tty}|#{client_readonly}'],
+    { encoding: 'utf8', env: process.env },
+  );
+  if (result.status !== 0) {
+    const message = String(result.stderr || '').trim() || 'tmux list-clients failed';
+    throw new Error(message);
+  }
+  return String(result.stdout || '').split('\n').filter(Boolean).map((line) => {
+    const [pid, session, tty, readOnly] = line.split('|');
+    return { pid: Number(pid), session, tty, readOnly: readOnly === '1' };
+  });
+}
+
+function resizeWindowToTerminal(name, clientPid) {
   const cols = process.stdout.columns;
   const rows = process.stdout.rows;
-  if (!Number.isInteger(cols) || cols <= 0 || !Number.isInteger(rows) || rows <= 0) return;
+  if (!Number.isInteger(cols) || cols <= 0 || !Number.isInteger(rows) || rows <= 0) return false;
+  const client = listTmuxClients().find((candidate) => (
+    candidate.pid === clientPid && candidate.session === name
+  ));
+  if (!client || client.readOnly) return false;
+
   const result = spawnSync(
-    process.env.MCP_TERMINAL_TMUX_BIN || 'tmux',
+    tmuxBin(),
     [...tmuxArgs(), 'resize-window', '-t', `=${name}:0`, '-x', String(cols), '-y', String(rows)],
     { encoding: 'utf8', env: process.env },
   );
@@ -55,16 +86,15 @@ function resizeWindowToTerminal(name) {
     const message = String(result.stderr || '').trim() || 'tmux resize-window failed';
     throw new Error(message);
   }
+  return true;
 }
 
 async function watchSession(name) {
   validateSessionName(name);
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error('wsl-term watch requires an interactive TTY');
-  }
+  requireInteractive('watch');
 
   const args = [...tmuxArgs(), 'attach-session', '-r', '-t', `=${name}`];
-  const child = spawn(process.env.MCP_TERMINAL_TMUX_BIN || 'tmux', args, {
+  const child = spawn(tmuxBin(), args, {
     stdio: 'inherit',
     env: process.env,
   });
@@ -99,12 +129,11 @@ async function listSessions(client) {
   return 0;
 }
 
-async function attachSession(client, name) {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error('wsl-term attach requires an interactive TTY');
-  }
+async function attachSession(client, name, { lease: providedLease } = {}) {
+  validateSessionName(name);
+  requireInteractive('attach');
 
-  const lease = await client.request('lease.acquire_human', {
+  const lease = providedLease ?? await client.request('lease.acquire_human', {
     name,
     clientId: `wsl-term:${process.pid}`,
   });
@@ -112,8 +141,8 @@ async function attachSession(client, name) {
   let resizeHandler = null;
   const signalHandlers = new Map();
   try {
-    const args = [...tmuxArgs(), 'attach-session', '-t', name];
-    child = spawn(process.env.MCP_TERMINAL_TMUX_BIN || 'tmux', args, {
+    const args = [...tmuxArgs(), 'attach-session', '-t', `=${name}`];
+    child = spawn(tmuxBin(), args, {
       stdio: 'inherit',
       env: process.env,
     });
@@ -128,10 +157,10 @@ async function attachSession(client, name) {
       clientPid: child.pid,
     });
 
-    resizeWindowToTerminal(name);
+    resizeWindowToTerminal(name, child.pid);
     resizeHandler = () => {
       try {
-        resizeWindowToTerminal(name);
+        resizeWindowToTerminal(name, child.pid);
       } catch (error) {
         process.stderr.write(`wsl-term resize failed: ${error instanceof Error ? error.message : String(error)}\n`);
       }
@@ -158,12 +187,44 @@ async function attachSession(client, name) {
   }
 }
 
+async function newSession(client, name) {
+  validateSessionName(name);
+  requireInteractive('new');
+  const params = {
+    name,
+    clientId: `wsl-term:${process.pid}`,
+  };
+  if (Number.isInteger(process.stdout.columns) && process.stdout.columns > 0) {
+    params.cols = process.stdout.columns;
+  }
+  if (Number.isInteger(process.stdout.rows) && process.stdout.rows > 0) {
+    params.rows = process.stdout.rows;
+  }
+  const opened = await client.request('session.open_human', params);
+  return attachSession(client, name, { lease: opened });
+}
+
+async function giveSession(client, name) {
+  validateSessionName(name);
+  await client.request('control.give_model', { name });
+  process.stdout.write(`model control: ${name}\n`);
+  return 0;
+}
+
+async function takeSession(client, name) {
+  validateSessionName(name);
+  await client.request('control.take_human', { name });
+  process.stdout.write(`human control: ${name}\n`);
+  return 0;
+}
+
 export async function runCli(argv = process.argv.slice(2)) {
   const [command, name, ...rest] = argv;
-  if (rest.length > 0 || !['list', 'watch', 'attach'].includes(command)) {
-    throw new Error('usage: wsl-term list | wsl-term watch <session> | wsl-term attach <session>');
+  const commands = ['list', 'new', 'watch', 'attach', 'give', 'take'];
+  if (rest.length > 0 || !commands.includes(command)) {
+    throw new Error('usage: wsl-term list | wsl-term new <session> | wsl-term watch <session> | wsl-term attach <session> | wsl-term give <session> | wsl-term take <session>');
   }
-  if ((command === 'watch' || command === 'attach') && (!name || name.length === 0)) {
+  if (command !== 'list' && (!name || name.length === 0)) {
     throw new Error(`usage: wsl-term ${command} <session>`);
   }
   if (command === 'list' && name !== undefined) {
@@ -172,7 +233,14 @@ export async function runCli(argv = process.argv.slice(2)) {
 
   if (command === 'watch') return watchSession(name);
   const client = new BrokerClient({ socketPath: socketPath() });
-  return command === 'list' ? listSessions(client) : attachSession(client, name);
+  switch (command) {
+    case 'list': return listSessions(client);
+    case 'new': return newSession(client, name);
+    case 'attach': return attachSession(client, name);
+    case 'give': return giveSession(client, name);
+    case 'take': return takeSession(client, name);
+    default: throw new Error(`unsupported wsl-term command: ${command}`);
+  }
 }
 
 async function main() {

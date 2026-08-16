@@ -124,6 +124,7 @@ export async function createBroker(config = loadConfig()) {
     transcriptBudgetBytes: config.transcriptBudgetBytes,
   });
   await tmux.assertServer();
+  await tmux.installCollaborativeBindings();
   const reconciled = await tmux.reconcileSessions();
   const leases = new Map();
   const modelReadChains = new Map();
@@ -151,29 +152,70 @@ export async function createBroker(config = loadConfig()) {
     }
   }
 
+  function createHumanLease(clientId, { clientPid = null, observed = false } = {}) {
+    const acquiredAtMs = Date.now();
+    return {
+      leaseId: crypto.randomUUID(),
+      clientId: requireString(clientId, 'clientId'),
+      acquiredAt: new Date(acquiredAtMs).toISOString(),
+      acquiredAtMs,
+      clientPid,
+      boundAtMs: clientPid === null ? null : acquiredAtMs,
+      observed,
+    };
+  }
+
+  function leaseResult(name, lease) {
+    return {
+      name,
+      leaseId: lease.leaseId,
+      clientId: lease.clientId,
+      acquiredAt: lease.acquiredAt,
+    };
+  }
+
   async function reconcileHumanControl(name) {
     const now = Date.now();
     const clients = (await tmux.listClients()).filter((client) => client.session === name);
-    const lease = leases.get(name);
+    let lease = leases.get(name);
 
     if (lease) {
       const deadlineBase = lease.boundAtMs ?? lease.acquiredAtMs;
       if (lease.clientPid !== null) {
-        const attached = clients.some((client) => client.pid === lease.clientPid);
+        const attached = clients.find((client) => client.pid === lease.clientPid);
         if (attached) {
           lease.observed = true;
+          await tmux.setCollaborativeClient(name, attached);
+          if (attached.readOnly === true) {
+            leases.delete(name);
+            lease = undefined;
+          }
         } else if (lease.observed || now - deadlineBase >= config.leaseAttachGraceMs) {
           leases.delete(name);
+          lease = undefined;
         }
       } else if (now - deadlineBase >= config.leaseAttachGraceMs) {
         leases.delete(name);
+        lease = undefined;
       }
     }
 
     const writableClients = clients.filter((client) => client.readOnly !== true);
+    let designated = await tmux.collaborativeClient(name, clients);
+    if (writableClients.length === 1) {
+      const writer = writableClients[0];
+      if (!designated || designated.pid !== writer.pid || designated.tty !== writer.tty
+          || designated.created !== writer.created) {
+        await tmux.setCollaborativeClient(name, writer);
+        designated = writer;
+      }
+    }
+
     return {
       humanHasControl: writableClients.length > 0 || leases.has(name),
       clients,
+      writableClients,
+      designated,
       lease: leases.get(name) ?? null,
     };
   }
@@ -210,6 +252,32 @@ export async function createBroker(config = loadConfig()) {
           const state = await tmux.sessionState(name);
           await writeModelCursor(state.dataDir, 0);
           return session;
+        });
+      }
+      case 'session.open_human': {
+        const name = requireString(params.name, 'name');
+        const clientId = requireString(params.clientId, 'clientId');
+        return serializeLifecycle(name, async () => {
+          if (leases.has(name)) {
+            throw new TerminalError('HUMAN_HAS_CONTROL', `human already has control of session ${name}`);
+          }
+          const lease = createHumanLease(clientId);
+          leases.set(name, lease);
+          try {
+            const session = await tmux.openSession({
+              name,
+              command: params.command === undefined ? '' : params.command,
+              cwd: params.cwd,
+              cols: params.cols,
+              rows: params.rows,
+            });
+            const state = await tmux.sessionState(name);
+            await writeModelCursor(state.dataDir, 0);
+            return { ...session, ...leaseResult(name, lease) };
+          } catch (error) {
+            if (leases.get(name)?.leaseId === lease.leaseId) leases.delete(name);
+            throw error;
+          }
         });
       }
       case 'session.list': {
@@ -334,23 +402,9 @@ export async function createBroker(config = loadConfig()) {
         if (control.humanHasControl) {
           throw new TerminalError('HUMAN_HAS_CONTROL', `human already has control of session ${name}`);
         }
-        const acquiredAtMs = Date.now();
-        const lease = {
-          leaseId: crypto.randomUUID(),
-          clientId: requireString(params.clientId, 'clientId'),
-          acquiredAt: new Date(acquiredAtMs).toISOString(),
-          acquiredAtMs,
-          clientPid: null,
-          boundAtMs: null,
-          observed: false,
-        };
+        const lease = createHumanLease(params.clientId);
         leases.set(name, lease);
-        return {
-          name,
-          leaseId: lease.leaseId,
-          clientId: lease.clientId,
-          acquiredAt: lease.acquiredAt,
-        };
+        return leaseResult(name, lease);
       }
       case 'lease.bind_human': {
         const name = requireString(params.name, 'name');
@@ -384,6 +438,83 @@ export async function createBroker(config = loadConfig()) {
         }
         leases.delete(name);
         return { name, released: true };
+      }
+      case 'control.give_model': {
+        const name = requireString(params.name, 'name');
+        await tmux.sessionInfo(name);
+        const control = await reconcileHumanControl(name);
+        const designated = control.designated;
+        if (!designated) {
+          throw new TerminalError('HUMAN_CLIENT_NOT_FOUND', `no collaborative human client is attached to session ${name}`);
+        }
+        const conflictingWriters = control.writableClients.filter((client) => (
+          client.pid !== designated.pid || client.tty !== designated.tty
+          || client.created !== designated.created
+        ));
+        if (conflictingWriters.length > 0) {
+          throw new TerminalError(
+            'MULTIPLE_HUMAN_CLIENTS',
+            `multiple writable human clients are attached to session ${name}`,
+          );
+        }
+        if (control.lease?.clientPid !== null
+            && control.lease?.clientPid !== undefined
+            && control.lease.clientPid !== designated.pid) {
+          throw new TerminalError('HUMAN_HAS_CONTROL', `another human lease controls session ${name}`);
+        }
+        const client = await tmux.setClientReadOnly({
+          name, pid: designated.pid, tty: designated.tty, created: designated.created, readOnly: true,
+        });
+        leases.delete(name);
+        const after = await reconcileHumanControl(name);
+        if (after.humanHasControl) {
+          throw new TerminalError(
+            'HUMAN_HAS_CONTROL',
+            `human control remains active for session ${name}`,
+          );
+        }
+        return { name, humanHasControl: false, clientPid: client.pid, clientTty: client.tty };
+      }
+      case 'control.take_human': {
+        const name = requireString(params.name, 'name');
+        await tmux.sessionInfo(name);
+        const control = await reconcileHumanControl(name);
+        const designated = control.designated;
+        if (!designated) {
+          throw new TerminalError('HUMAN_CLIENT_NOT_FOUND', `no collaborative human client is attached to session ${name}`);
+        }
+        if (control.writableClients.length > 1) {
+          throw new TerminalError(
+            'MULTIPLE_HUMAN_CLIENTS',
+            `multiple writable human clients are attached to session ${name}`,
+          );
+        }
+        if (control.writableClients.length === 1) {
+          return {
+            name,
+            humanHasControl: true,
+            clientPid: control.writableClients[0].pid,
+            clientTty: control.writableClients[0].tty,
+          };
+        }
+        if (control.lease) {
+          throw new TerminalError('HUMAN_HAS_CONTROL', `human lease already controls session ${name}`);
+        }
+        const lease = createHumanLease(`control-take:${name}`, {
+          clientPid: designated.pid,
+          observed: true,
+        });
+        leases.set(name, lease);
+        const client = await tmux.setClientReadOnly({
+          name, pid: designated.pid, tty: designated.tty, created: designated.created, readOnly: false,
+        });
+        return {
+          name,
+          humanHasControl: true,
+          clientPid: client.pid,
+          clientTty: client.tty,
+          leaseId: lease.leaseId,
+        };
       }
       default:
         throw new TerminalError('UNSUPPORTED_OPERATION', `unsupported operation: ${op}`);

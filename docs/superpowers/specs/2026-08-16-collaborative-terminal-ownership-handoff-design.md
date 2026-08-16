@@ -85,15 +85,15 @@ Therefore:
 
 Every model mutation continues to reconcile actual tmux clients immediately before authorization. A same-pane human takeover therefore becomes authoritative for subsequent broker mutation attempts without introducing a parallel ownership database.
 
-The broker may retain enough metadata to identify the designated collaborative human client for `give`, out-of-band `take`, and model-initiated yield. Reuse existing lease/client reconciliation and session metadata where practical. The identity mechanism must survive broker restart while that tmux client remains attached and must fail closed if stale or ambiguous.
+The broker may retain enough metadata to identify the designated collaborative human client for `give`, out-of-band `take`, and model-initiated yield. Reuse existing lease/client reconciliation and session metadata where practical. The identity mechanism must survive broker restart while that tmux client remains attached and must fail closed if stale or ambiguous. Use tmux client incarnation data (PID, TTY, and client creation time), not PID/TTY alone, so process and pseudo-terminal reuse cannot revive stale ownership.
 
 ## One collaborative human client per session
 
-Version 1 has one designated collaborative human client per session. This is the interactive tmux client created or registered by the collaborative workflow.
+Version 1 has one designated collaborative human client per session. This is normally the interactive tmux client created or registered by the collaborative workflow.
 
-Additional read-only `watch` clients may continue to exist, but they are observers and are never implicit handoff targets. If the designated collaborative client disappears, the broker must not make an arbitrary watcher writable.
+Additional `watch` clients remain read-only observers unless the human explicitly presses the takeover binding. Because tmux permits read-only clients to execute only direct `switch-client`/`detach-client` bindings, `Ctrl-b T` is a direct ownership toggle rather than a conditional broker callback. If an observer explicitly toggles itself writable and becomes the only writable human client, broker reconciliation promotes it to the designated collaborative client.
 
-Reattaching through the canonical human attach/rejoin path may register a replacement collaborative client.
+Reattaching through the canonical human attach/rejoin path may also register a replacement collaborative client. Multiple simultaneous writable human clients remain a human-control state that blocks model mutation; automated give/yield operations fail closed rather than guessing which human writer should win.
 
 ## CLI workflow
 
@@ -159,11 +159,11 @@ Provide one tmux-native takeover binding:
 Ctrl-b T
 ```
 
-On tmux 3.4, read-only clients may still execute `switch-client`; `switch-client -r` toggles the read-only + ignore-size flags. The takeover binding therefore toggles the **same attached human client** back to writable without detach/reattach.
+On tmux 3.4, read-only clients may still execute a key only when it is bound directly to `switch-client` or `detach-client`; a conditional wrapper is ignored. Therefore `Ctrl-b T` is bound directly to `switch-client -r`, which toggles that current client between writable and read-only + ignore-size without detach/reattach.
 
-Safety comes from the existing broker rule: before each model mutation, the broker lists/reconciles tmux clients. Once the collaborative client is writable, subsequent model send/resize/ordinary close is rejected as human-controlled.
+Safety comes from the existing broker rule: before each model mutation, the broker lists/reconciles tmux clients. A client toggled writable immediately blocks subsequent model send/resize/ordinary close. If it is the unique writable client, broker reconciliation designates it as the collaborative human owner. A designated lease-bound client toggled read-only is treated as an explicit give and its stale human lease is released during reconciliation.
 
-No separate broker callback is required from the read-only key binding merely to establish safety. Any model operation already in flight at the instant of takeover may finish; the next mutation attempt must observe human ownership and fail.
+No separate broker callback is required from the key binding. Any model operation already in flight at the instant of takeover may finish; the next mutation attempt must observe the new client state. Multiple writable human clients block the model and require the human to resolve the ambiguity rather than letting the broker choose a writer.
 
 Because this is a tmux binding rather than a terminal-emulator shortcut, the ownership handoff is not coupled to Kitty.
 
@@ -290,7 +290,7 @@ Rejected as the sole UX. After `give`, the same tmux client is read-only, so it 
 
 ### Controlled handoff with same-pane takeover
 
-Chosen. Shell commands remain the canonical control interface, while `Ctrl-b T` is the one local escape hatch that makes the same attached client writable again. This preserves one-writer safety without detach/reattach or a second terminal.
+Chosen. Shell commands remain the canonical control interface, while `Ctrl-b T` is the direct local ownership toggle for the current tmux client. This preserves one-writer safety without detach/reattach or a second terminal.
 
 ## Acceptance criteria
 
@@ -299,12 +299,12 @@ Chosen. Shell commands remain the canonical control interface, while `Ctrl-b T` 
 3. ChatGPT can read that exact PTY immediately but cannot mutate it while the human client is writable.
 4. `wsl-term give demo` keeps the same human client attached, changes it to read-only + ignore-size, and enables model send/resize.
 5. Human terminal resizing does not affect the pane while model-owned.
-6. `Ctrl-b T` makes that same human tmux client writable in place and causes subsequent model mutation attempts to return human-control blocking.
-7. `wsl-term take demo` performs equivalent takeover from an out-of-band shell without selecting an arbitrary watcher.
+6. `Ctrl-b T` directly toggles the current human tmux client; a read-only observer that explicitly takes control becomes writable, and the unique writable client becomes the designated human owner during broker reconciliation.
+7. `wsl-term take demo` performs equivalent takeover from an out-of-band shell without selecting an arbitrary observer.
 8. ChatGPT can voluntarily yield control to the designated human client.
 9. Human-entered sudo/password input is not copied into broker metadata or a new auxiliary input log.
 10. Multiple collaborative sessions maintain independent ownership.
 11. Broker restart and client disconnects fail closed without killing PTYs or losing transcript/cursor state.
-12. Existing `watch` remains non-interfering and existing human takeover behavior is not weakened.
+12. Existing `watch` remains read-only and non-interfering until the human explicitly invokes the takeover binding; existing writable attach behavior is not weakened.
 13. Absence of Kitty does not prevent use of collaborative terminals when another suitable interactive TTY is available.
 14. Absence of any interactive TTY prevents only human-interactive attachment; existing model-owned durable Terminal sessions continue to work.

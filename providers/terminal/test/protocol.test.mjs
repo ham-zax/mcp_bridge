@@ -5,6 +5,7 @@ import { OPERATIONS, decodeRequest, encodeResponse } from '../protocol.mjs';
 
 const expectedOperations = [
   'session.open',
+  'session.open_human',
   'session.list',
   'session.read',
   'session.observe',
@@ -15,6 +16,8 @@ const expectedOperations = [
   'lease.acquire_human',
   'lease.bind_human',
   'lease.release_human',
+  'control.give_model',
+  'control.take_human',
 ];
 
 test('private protocol freezes the Terminal broker operation vocabulary', () => {

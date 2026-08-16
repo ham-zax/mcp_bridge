@@ -72,7 +72,7 @@ async function withInMemoryServer(t, broker, fn) {
   return fn(client);
 }
 
-test('Terminal MCP exposes exactly six public tools with the frozen schemas', async (t) => {
+test('Terminal MCP exposes exactly seven public tools with the frozen schemas', async (t) => {
   assert.equal(typeof serverModule.createTerminalMcpServer, 'function');
   const { client: broker, calls } = recordingBroker();
   await withInMemoryServer(t, broker, async (client) => {
@@ -84,6 +84,7 @@ test('Terminal MCP exposes exactly six public tools with the frozen schemas', as
       'terminal_read',
       'terminal_resize',
       'terminal_send',
+      'terminal_yield',
     ]);
     assert.ok(tools.every((tool) => !tool.name.startsWith('lease.')));
     assert.ok(tools.every((tool) => !tool.name.includes('tmux')));
@@ -104,6 +105,10 @@ test('Terminal MCP exposes exactly six public tools with the frozen schemas', as
 
     const resize = tools.find((tool) => tool.name === 'terminal_resize');
     assert.deepEqual(Object.keys(resize.inputSchema.properties).sort(), ['cols', 'name', 'rows']);
+
+    const yieldTool = tools.find((tool) => tool.name === 'terminal_yield');
+    assert.deepEqual(Object.keys(yieldTool.inputSchema.properties).sort(), ['name']);
+    assert.deepEqual(yieldTool.inputSchema.required, ['name']);
 
     const both = await client.callTool({
       name: 'terminal_send',
@@ -238,7 +243,7 @@ test('Terminal MCP preserves Terminal errors and bounded cursor recovery as nati
   });
 });
 
-test('Terminal stdio provider exposes the six tools and preserves incremental reads plus exact exit status', async (t) => {
+test('Terminal stdio provider exposes the seven tools and preserves incremental reads plus exact exit status', async (t) => {
   const sandbox = await makeSandbox(t);
   await startBroker(t, sandbox);
   const serverPath = path.resolve('mcp-server.mjs');
@@ -255,7 +260,7 @@ test('Terminal stdio provider exposes the six tools and preserves incremental re
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((tool) => tool.name).sort(), [
     'terminal_close', 'terminal_list', 'terminal_open',
-    'terminal_read', 'terminal_resize', 'terminal_send',
+    'terminal_read', 'terminal_resize', 'terminal_send', 'terminal_yield',
   ]);
 
   const finiteOpen = await client.callTool({

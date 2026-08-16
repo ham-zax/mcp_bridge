@@ -40,11 +40,19 @@ Sudo is never an automated credential feature.
 - Password entry belongs in an explicitly human-controlled Terminal session.
 - The bridge must not store, infer, log, transmit, or auto-fill a sudo password.
 
-## Human Terminal observation and takeover
+## Human Terminal observation and ownership handoff
 
-`bin/wsl-term watch <session>` attaches a read-only, ignore-size tmux client to the exact private harness PTY. It does not acquire a human lease, cannot inject terminal input, and does not block model send/resize/ordinary close. The broker treats only an explicit tmux read-only client as a non-owning observer; unknown client state remains writable for fail-closed control.
+The human frontend is any suitable interactive TTY; Kitty is not a security or runtime dependency. tmux remains the PTY/process lifetime authority and the broker remains the model mutation gate.
 
-`bin/wsl-term attach <session>` acquires the exact tmux PTY for writable human control. While the human lease or a writable tmux client is active, model send/resize/ordinary close are blocked; model observation remains available. Detaching releases control back to the model.
+`bin/wsl-term new <session>` creates a human-first collaborative session under a pending human lease before the tmux session is exposed, closing the create-to-attach model-write race. The attached writable client blocks model send/resize/ordinary close while model reads remain available.
+
+`bin/wsl-term give <session>` changes the designated human client to read-only + ignore-size and releases the human lease only after the tmux transition is verified. `bin/wsl-term take <session>` establishes human blocking before making the designated client writable. `terminal_yield` uses the same take path and can only return control to a human; it cannot seize human control for the model.
+
+`Ctrl-b T` is a direct tmux `switch-client -r` ownership toggle because tmux read-only clients ignore conditional wrapper bindings. A read-only observer cannot inject pane input until the human explicitly invokes this takeover. Before every model mutation, the broker reconciles actual client flags: any writable client or live lease blocks the model, a unique writable client becomes the designated human target, and multiple writable clients fail closed rather than being auto-resolved.
+
+`bin/wsl-term watch <session>` starts read-only + ignore-size and does not acquire a human lease. `bin/wsl-term attach <session>` is writable human takeover/rejoin and becomes the designated human client when observed. Unknown tmux client state remains writable for fail-closed control.
+
+Human keystrokes are never copied into a separate broker-side input log. Sudo/password input continues to travel directly from the interactive terminal through tmux to the PTY.
 
 ## Public exposure
 

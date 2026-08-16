@@ -15,14 +15,14 @@
 - `wsl-term new <session>` is human-first and must close the create-to-attach model-write race.
 - `wsl-term give <session>` changes the designated human client to read-only + ignore-size while keeping it attached.
 - `wsl-term take <session>` makes the designated client writable and blocks subsequent model mutation immediately.
-- `Ctrl-b T` is a tmux-native same-pane takeover for the designated collaborative client only.
+- `Ctrl-b T` is a tmux-native direct ownership toggle. A read-only observer remains non-writable until the human explicitly invokes it; broker reconciliation designates the unique writable human client and fails closed when multiple human writers exist.
 - Model-initiated yield is exposed explicitly as `terminal_yield`; it may only give control to the human, never seize control from the human.
 - Do not add new regression-test cases. Update existing frozen contract assertions only where the intentionally changed protocol/MCP catalog requires it. Verification uses the existing suite plus disposable tmux/broker acceptance checks.
 - Do not restart the tmux lifetime service during rollout. Restart only `wsl-agent-terminal-broker.service`; the user will refresh the ChatGPT MCP connector afterward.
 
 ## File map
 
-- `providers/terminal/tmux.mjs` — designated-client tmux options, exact client lookup/toggle, guarded takeover binding installation.
+- `providers/terminal/tmux.mjs` — designated-client tmux options, exact client lookup/toggle, direct takeover binding installation.
 - `providers/terminal/broker.mjs` — atomic human-first open, designation reconciliation, give/take control operations.
 - `providers/terminal/protocol.mjs` — private broker operation vocabulary additions.
 - `providers/terminal/cli.mjs` — `new`, `give`, `take`; shared attach path; owner-aware resize mirroring.
@@ -40,22 +40,22 @@
 
 **Interfaces:**
 - Consumes: existing private tmux server and `listClients()`.
-- Produces: designated-client registration/resolution, exact in-place read-only toggling, and a guarded `Ctrl-b T` binding.
+- Produces: designated-client registration/resolution, exact in-place read-only toggling, and the direct `Ctrl-b T` ownership toggle.
 
 **Steps:**
-- Add session-scoped tmux user options for designated client PID and TTY rather than persistent JSON ownership state.
-- Add helpers to set, clear, and resolve the designated client only when both stored PID and TTY match a real client attached to that exact session.
+- Add session-scoped tmux user options for designated client PID, TTY, and tmux client creation time rather than persistent JSON ownership state.
+- Add helpers to set, clear, and resolve the designated client only when stored PID, TTY, and client creation time match a real client attached to that exact session.
 - Add an exact client toggle helper that uses `switch-client -r -c <tty>` only when a state transition is actually required, then re-reads client state to verify the requested writable/read-only result.
-- Install an idempotent global prefix binding for `T` during broker startup. The binding must toggle read-only only when the current client PID+TTY matches the session's designated-client options; ordinary `watch` observers must not become writable through this binding.
+- Install an idempotent global prefix binding for `T` directly to `switch-client -r`; tmux 3.4 ignores conditional wrappers for read-only clients. Pressing the binding is therefore an explicit human takeover/give action. Broker reconciliation promotes the unique writable client to designated ownership and blocks model mutation when multiple writable humans exist.
 - Keep current manual window sizing behavior intact.
 
 **Verification:**
-- Use a disposable tmux server to register one writable client plus one read-only watcher, confirm only the designated client can be toggled by the helper/binding, and confirm session close removes designation naturally.
+- Use a disposable tmux server to confirm the direct `Ctrl-b T` binding toggles a read-only client in place, exact helper transitions are idempotent, and session close removes designation naturally.
 
 **Acceptance criteria:**
 - Designation survives broker restart because it lives in the tmux session.
 - Designation cannot jump to another observer if the designated client disappears.
-- `Ctrl-b T` cannot promote an arbitrary read-only watcher.
+- A read-only watcher remains unable to inject pane input until the user explicitly presses `Ctrl-b T`; an explicit takeover is then visible to broker reconciliation as writable human control.
 
 ### Task 2: Extend broker ownership operations without a second state machine
 
@@ -72,7 +72,8 @@
 - Extract lease creation into a helper that can establish a pending human lease before a new tmux session exists.
 - Implement `session.open_human`: create the pending lease first, open the session inside the existing lifecycle serialization, and remove the lease if creation fails. Return session state plus lease identity to the CLI.
 - When a bound lease is observed as a real client, register that exact client as the designated collaborative client. This also makes existing writable `attach` a valid rejoin/recovery path without changing its takeover semantics.
-- Reconcile stale designated identity against real clients; clear it rather than retargeting another observer.
+- During reconciliation, if exactly one writable human client exists, designate that writer; this lets an explicit `Ctrl-b T` takeover from a prior observer become the handoff target. If a bound designated client has been toggled read-only, release the stale human lease so the model can resume. Multiple writable humans remain model-blocking and are never auto-resolved.
+- Reconcile stale designated identity against real clients; clear it rather than silently choosing among read-only observers.
 - Implement `control.give_model`: resolve the exact designated client, reject conflicting writable human clients, make the designated client read-only, verify it, then remove the human lease so model mutation becomes available. Fail closed if any step is ambiguous.
 - Implement `control.take_human`: establish/refresh a human lease for the designated client before changing tmux state, make that client writable, verify it, and leave the lease/client combination blocking subsequent model mutation. Already-human-owned state is idempotent.
 - Add only the three intentional operations to the private protocol assertion.
