@@ -95,7 +95,7 @@ export async function renderConfig(options) {
   const deployment = {
     ...(await readEnvFile(envFile, { optional: true })),
     ...Object.fromEntries(
-      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
+      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_PERSONAL_DEFAULT_CWD'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
     ),
   };
   const profileValues = await readEnvFile(path.join(repoRoot, 'config', 'profiles', `${profile}.env`));
@@ -114,9 +114,9 @@ export async function renderConfig(options) {
     if (profileValues.MCP_DEV_PATH_MODE !== 'user') {
       throw new Error('profile personal must set MCP_DEV_PATH_MODE=user');
     }
-    personalDefaultCwd = profileValues.MCP_DEV_DEFAULT_CWD;
+    personalDefaultCwd = deployment.MCP_PERSONAL_DEFAULT_CWD || home;
     if (typeof personalDefaultCwd !== 'string' || !path.isAbsolute(personalDefaultCwd)) {
-      throw new Error('profile personal must set MCP_DEV_DEFAULT_CWD to an absolute path');
+      throw new Error('MCP_PERSONAL_DEFAULT_CWD must be an absolute path when set');
     }
   }
 

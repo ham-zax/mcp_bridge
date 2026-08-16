@@ -26,17 +26,17 @@ MCP_WORKSPACE_ROOT=/tmp/example-workspace
 MCP_PUBLIC_URL=https://mcp.example.test
 MCP_TUNNEL_NAME=
 ENV
-  mkdir -p "$tmp/runtime"
+  mkdir -p "$tmp/runtime" "$tmp/home"
   for profile in restricted trusted-dev personal; do
-    XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
       --profile "$profile" \
       --env-file "$tmp/deployment.env" \
       --state-dir "$tmp/$profile" \
       --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
   done
-  node - "$tmp/restricted/1mcp/mcp.json" "$tmp/trusted-dev/1mcp/mcp.json" "$tmp/personal/1mcp/mcp.json" "$tmp/personal/bridge.env" "$ROOT" "$tmp/runtime" <<'NODE2'
+  node - "$tmp/restricted/1mcp/mcp.json" "$tmp/trusted-dev/1mcp/mcp.json" "$tmp/personal/1mcp/mcp.json" "$tmp/personal/bridge.env" "$ROOT" "$tmp/runtime" "$tmp/home" <<'NODE2'
 const fs = require('fs');
-const [restrictedFile, trustedFile, personalFile, personalEnvFile, root, runtimeDir] = process.argv.slice(2);
+const [restrictedFile, trustedFile, personalFile, personalEnvFile, root, runtimeDir, personalHome] = process.argv.slice(2);
 const restricted = JSON.parse(fs.readFileSync(restrictedFile, 'utf8'));
 const trusted = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
 const personal = JSON.parse(fs.readFileSync(personalFile, 'utf8'));
@@ -57,7 +57,6 @@ if (restricted.mcpServers.dev.env.MCP_DEV_TERMINAL_SOCKET !== undefined) process
 if (trusted.mcpServers.dev.env.MCP_DEV_TERMINAL_SOCKET !== undefined) process.exit(1);
 if (personal.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'unrestricted') process.exit(1);
 if (personal.mcpServers.dev.env.MCP_DEV_PATH_MODE !== 'user') process.exit(1);
-const personalHome = '/home/' + 'hamza';
 if (personal.mcpServers.dev.env.MCP_DEV_DEFAULT_CWD !== personalHome) process.exit(1);
 if (personal.mcpServers.dev.env.MCP_DEV_WORKSPACE_ROOT !== undefined) process.exit(1);
 if (personal.mcpServers.dev.env.MCP_DEV_TERMINAL_SOCKET !== runtimeDir + '/wsl-agent-terminal.sock') process.exit(1);
@@ -73,6 +72,54 @@ NODE2
   local rc=$?
   rm -rf "$tmp"
   return "$rc"
+}
+
+test_personal_default_cwd_override() {
+  local tmp output rc
+  tmp="$(mktemp -d)" || return 1
+  mkdir -p "$tmp/home" "$tmp/runtime" "$tmp/custom-cwd"
+  cat > "$tmp/deployment.env" <<EOF
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TUNNEL_NAME=
+MCP_PERSONAL_DEFAULT_CWD=$tmp/custom-cwd
+EOF
+
+  HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    --profile personal \
+    --env-file "$tmp/deployment.env" \
+    --state-dir "$tmp/state" \
+    --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
+
+  node - "$tmp/state/1mcp/mcp.json" "$tmp/custom-cwd" <<'NODE'
+const fs = require('fs');
+const [configFile, expected] = process.argv.slice(2);
+const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+if (config.mcpServers.dev.env.MCP_DEV_DEFAULT_CWD !== expected) process.exit(1);
+if (config.mcpServers.code.env.MCP_CODE_DEFAULT_CWD !== expected) process.exit(1);
+NODE
+  rc=$?
+  [ "$rc" -eq 0 ] || { rm -rf "$tmp"; return "$rc"; }
+
+  cat > "$tmp/invalid.env" <<'EOF'
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TUNNEL_NAME=
+MCP_PERSONAL_DEFAULT_CWD=relative/path
+EOF
+  output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    --profile personal \
+    --env-file "$tmp/invalid.env" \
+    --state-dir "$tmp/invalid-state" \
+    --repo-root "$ROOT" 2>&1)"
+  rc=$?
+  rm -rf "$tmp"
+  [ "$rc" -ne 0 ] && grep -qi 'absolute' <<<"$output"
+}
+
+test_personal_runtime_files_have_no_machine_home() {
+  ! grep -R -nF '/home/hamza' \
+    "$ROOT/config/profiles/personal.env" \
+    "$ROOT/config/templates/mcp-personal.json" \
+    "$ROOT/systemd/wsl-agent-terminal-broker.service.in" >/dev/null
 }
 
 
@@ -131,6 +178,8 @@ test_legacy_filesystem_dependency_removed() {
 
 run_test 'raw CodeDB surface stays removed from public composition' test_raw_codedb_surface_removed
 run_test 'final rendered composition adds Code and Terminal only to personal mode' test_final_rendered_composition
+run_test 'personal default cwd supports an absolute deployment override' test_personal_default_cwd_override
+run_test 'personal runtime files carry no machine-specific home path' test_personal_runtime_files_have_no_machine_home
 run_test 'personal smoke validation accepts the private provider contract' test_personal_smoke_validation
 run_test 'personal toolbox contract passes' bash "$ROOT/tests/personal-toolbox.sh"
 run_test 'Pi dev provider pins and structure are complete' test_pi_provider_structure
