@@ -1,7 +1,7 @@
 # Edit V2 Current-Main Qualification
 
 **Control:** `9098c9f` for both repeated Edit V1 (A0a) and one-call `apply_patch` (A0b).
-**Candidate implementation:** `41ad5b2` (A1).
+**Candidate implementation:** `ecf5062` (A1).
 **Method:** deterministic offline capability/cost mechanics; this is not causal evidence of GPT-5.6 Sol routing behavior.
 
 ## Result
@@ -14,15 +14,15 @@ All three strategies completed every ordinary workload correctly on first attemp
 
 | Workload | Strategy | Calls | Visible tokens | Wall ms | Correct |
 |---|---|---:|---:|---:|---|
-| two-targets | A0a-edit-v1 | 2 | 96 | 3.53 | yes |
-| two-targets | A0b-apply-patch | 1 | 76 | 3.17 | yes |
-| two-targets | A1-edit-v2 | 1 | 72 | 3.38 | yes |
-| six-targets | A0a-edit-v1 | 6 | 288 | 10.30 | yes |
-| six-targets | A0b-apply-patch | 1 | 192 | 8.29 | yes |
-| six-targets | A1-edit-v2 | 1 | 196 | 9.42 | yes |
-| thirty-two-targets | A0a-edit-v1 | 32 | 1536 | 52.69 | yes |
-| thirty-two-targets | A0b-apply-patch | 1 | 946 | 39.92 | yes |
-| thirty-two-targets | A1-edit-v2 | 1 | 1002 | 41.34 | yes |
+| two-targets | A0a-edit-v1 | 2 | 96 | 3.98 | yes |
+| two-targets | A0b-apply-patch | 1 | 76 | 3.38 | yes |
+| two-targets | A1-edit-v2 | 1 | 72 | 3.55 | yes |
+| six-targets | A0a-edit-v1 | 6 | 288 | 11.40 | yes |
+| six-targets | A0b-apply-patch | 1 | 192 | 8.89 | yes |
+| six-targets | A1-edit-v2 | 1 | 196 | 9.88 | yes |
+| thirty-two-targets | A0a-edit-v1 | 32 | 1536 | 54.60 | yes |
+| thirty-two-targets | A0b-apply-patch | 1 | 946 | 43.27 | yes |
+| thirty-two-targets | A1-edit-v2 | 1 | 1002 | 45.05 | yes |
 
 Relative visible-token deltas for Edit V2:
 
@@ -49,7 +49,7 @@ Relative visible-token deltas for Edit V2:
 - `A0b-apply-patch`: concurrent same-anchor conflict safe = `true`; already-aborted cancellation safe = `true`.
 - `A1-edit-v2`: concurrent same-anchor conflict safe = `true`; already-aborted cancellation safe = `true`.
 
-Edit V2 additionally has deterministic implementation tests for all-target zero-mutation preflight, canonical-alias rejection, invalid UTF-8/non-regular targets, same-descriptor inode/snapshot revalidation, positional write/truncate, uncertain write failures, partial outcomes, overlapping multi-path batches, and cancellation on both sides of the mutation barrier. Those are implementation-safety evidence, not advantages attributed to this simple three-way safety probe.
+Edit V2 additionally has deterministic implementation tests for all-target zero-mutation preflight, canonical-alias rejection, invalid UTF-8/non-regular targets, same-descriptor inode/snapshot revalidation, positional write/truncate, uncertain write failures, partial outcomes, overlapping multi-path batches, cancellation on both sides of the mutation barrier, requested-path-only partial diagnostics, and successful-mutation classification even if descriptor close later fails. Those are implementation-safety evidence, not advantages attributed to this simple three-way safety probe.
 
 ## Permanent catalog cost
 
