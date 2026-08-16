@@ -30,6 +30,7 @@ is_public_path() {
     systemd/wsl-agent-tmux.service.in | \
     systemd/wsl-agent-terminal-broker.service.in | \
     providers/code-router/* | \
+    skills/mcp-harness-router/* | \
     bin/wsl-term)
       return 1
       ;;
@@ -102,6 +103,7 @@ test_private_only_paths_are_not_public() {
     systemd/wsl-agent-tmux.service.in \
     systemd/wsl-agent-terminal-broker.service.in \
     providers/code-router/example \
+    skills/mcp-harness-router/example \
     bin/wsl-term; do
     if is_public_path "$path"; then
       echo "private-only path classified as public: $path" >&2
