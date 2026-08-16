@@ -290,7 +290,11 @@ timeout_seconds  default 300; range 1..86400
 hold_seconds     default 10; range 0..15
 ```
 
-`hold_seconds=0` performs one bounded create/check without intentionally holding for another poll. For `hold_seconds>0`, the hold clock starts near invocation entry and is the total per-call budget, including lock/GC/source work. An in-flight source check receives an internal boundary signal at the earlier of caller abort, durable wait deadline, or call hold deadline, so a source's independent timeout cannot add a full extra probe window. Hold expiration returns `pending`; it is not a durable timeout. A single MCP request never intentionally holds more than 15 seconds even when the durable deadline is much longer.
+`hold_seconds=0` performs one immediate bounded arm/check cycle without intentionally holding for another poll. Zero is **not** a zero-millisecond source-operation deadline: initial arm may use the source's normal bounded behavior, while caller abort and the durable absolute timeout still apply.
+
+For `hold_seconds>0`, the hold clock starts near invocation entry and is the total per-call budget, including lock acquisition, state load/GC, initial source arm, resumed checks, polling sleeps, and source retries. Initial arm and resumed checks use the same internal operation boundary at the earliest of caller abort, durable wait deadline, or positive call hold deadline, so a source's independent timeout/retry window cannot add a full extra interval beyond the remaining hold.
+
+If positive hold expires **before the first fully armed durable persistence**, the call returns stable `WAIT_HOLD_EXPIRED` and creates no record. A name-only resume therefore returns `WAIT_NOT_FOUND`; the caller must explicitly retry create to choose a new arm boundary. If positive hold expires **after** a fully armed record exists, the invocation returns `pending` and preserves the original deadline/baseline/source identity. Hold expiration is not durable cancellation or durable timeout. A single MCP request never intentionally holds more than 15 seconds even when the durable deadline is much longer.
 
 No `wait_list`, notification, history, cron, or workflow/action graph is included in Phase 2.
 
@@ -560,7 +564,7 @@ There are two different cancellations.
 
 ### MCP/request cancellation or ChatGPT disconnect
 
-Initial create has a stronger linearization rule than later resume calls. The engine computes the absolute deadline and obtains the source arm/baseline before writing the first durable record. If request cancellation wins before that fully armed record is persisted, the call returns `WAIT_ABORTED` and **no named wait exists**. A name-only resume therefore returns `WAIT_NOT_FOUND`; an explicit create retry establishes a new arm boundary. There is never a durable `pending + sourceArmed=false + baseline=null` state that can silently re-arm later.
+Initial create has a stronger linearization rule than later resume calls. The engine computes the absolute deadline and obtains the source arm/baseline before writing the first durable record. If request cancellation wins before that fully armed record is persisted, the call returns `WAIT_ABORTED` and **no named wait exists**. If a positive hold deadline wins before that persistence, the call instead returns `WAIT_HOLD_EXPIRED` and likewise leaves no named wait. A name-only resume therefore returns `WAIT_NOT_FOUND` in either pre-arm case; an explicit create retry establishes a new arm boundary. There is never a durable `pending + sourceArmed=false + baseline=null` state that can silently re-arm later.
 
 Once a fully armed record exists, abort the current lock acquisition/check/hold promptly while preserving that record as `pending` with the same baseline/deadline. A request canceled while queued for the per-name wait lock must be removed from contention and must never later acquire the lock and continue checking after cancellation.
 
@@ -655,6 +659,7 @@ Stable error conditions include:
 WAIT_NOT_FOUND
 WAIT_CONFLICT
 WAIT_BUSY
+WAIT_HOLD_EXPIRED
 INVALID_WAIT_CONDITION
 WAIT_SOURCE_UNAVAILABLE
 WAIT_SOURCE_REPLACED
@@ -667,7 +672,9 @@ Invalid schemas fail at MCP validation before polling begins.
 
 Condition-specific probe failures that mean "not ready yet" are not errors. For example connection refused, a missing file under `file_exists`, HTTP non-ready status, and a systemd state mismatch leave the wait pending.
 
-`WAIT_SOURCE_UNAVAILABLE` is transient source availability, not a durable terminal wait status. The current MCP call returns the error before the engine persists a terminal transition; the named wait keeps its original `pending` state, deadline, and baseline so a later resume retries the same source identity.
+`WAIT_HOLD_EXPIRED` is invocation-local control flow for a positive-hold create that could not establish its first durable baseline before the call budget ended. It is returned as a stable model-facing error and explicitly means **no durable wait was created**; it must not be treated as `WAIT_ABORTED`, `cancelled`, or a pending unarmed record.
+
+`WAIT_SOURCE_UNAVAILABLE` is transient source availability, not a durable terminal wait status. The current MCP call returns the error before the engine persists a terminal transition; an already-armed named wait keeps its original `pending` state, deadline, and baseline so a later resume retries the same source identity.
 
 ## Generic condition semantics in detail
 
@@ -797,7 +804,8 @@ Prove:
 - initial create is not durable until a complete source baseline is captured; abort before first armed persistence leaves no name and cannot silently re-arm later;
 - named create is durable and retry-idempotent after first armed persistence;
 - absolute deadline beats source results that complete late, including late `matched` results from arm/check;
-- `hold_seconds` is the total bounded budget for resumed calls and hold expiration returns pending rather than durable timeout;
+- `hold_seconds=0` allows one normal bounded initial arm/check without a zero-ms hold deadline;
+- positive `hold_seconds` is the total invocation budget, including initial arm; pre-arm hold expiry returns `WAIT_HOLD_EXPIRED` with no record, while post-arm hold expiry returns pending with durable state preserved;
 - conflicting same-name definition returns `WAIT_CONFLICT`;
 - resume after provider restart uses persisted deadline/baseline;
 - request abort while acquiring the per-name lock or during the current hold stops promptly, never enters later, and leaves an already-armed wait pending;

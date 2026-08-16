@@ -324,8 +324,12 @@ start the invocation hold budget near WaitEngine.run() entry
 abort-aware lock acquisition is capped at WAIT_LOCK_ACQUIRE_MS (250 ms)
 lock unavailable within 250 ms -> WAIT_BUSY; durable state unchanged
 create -> normalize definition -> compute absolute deadline -> source.arm in memory
-initial arm success -> deadline arbitration -> persist first fully armed record atomically
+hold_seconds=0 initial arm -> use the source's normal bounded arm behavior; do not impose a zero-ms hold deadline
+hold_seconds>0 initial arm -> reuse the derived operation boundary bounded by caller abort, absolute wait deadline, and positive call hold deadline
+positive hold expires before first durable baseline -> WAIT_HOLD_EXPIRED; no record exists; later name-only resume -> WAIT_NOT_FOUND
+initial arm success inside budget -> deadline/hold arbitration -> persist first fully armed record atomically
 initial arm request abort before first persistence -> WAIT_ABORTED; no record exists
+absolute wait deadline before first baseline persistence -> return timeout semantics without inventing an unarmed record
 resume -> load already-armed record
 cancel -> persist cancelled and return
 terminal status -> replay persisted result
@@ -334,11 +338,11 @@ source check -> derived operation signal bounded by caller abort, absolute wait 
 after each awaited source arm/check -> absolute deadline arbitration
 immediately before source-result persistence -> absolute deadline arbitration again
 absolute deadline wins over any late matched/pending/failed source result -> persist timeout
-call hold deadline wins over an unfinished check -> return pending; do not persist timeout or the late source result
+call hold deadline wins over an unfinished check after durable arm -> return pending; do not persist timeout or the late source result
 request AbortSignal wins before result commitment -> WAIT_ABORTED; an existing armed record remains pending unchanged
 ```
 
-For `hold_seconds>0`, the hold deadline is a total invocation budget and includes lock/GC/source work; an in-flight check receives an internal boundary signal so it cannot overrun the remaining call budget by its full source timeout. `hold_seconds=0` remains a single bounded arm/check without intentional holding. Initial create never exposes an unarmed durable record: if first arm cannot complete before caller cancellation, no resumable name is created.
+`hold_seconds=0` means one immediate bounded arm/check cycle with no polling hold afterward; it does **not** impose a zero-millisecond deadline on source arming. For `hold_seconds>0`, the hold deadline is a true total invocation budget beginning near `WaitEngine.run()` entry and includes lock/GC/source arm/source check/polling work. The same internal operation-boundary machinery is used for initial arm and resumed checks so source timeouts/retry windows cannot add a full extra interval beyond the remaining positive hold. If the positive hold expires before the first fully armed persistence, the call returns `WAIT_HOLD_EXPIRED` and creates no durable state. If the hold expires after durable arm, the call returns `pending` and preserves the existing baseline/deadline. Initial create never exposes an unarmed durable record.
 
 Do not allow lock arbitration to turn `hold_seconds=0` into a long blocking call or to extend a 15-second hold by another long lock timeout.
 

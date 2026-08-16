@@ -3,7 +3,7 @@
 Date: 2026-08-16
 Branch: `feat/personal-harness-agent-3-await-implementation`
 Original implementation checkpoint entering qualification: `8c4715a8b5dc219ac32787ec860782871a310fd8`
-Independent-review blocker fixes: `2fa0e8196ba7a8ad6ef263f89b5a014636eb36d9` (systemd resumability/environment/abort), `46f62b08c22359d318940b56acd7833c9315c2c6` (crash-safe per-name locking), and `a38e561a13c5fc7a8f9412d76c52a40089b37f37` (deadline/initial-arm/hold/Terminal-transport/state correctness).
+Independent-review blocker fixes: `2fa0e8196ba7a8ad6ef263f89b5a014636eb36d9` (systemd resumability/environment/abort), `46f62b08c22359d318940b56acd7833c9315c2c6` (crash-safe per-name locking), `a38e561a13c5fc7a8f9412d76c52a40089b37f37` (deadline/initial-arm/hold/Terminal-transport/state correctness), and `4473e3da66433f0e6ea72ca6086b1de2dc34006a` (positive-hold total budget during first source arm).
 Scope: focused-plan Task 6 local qualification and independent-review correctness requalification only. Focused-plan Task 7, live bridge activation, and ChatGPT Actions refresh were **not run**.
 
 ```text
@@ -29,6 +29,7 @@ ddf2f5d  feat: add local readiness wait sources
 2fa0e81  fix: keep systemd waits resumable
 46f62b0  fix: make wait locks crash-safe
 a38e561  fix: harden durable wait correctness
+4473e3d  fix: bound initial wait arming by positive hold
 ```
 
 The accepted live integration worktree was not modified during Tasks 3-6 and remained at:
@@ -49,12 +50,12 @@ node --test .superpowers/web/2026-08-16-terminal-await-resume/qualify-task6.test
 Result:
 
 ```text
-12 tests
-12 pass
+15 tests
+15 pass
 0 fail
 ```
 
-The twelve cases exercised the actual stdio personal `wait` tool plus disposable Terminal/local resources, not only direct source methods.
+The fifteen cases exercised the actual stdio personal `wait` tool plus disposable Terminal/local resources, including positive initial-arm hold expiry and shared-provider hold concurrency, not only direct source methods.
 
 ## 1. Race-safe Terminal output and independent model cursor
 
@@ -213,15 +214,73 @@ EXPLICIT_TERMINAL_CLOSE       WAIT_SOURCE_ENDED; durable failed record carries s
 SEMANTIC_CORRUPT_STATE        WAIT_STATE_CORRUPT
 ```
 
-The initial-create linearization contract is now explicit: compute the absolute deadline, obtain the source arm/baseline in memory, arbitrate the deadline, then persist the first fully armed record. If request cancellation wins before that persistence, no resumable unarmed record exists. Once armed state is durable, later request cancellation continues to preserve the same pending baseline/deadline.
+The initial-create linearization contract is explicit: compute the absolute deadline, obtain the source arm/baseline in memory, arbitrate the deadline/hold/caller boundary, then persist the first fully armed record. If request cancellation wins before that persistence, no resumable unarmed record exists. `hold_seconds=0` keeps one normal bounded arm/check cycle and does not impose a zero-millisecond arm deadline. For `hold_seconds>0`, the total call budget begins near `WaitEngine.run()` entry and now covers initial source arm as well as resumed checks/polling. If positive hold expires before the first durable baseline, the call returns `WAIT_HOLD_EXPIRED`, creates no record, and name-only resume returns `WAIT_NOT_FOUND`; if hold expires after durable arm, the call returns pending and preserves that record.
 
-Deadline arbitration occurs before source work, after awaited source work, and immediately before source-result persistence. A late `matched` result cannot beat the durable absolute deadline. For resumed calls with `hold_seconds>0`, the call budget begins near `WaitEngine.run()` entry and an internal source-operation signal distinguishes caller abort, durable deadline, and hold expiration. Hold expiration returns pending and does not become durable timeout.
+Deadline arbitration occurs before source work, after awaited source work, and immediately before source-result persistence. A late `matched` result cannot beat the durable absolute deadline. The same internal operation-boundary machinery distinguishes caller abort, durable deadline, and positive hold for initial arm and resumed checks. `WAIT_HOLD_EXPIRED` is distinct from `WAIT_ABORTED` and never creates a pending unarmed record.
 
 The private BrokerClient now accepts an internal request signal and makes connection attempts, retry sleeps, and in-flight sockets abortable. Terminal wait transport errors normalize to transient `WAIT_SOURCE_UNAVAILABLE`; caller abort normalizes to `WAIT_ABORTED`; an absent explicitly destroyed Terminal generation normalizes to `WAIT_SOURCE_ENDED`; a reopened same-name different generation remains `WAIT_SOURCE_REPLACED`.
 
 Version-1 wait records are now semantically validated on every read/write. Durable pending records are always fully armed with a non-null baseline and consistent definition/timeout/deadline/timestamps; terminal statuses have status-dependent completion invariants. Malformed semantic state cannot become immortal pending state or silently re-arm.
 
-## 8. Personal schema measurement
+## 8. Final positive-hold initial-arm requalification
+
+The final narrow review identified one remaining activation blocker: positive `hold_seconds` bounded resumed source checks but initial `source.arm()` still received only the caller signal. The corrected engine reuses the existing operation-boundary machinery for first arm only when `hold_seconds>0`; zero-hold create retains its normal bounded source behavior.
+
+Fresh stdio personal-provider evidence:
+
+```text
+DELAYED VALID TERMINAL ARM
+hold_seconds                         1
+elapsed                              1006.56 ms
+result                               WAIT_HOLD_EXPIRED
+record immediately after return      absent
+record after delayed 1.5 s response  absent
+name-only resume                      WAIT_NOT_FOUND
+broker requests                       1
+live broker sockets afterward         0
+
+STALLED TERMINAL BROKER
+hold_seconds                         1
+elapsed                              1006.12 ms
+result                               WAIT_HOLD_EXPIRED
+record                                absent
+broker requests after +1.2 s          1
+live broker sockets after +1.2 s      0
+```
+
+The delayed broker attempted to produce an otherwise valid `session.observe` response after 1.5 seconds; the client-side hold boundary had already closed the request and no state appeared later. The stalled broker would normally remain in the BrokerClient request window, but positive hold canceled the in-flight socket at about one second rather than surfacing a later `WAIT_SOURCE_UNAVAILABLE`.
+
+Focused engine/MCP regressions additionally prove:
+
+```text
+caller abort during positive initial arm       WAIT_ABORTED; no record
+absolute timeout before initial baseline       TIMEOUT semantics; no unarmed record
+initial arm succeeds at ~200 ms, hold=1         durable armed record; later hold -> pending
+identical create after durable arm              no re-arm; original baseline/deadline retained
+hold_seconds=0 with ~150 ms arm                 normal arm + one check; no WAIT_HOLD_EXPIRED
+post-return delayed source completion           no later state mutation
+```
+
+The successful shared-provider concurrency gate was also rerun using **one** Pi provider with two unrelated ten-second waits in flight:
+
+```text
+wait A elapsed                    10007.10 ms
+wait B elapsed                    10000.62 ms
+read baseline                         2.98 ms
+read during both holds                2.55 ms
+bash baseline                         7.24 ms
+bash during both holds                4.81 ms
+different wait baseline              10.97 ms
+different wait during both holds     10.49 ms
+```
+
+There is no multi-second head-of-line delay for unrelated requests. Therefore:
+
+```text
+WAIT_HOLD_CONCURRENCY = PASS
+```
+
+## 9. Personal schema measurement
 
 Tokenizer/accounting matches the Phase-2 benchmarks:
 
@@ -271,7 +330,7 @@ cancel          {name, cancel:true}
 
 No regex, agent lifecycle, shell predicate, cron, notification, or arbitrary-command condition is present.
 
-## 9. `WAIT_SCHEMA_VALUE_GATE`
+## 10. `WAIT_SCHEMA_VALUE_GATE`
 
 The value benchmark used two identical disposable Terminal build/watch sessions in parallel for about 31 seconds. Each emitted one moderate compile/status line every 0.5 seconds and then `SERVER_READY`.
 
@@ -307,7 +366,7 @@ Result:
 1 test
 1 pass
 0 fail
-~32.6 s workflow on the latest correctness checkpoint
+~32.5 s workflow on the final positive-hold correctness checkpoint
 ```
 
 Actual token accounting:
@@ -334,7 +393,7 @@ Break-even is reached after **two additional noisy polling checks after the init
 
 Call count is intentionally equal in this bounded-resume workflow. The value comes from durable predicate/baseline state, name-only follow-ups, and preventing irrelevant transcript bytes from entering model context on every readiness poll. The final measured workflow remains context-positive even after charging the entire eight-condition schema tax once.
 
-The correctness repair does not modify `wait-schema.mjs`, dev-provider registration, personal composition, or any model-facing field. A fresh ~32.6-second benchmark rerun again produced four calls per side and the same aggregate result bytes (manual 5,534; named wait 247). The local WSL connector currently does not have the previously used `tiktoken` Python package installed, so this focused mission did not install a new dependency solely to re-tokenize an unchanged schema surface. The saved qualified `o200k_base` accounting above remains the reference measurement; the 590-token margin is materially larger than any token-boundary variation from fresh timestamps/chunk boundaries.
+The correctness repairs do not modify `wait-schema.mjs`, dev-provider registration, personal composition, or any model-facing input field. The final positive-hold fix adds only the stable runtime error code `WAIT_HOLD_EXPIRED`. A fresh ~32.5-second benchmark rerun again passed with four calls per side; the saved qualified schema remains 5,293 bytes / 1,213 `o200k_base` tokens with a 557-token incremental wait tax. The local WSL connector currently does not have the previously used `tiktoken` Python package installed, so this focused mission did not install a new dependency solely to re-tokenize an unchanged schema surface. The saved qualified accounting remains the reference measurement.
 
 Therefore:
 
@@ -344,16 +403,19 @@ WAIT_SCHEMA_VALUE_GATE = PASS
 
 This verdict is local/offline context evidence, not a claim about hidden ChatGPT billing. Focused-plan Task 7 must still confirm that the product-visible refreshed catalog matches the locally measured schema before live acceptance.
 
-## Final local regression gates after independent-review correctness repair
+## Final local regression gates after positive-hold correctness repair
 
-After the focused correctness repair:
+After the final focused correction and requalification:
 
 ```text
-Pi provider               160 / 160 PASS
+Pi provider               168 / 168 PASS
 Terminal                  45 / 45 PASS
-harness                    6 / 6 PASS
-publication               16 / 16 PASS
-lifecycle                 27 / 27 PASS
+local qualification        15 / 15 PASS
+schema-value workflow        1 / 1 PASS
+harness                      6 / 6 PASS
+publication                 16 / 16 PASS
+lifecycle                   27 / 27 PASS
+frozen Terminal              2 / 2 PASS
 Node syntax                        PASS
 Bash syntax                        PASS
 git diff --check                  PASS
