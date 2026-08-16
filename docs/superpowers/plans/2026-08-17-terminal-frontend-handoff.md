@@ -49,7 +49,7 @@
 ### Do not modify unless implementation evidence requires it
 
 - `providers/terminal/protocol.mjs` — no new operation is planned.
-- `providers/terminal/tmux.mjs` — no change is planned; `wsl-term present` should use tmux's existing `window-size manual` option before read-only attach. Modify this module only if focused tests prove the CLI-level control cannot preserve the required sizing semantics.
+- `providers/terminal/tmux.mjs` — initially no change was planned beyond CLI-level `window-size manual`; live multi-session acceptance proved `setClientReadOnly()` must target the same session explicitly while toggling client flags (`switch-client -c <tty> -t =<session> -r`) so Kitty handoff cannot switch to another tmux session. This is the only tmux-layer behavior change required by the final implementation.
 - `config/templates/mcp-personal.json` and `scripts/render-config.mjs` — use inherited `HOME` plus optional `MCP_TERMINAL_KITTY_BIN`; avoid new rendered config unless the provider environment proves insufficient.
 - Herdr production files/configuration.
 

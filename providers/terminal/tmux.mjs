@@ -284,7 +284,7 @@ export class TmuxBackend {
     }
     if (before.readOnly === readOnly) return before;
 
-    await this.run(['switch-client', '-c', tty, '-r']);
+    await this.run(['switch-client', '-c', tty, '-t', `=${name}`, '-r']);
     const after = await findClient();
     if (!after || after.readOnly !== readOnly) {
       throw new TerminalError(

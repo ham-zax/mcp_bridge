@@ -320,6 +320,10 @@ test('wsl-term present keeps model control, then reuses the same exact PTY clien
     name: 'cli-present', command: "printf 'PRESENT_READABLE\\n'; exec cat", cols: 100, rows: 40,
   }));
   assert.equal(opened.ok, true, JSON.stringify(opened));
+  const distractor = await brokerRequest(sandbox.brokerSocket, request('present-other-open', 'session.open', {
+    name: 'cli-present-other', command: 'exec cat', cols: 80, rows: 24,
+  }));
+  assert.equal(distractor.ok, true, JSON.stringify(distractor));
 
   const present = spawnWslTermPresent(t, sandbox, 'cli-present');
   let actualClient;
@@ -347,7 +351,8 @@ test('wsl-term present keeps model control, then reuses the same exact PTY clien
     name: 'cli-present',
   }));
   assert.equal(taken.ok, true, JSON.stringify(taken));
-  const writableClient = tmuxClients(sandbox.socketPath).find((client) => client.session === 'cli-present');
+  const writableClient = tmuxClients(sandbox.socketPath).find((client) => client.pid === actualClient.pid);
+  assert.equal(writableClient?.session, 'cli-present');
   assert.equal(writableClient?.pid, actualClient.pid);
   assert.equal(writableClient?.readOnly, false);
 
@@ -371,7 +376,8 @@ test('wsl-term present keeps model control, then reuses the same exact PTY clien
     name: 'cli-present',
   }));
   assert.equal(given.ok, true, JSON.stringify(given));
-  const readOnlyAgain = tmuxClients(sandbox.socketPath).find((client) => client.session === 'cli-present');
+  const readOnlyAgain = tmuxClients(sandbox.socketPath).find((client) => client.pid === actualClient.pid);
+  assert.equal(readOnlyAgain?.session, 'cli-present');
   assert.equal(readOnlyAgain?.pid, actualClient.pid);
   assert.equal(readOnlyAgain?.readOnly, true);
 
