@@ -32,6 +32,12 @@ Private Codex-like WSL authority.
 
 This profile is intentionally powerful. Treat it like giving a coding agent an interactive shell as your WSL user.
 
+## CodeDB resource guidance
+
+The personal Code tools are description-guided, not resource-enforced. A first Code call for a repository may start a persistent rooted CodeDB child and create or update substantial on-disk index state. On large repositories this can consume significant disk and RAM. The model-facing descriptions therefore direct large or unfamiliar repository discovery toward bounded Dev Bash/`rg` and focused `read` before CodeDB-backed intelligence when CodeDB state/cost is unknown.
+
+There is no repository-size preflight, threshold, cgroup, or approval database in this design. Because personal Bash intentionally has the WSL user's authority, description text cannot form a privilege boundary against deliberate raw CLI use; it is routing guidance intended to prevent accidental expensive work.
+
 ## Sudo
 
 Sudo is never an automated credential feature.

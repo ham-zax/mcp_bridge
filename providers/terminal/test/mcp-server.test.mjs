@@ -93,22 +93,38 @@ test('Terminal MCP exposes exactly seven public tools with the frozen schemas', 
     const open = tools.find((tool) => tool.name === 'terminal_open');
     assert.deepEqual(Object.keys(open.inputSchema.properties).sort(), ['cols', 'command', 'cwd', 'name', 'rows']);
     assert.deepEqual(open.inputSchema.required, ['name']);
-    assert.match(open.description, /private.*wsl-agent/i);
-    assert.match(open.description, /default tmux/i);
+    assert.match(open.description, /durable.*PTY|PTY.*durable/i);
+    assert.match(open.description, /survive.*MCP.*broker|MCP.*broker.*restart/i);
+    assert.match(open.description, /Bash.*bounded|bounded.*Bash/i);
+    assert.match(open.description, /omit.*command.*shell|command.*omit.*shell/i);
 
     const send = tools.find((tool) => tool.name === 'terminal_send');
-    assert.match(send.description, /wsl-term watch <session>/i);
-    assert.match(send.description, /wsl-term attach <session>/i);
+    assert.match(send.description, /exactly one.*text.*key|text.*key.*exactly one/i);
+    assert.match(send.description, /does not.*Enter|no.*implicit.*Enter/i);
+    assert.match(send.description, /HUMAN_HAS_CONTROL/i);
+    assert.match(send.description, /do not.*bypass|must not.*bypass/i);
 
     const read = tools.find((tool) => tool.name === 'terminal_read');
     assert.deepEqual(Object.keys(read.inputSchema.properties).sort(), ['cursor', 'name', 'snapshot']);
+    assert.match(read.description, /persisted.*unread|persisted.*position/i);
+    assert.match(read.description, /explicit.*cursor.*replay|replay.*cursor/i);
+    assert.match(read.description, /snapshot.*without.*advanc|without.*advanc.*snapshot/i);
 
     const resize = tools.find((tool) => tool.name === 'terminal_resize');
     assert.deepEqual(Object.keys(resize.inputSchema.properties).sort(), ['cols', 'name', 'rows']);
 
+    const list = tools.find((tool) => tool.name === 'terminal_list');
+    assert.match(list.description, /before mutation/i);
+
     const yieldTool = tools.find((tool) => tool.name === 'terminal_yield');
     assert.deepEqual(Object.keys(yieldTool.inputSchema.properties).sort(), ['name']);
     assert.deepEqual(yieldTool.inputSchema.required, ['name']);
+    assert.match(yieldTool.description, /already attached.*designated human/i);
+    assert.match(yieldTool.description, /does not.*attach|does not.*create/i);
+
+    const close = tools.find((tool) => tool.name === 'terminal_close');
+    assert.match(close.description, /kills.*tmux session|destroy.*PTY.*process/i);
+    assert.match(close.description, /force=true.*override/i);
 
     const both = await client.callTool({
       name: 'terminal_send',

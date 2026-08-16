@@ -61,14 +61,14 @@ export function createCodeFacadeServer({ router, defaultCwd = '/home/hamza' } = 
   if (typeof defaultCwd !== 'string' || defaultCwd.length === 0) throw new TypeError('defaultCwd must be a non-empty path');
 
   const server = new McpServer({ name: 'code', version: '0.1.0' });
-  const cwd = z.string().min(1).describe('Path inside the target Git repository; defaults to /home/hamza');
+  const cwd = z.string().min(1).describe('Path inside the intended Git repository. Pass it explicitly for multi-repository work; omission uses the configured Code default cwd and may fail when that path is not inside a Git repository.');
   const modelResult = result => ({
     content: result.content,
     ...(result.isError ? { isError: true } : {})
   });
 
   server.registerTool('code_search', {
-    description: 'Ranked repository-rooted code search for exploratory text when the exact symbol is unknown.',
+    description: 'Ranked repository-rooted search for exploratory text when the exact symbol is unknown; prefer code_symbol when a symbol or definition name is known or guessable. First use may start a persistent rooted CodeDB child and create or update substantial on-disk index state, consuming significant disk and RAM. For a large or unfamiliar repository with unknown CodeDB state, prefer Dev bash with rg plus focused read before invoking Code automatically.',
     inputSchema: {
       query: z.string().min(1),
       cwd: cwd.optional(),
@@ -86,7 +86,7 @@ export function createCodeFacadeServer({ router, defaultCwd = '/home/hamza' } = 
   });
 
   server.registerTool('code_context', {
-    description: 'Compact repository-rooted task context for first-touch code-change orientation: definitions, focused bodies, graph neighbors, ranked files, and snippets.',
+    description: 'Compact repository-rooted first-touch task orientation with definitions, focused bodies, graph neighbors, ranked files, and snippets; first-touch does not mean always call this first. It uses the same persistent CodeDB child/index lifecycle and can consume significant disk and RAM. For a large or unfamiliar repository with unknown CodeDB state, prefer Dev bash with rg plus focused read unless CodeDB-backed repository intelligence is specifically needed.',
     inputSchema: {
       task: z.string().min(3),
       cwd: cwd.optional(),
@@ -104,7 +104,7 @@ export function createCodeFacadeServer({ router, defaultCwd = '/home/hamza' } = 
   });
 
   server.registerTool('code_symbol', {
-    description: 'Locate a known or guessed symbol definition in the Git repository containing cwd; prefer this over search when the symbol name is known.',
+    description: 'Locate a known or guessed symbol definition in the Git repository containing cwd; prefer this over code_search when the symbol name is known. It shares the same persistent CodeDB child/index lifecycle, so first use can consume significant disk and RAM. For a large or unfamiliar repository with unknown CodeDB state, prefer Dev bash with rg plus focused read before invoking Code automatically.',
     inputSchema: {
       name: z.string().min(1),
       cwd: cwd.optional()

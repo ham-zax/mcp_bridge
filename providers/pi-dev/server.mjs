@@ -118,8 +118,8 @@ function renderWaitResult(result) {
 
 server.registerTool('read', {
   description: pathMode === 'user'
-    ? 'Read source/text available to the WSL user; relative paths use the configured default cwd and absolute paths are accepted'
-    : 'Read source/text below the configured workspace root',
+    ? 'Read focused UTF-8/text available to the WSL user; prefer this over Bash cat/sed for ordinary bounded file reads. offset is a 1-based line number, limit is a line count, and large text is bounded/truncated with continuation guidance; this Dev wrapper is text-only. Relative paths use the configured default cwd and absolute paths are accepted'
+    : 'Read focused UTF-8/text below the configured workspace root; prefer this over Bash cat/sed for ordinary bounded file reads. offset is a 1-based line number, limit is a line count, and large text is bounded/truncated with continuation guidance; this Dev wrapper is text-only',
   inputSchema: {
     path: modelPath,
     offset: z.number().int().positive().optional(),
@@ -135,8 +135,8 @@ server.registerTool('read', {
 
 server.registerTool('edit', {
   description: pathMode === 'user'
-    ? 'Apply guarded exact, disjoint replacements to a single-file text target; relative paths use the configured default cwd and absolute paths are accepted'
-    : 'Apply one or more exact, disjoint replacements below the workspace root',
+    ? 'Apply guarded exact, disjoint replacements to one existing text file; each oldText must identify a unique match and concurrent change fails rather than blindly overwriting. Prefer apply_patch for multi-file, add/delete/move, or structural work; relative paths use the configured default cwd and absolute paths are accepted'
+    : 'Apply guarded exact, disjoint replacements to one existing text file below the workspace root; each oldText must identify a unique match and concurrent change fails rather than blindly overwriting',
   inputSchema: {
     path: modelPath,
     edits: z.array(z.object({ oldText: z.string().min(1), newText: z.string() })).min(1)
@@ -148,8 +148,8 @@ server.registerTool('edit', {
 
 server.registerTool('write', {
   description: pathMode === 'user'
-    ? 'Create a new WSL-user-accessible text file; relative paths use the configured default cwd and absolute paths are accepted; fails if it already exists'
-    : 'Create a new text file below the workspace root; fails if it already exists',
+    ? 'Create-only: create a new WSL-user-accessible text file whose parent directory already exists; fails if the target exists. Use edit or apply_patch for existing files; relative paths use the configured default cwd and absolute paths are accepted'
+    : 'Create-only: create a new text file below the workspace root whose parent directory already exists; fails if the target exists',
   inputSchema: { path: modelPath, content: z.string() }
 }, async (args, extra) => invoke(async () => {
   await runWrite({ ...pathPolicy, ...args }, extra.signal);
@@ -158,7 +158,7 @@ server.registerTool('write', {
 
 if (pathMode === 'user') {
   server.registerTool('wait', {
-    description: 'Create, resume, or cancel one durable named local wait; Terminal output matches only new transcript output after the wait is armed',
+    description: 'Create, resume, or cancel one durable named wait; prefer this over Bash polling/sleep loops. Supported conditions include Terminal output/exit, process exit, TCP listen, file exists/change, HTTP readiness, and user-systemd state. A condition arms the wait, a later name-only call resumes it, cancel=true cancels it, and hold_seconds bounds one invocation rather than the durable deadline. Terminal-output waits match only output produced after arming and do not consume the Terminal model cursor.',
     inputSchema: waitInputSchema,
   }, async (args, extra) => invokeWait(async () => {
     const result = await waitEngine.run(args, extra.signal);
@@ -172,7 +172,7 @@ if (pathMode === 'user') {
   }));
 
   server.registerTool('apply_patch', {
-    description: 'Apply one exact-context Codex-style patch for multi-file structural changes across WSL-user-accessible text files; preflights all targets before mutation, but a later runtime failure can report partial application',
+    description: 'Apply one exact-context Codex-style patch for coordinated multi-file or structural text changes, including add/delete/move; exact context must uniquely identify the intended edit. All targets are preflighted before mutation, but a later runtime failure can report partial application.',
     inputSchema: {
       patch: z.string().min(1).describe('Patch text using *** Begin Patch, *** Update File:, optional *** Move to:, @@ hunks with space/-/+ lines, *** Add File:, *** Delete File:, and *** End Patch'),
       cwd: cwdPath.optional()
@@ -186,8 +186,8 @@ if (pathMode === 'user') {
 if (mode === 'unrestricted') {
   server.registerTool('bash', {
     description: pathMode === 'user'
-      ? 'Run one native Bash command string; cwd defaults to the configured default cwd and may be relative to it or absolute'
-      : 'Run one native Bash command string; cwd is optional and workspace-relative',
+      ? 'Run one bounded, noninteractive native Bash command as the WSL user; prefer for short commands, Git, builds, tests, rg, repository inspection, and ordinary execution. Default timeout is 30 seconds, maximum 300 seconds, and large output may be truncated with a full-output path. Use Terminal for processes that must persist or need a PTY/interactive workflow. For a large or unfamiliar repository, Bash with rg plus focused read is the lower-cost discovery path before potentially heavyweight CodeDB-backed Code tools. Do not use raw tmux or wsl-term through Bash to bypass human Terminal ownership. cwd defaults to the configured default cwd and may be relative to it or absolute'
+      : 'Run one bounded, noninteractive native Bash command; prefer for short commands, Git, builds, tests, and ordinary execution. Default timeout is 30 seconds, maximum 300 seconds, and large output may be truncated with a full-output path; cwd is optional and workspace-relative',
     inputSchema: {
       command: z.string().min(1),
       cwd: cwdPath.optional(),

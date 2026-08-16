@@ -64,6 +64,22 @@ test('winning model-facing facade exposes only code_search, code_context, and co
   assert.deepEqual(tools.map(tool => tool.name).sort(), ['code_context', 'code_search', 'code_symbol']);
   assert.ok(tools.every(tool => !tool.name.startsWith('codedb_')));
   assert.ok(tools.every(tool => tool.name !== 'code'));
+
+  const search = tools.find(tool => tool.name === 'code_search');
+  const context = tools.find(tool => tool.name === 'code_context');
+  const symbol = tools.find(tool => tool.name === 'code_symbol');
+  for (const tool of [search, context, symbol]) {
+    assert.match(tool.description, /persistent.*CodeDB|CodeDB.*persistent/i);
+    assert.match(tool.description, /disk.*RAM|RAM.*disk/i);
+    assert.match(tool.description, /large.*unfamiliar|unfamiliar.*large/i);
+    assert.match(tool.description, /bash.*rg.*read|rg.*read/i);
+    assert.match(tool.inputSchema.properties.cwd.description, /intended Git repository/i);
+    assert.match(tool.inputSchema.properties.cwd.description, /pass.*explicit/i);
+  }
+  assert.match(search.description, /prefer.*code_symbol|code_symbol.*prefer/i);
+  assert.match(context.description, /first.touch/i);
+  assert.match(context.description, /not.*always|do not.*automatically/i);
+  assert.match(symbol.description, /known|guessed/i);
 });
 
 test('code_search maps one native request to rooted codedb_search and returns lean TextContent', async t => {

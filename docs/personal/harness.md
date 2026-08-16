@@ -7,14 +7,14 @@ The `personal` profile is the private Codex-like development surface. It runs wi
 ```text
 Dev       read edit write wait apply_patch bash
 Code      code_search code_context code_symbol
-Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_close
+Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 ```
 
-Think in three domains, not 15 unrelated tools:
+Think in three domains, not 16 unrelated tools:
 
-- **Dev** changes and executes local state.
-- **Code** finds repository intelligence without exposing raw CodeDB mechanics.
-- **Terminal** owns durable interactive processes.
+- **Dev** handles focused text/file work, bounded execution, and durable waits.
+- **Code** provides rooted indexed repository intelligence without exposing raw CodeDB mechanics; first use may create or update heavyweight persistent index state.
+- **Terminal** owns durable PTY/process lifetime and human/model terminal ownership.
 
 ## Private setup
 
@@ -80,7 +80,7 @@ Create-only. It refuses to overwrite an existing path.
 
 ### `bash`
 
-Runs one native Bash command string. There is no hidden mutable global cwd. Use `cwd` explicitly when needed.
+Runs one bounded, noninteractive native Bash command string. Use it for Git, builds, tests, `rg`, repository inspection, and ordinary short execution; use Terminal when work must persist or needs a PTY/interactive workflow. For a large or unfamiliar repository with unknown CodeDB state, Bash/`rg` plus focused `read` is the lower-cost discovery path before invoking Code. There is no hidden mutable global cwd; use `cwd` explicitly when needed.
 
 RTK is optional only when explicitly invoked, for example `rtk test` or `rtk err`; native Bash/output remains the source of truth.
 
@@ -122,7 +122,7 @@ Important semantics:
 
 ### `code_search`
 
-Ranked text/code search when the exact symbol is unknown.
+Ranked text/code search when the exact symbol is unknown. Prefer `code_symbol` when a symbol or definition name is already known or guessable.
 
 ### `code_symbol`
 
@@ -130,7 +130,9 @@ Use when you know or can guess a definition name.
 
 ### `code_context`
 
-Compact first-touch context for a task: definitions, focused bodies, graph neighbors, files, and snippets.
+Compact first-touch context for a task: definitions, focused bodies, graph neighbors, files, and snippets. First-touch does not mean always call it first on an unknown large repository.
+
+All three Code tools share the same rooted CodeDB child/index lifecycle. First use for a repository may start a persistent child and create or update substantial on-disk index state, which can consume significant disk and RAM. There is no hard repository-size preflight or threshold. For a large or unfamiliar repository with unknown CodeDB state, prefer Dev Bash/`rg` plus focused `read` for initial discovery unless CodeDB-backed repository intelligence is specifically desired.
 
 The Code router resolves the nearest canonical Git root from `cwd`. Nested repositories win over outer repositories. Do not pass project-switching state; the rooted child owns repository identity.
 

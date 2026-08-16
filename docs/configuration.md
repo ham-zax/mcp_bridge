@@ -43,10 +43,10 @@ Private-only profile:
 ```text
 Dev       read edit write wait apply_patch bash
 Code      code_search code_context code_symbol
-Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_close
+Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 ```
 
-Its tracked private profile must provide an absolute user-mode default cwd. The renderer uses that same default for Dev and Code. Terminal communicates through the private broker socket.
+Its tracked private profile must provide an absolute user-mode default cwd. The renderer uses that same default for Dev and Code. Terminal communicates through the private broker socket. Code has no repository-size preflight or threshold: first use may start a persistent CodeDB child and create or update substantial on-disk index state, potentially consuming significant disk and RAM. Tool descriptions steer large or unfamiliar repository discovery toward Dev Bash/`rg` and focused `read` first; that guidance is not runtime enforcement.
 
 ## Rendering
 

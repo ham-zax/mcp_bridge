@@ -40,14 +40,14 @@ Code owns:
 code_search code_context code_symbol
 ```
 
-The router resolves the nearest canonical Git root for the requested cwd and keeps one correctly rooted CodeDB child per active repository. Per-call project switching and the raw CodeDB catalog are hidden from the model-facing surface.
+The router resolves the nearest canonical Git root for the requested cwd and keeps one correctly rooted CodeDB child per active repository. Per-call project switching and the raw CodeDB catalog are hidden from the model-facing surface. First use may start a persistent CodeDB child and create or update substantial on-disk index state, so Code is not a cost-free read abstraction; on large or unfamiliar repositories with unknown CodeDB state, start with Dev Bash/`rg` plus focused `read` unless indexing-backed repository intelligence is specifically needed. This is model-routing guidance, not an enforced size threshold.
 
 ### Terminal
 
-Terminal owns exactly six actions:
+Terminal owns exactly seven actions:
 
 ```text
-terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_close
+terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 ```
 
 tmux is the PTY/process lifetime authority. A separate broker owns session metadata, transcripts, model cursors, generation identity, and human/model control leases. Restarting the broker or 1MCP must not become the PTY lifetime boundary.
