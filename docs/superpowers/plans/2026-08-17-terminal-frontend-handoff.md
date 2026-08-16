@@ -23,7 +23,9 @@
 - Frontend launch failure must preserve the tmux session and explain the exact manual attach fallback.
 - Public `restricted` and `trusted-dev` profiles must remain unchanged and must not gain Terminal/GUI dependencies.
 - Preserve tmux lifetime across broker/provider/1MCP restart.
+- Preserve PTY dimensions when a read-only presentation frontend attaches while the model owns the session; passive GUI attachment must not become resize authority.
 - Do not add a new package dependency for frontend launch or readiness.
+- Do not live-test a worktree candidate through services that still execute the canonical checkout. Record the verified candidate SHA and require an explicit activation/integration gate before service restart.
 
 ## Planned File Surface
 
@@ -47,7 +49,7 @@
 ### Do not modify unless implementation evidence requires it
 
 - `providers/terminal/protocol.mjs` — no new operation is planned.
-- `providers/terminal/tmux.mjs` — existing collaborative-client/read-only controls should be sufficient.
+- `providers/terminal/tmux.mjs` — no change is planned; `wsl-term present` should use tmux's existing `window-size manual` option before read-only attach. Modify this module only if focused tests prove the CLI-level control cannot preserve the required sizing semantics.
 - `config/templates/mcp-personal.json` and `scripts/render-config.mjs` — use inherited `HOME` plus optional `MCP_TERMINAL_KITTY_BIN`; avoid new rendered config unless the provider environment proves insufficient.
 - Herdr production files/configuration.
 
@@ -63,7 +65,7 @@
 
 **Steps:**
 - [ ] Fetch `origin/main` and create one worktree/branch such as `feature/terminal-frontend-handoff` from the exact current main commit.
-- [ ] Record `git status --short --branch`, current commit, Terminal provider version, Kitty version/path, and Herdr version only as environment evidence.
+- [ ] Record `git status --short --branch`, current commit, Terminal provider version, and Kitty version/path as environment evidence.
 - [ ] Run `cd providers/terminal && npm test` and require the current full Terminal suite to pass before code changes.
 - [ ] Run `bash tests/harness.sh` to freeze the current personal/public composition contract.
 - [ ] Run `node --check providers/terminal/*.mjs` and `git diff --check`.
@@ -86,10 +88,13 @@
 **Steps:**
 - [ ] Add a focused failing test that launches `wsl-term present <session>` under a real pseudo-TTY against the disposable broker/tmux sandbox.
 - [ ] Assert the presented client attaches to the exact tmux session as read-only and remains attached.
+- [ ] Add a focused failing dimension test: open the PTY at a known size, attach the `present` pseudo-TTY at a different size, and require the PTY dimensions to remain unchanged while the client is read-only.
+- [ ] Before the read-only `present` attach, set that tmux window to `window-size manual`; verify this prevents the initial attach from resizing the model-owned PTY.
 - [ ] Assert model `session.send` remains allowed after the read-only client is fully bound; the brief pre-bind lease may block mutation only during attachment setup.
 - [ ] Assert `control.take_human` succeeds without creating another client and makes that exact client writable.
 - [ ] Assert model send/resize/ordinary close are blocked while human control is writable and model reads remain available.
-- [ ] Assert `control.give_model` returns the same client to read-only and model mutation resumes without detaching the frontend. Reserve the real `Ctrl-b T` toggle for live acceptance in Task 7.
+- [ ] Assert `control.give_model` returns the same client to read-only and model mutation resumes without detaching the frontend. Reserve the real `Ctrl-b T` toggle for live acceptance in Task 8.
+- [ ] Assert model `session.resize` remains authoritative while `present` is read-only, and that a later writable human frontend can resize through the existing CLI resize handler without detaching.
 - [ ] Refactor `attachSession` into the smallest shared attachment helper needed to support writable `attach` and designated read-only `present`; keep `watch` on its anonymous raw read-only path.
 - [ ] Add `present` to CLI command parsing and usage text.
 - [ ] Preserve cleanup: if attach/bind fails, release any temporary lease and do not leave a stale human lock.
@@ -97,6 +102,7 @@
 
 **Acceptance criteria:**
 - `wsl-term present` creates a designated read-only collaborator on the exact PTY.
+- A passive read-only presentation does not change PTY dimensions; model resize remains authoritative while model-owned.
 - `watch`, `attach`, `new`, `give`, and `take` retain their existing meanings.
 - No new ownership mechanism or broker operation exists.
 
@@ -131,7 +137,7 @@
 
 **Interfaces:**
 - Consumes: broker `session.list`, `MCP_TERMINAL_SOCKET`, `HOME`, optional `MCP_TERMINAL_KITTY_BIN`, repository `bin/wsl-term`, Node child-process/filesystem APIs.
-- Produces: `ensurePresented(name)`-style provider helper returning whether an existing frontend was reused or a Kitty frontend was launched and became designated.
+- Produces: `ensurePresented(name)`-style provider helper that ensures a designated collaborative frontend exists and reports whether an existing frontend was reused or a launch was attempted. It must not claim identity correlation between a spawned Kitty process and the designated client.
 
 **Steps:**
 - [ ] Write deterministic tests for Kitty resolution in this order: explicit `MCP_TERMINAL_KITTY_BIN`; executable `$HOME/.local/kitty.app/bin/kitty`; PATH candidate.
@@ -145,16 +151,20 @@
 - [ ] Do not mutate the parent provider environment.
 - [ ] Launch Kitty as a process group whose lifetime is independent of the MCP request/provider after successful presentation; do not make Kitty own the tmux PTY lifetime.
 - [ ] Before launching, query `session.list`; if `humanAttached=true`, return `reused` without spawning another GUI.
+- [ ] If the state is `humanLease=true` and `humanAttached=false`, treat it as attachment in progress: wait boundedly for `humanAttached=true` or for `humanLease` to clear, then reevaluate. Do not spawn another Kitty while the temporary lease remains active.
+- [ ] Add a deterministic test for the attachment-in-progress transition so an operator-side `attach`/`present` race does not trigger a duplicate provider launch or an avoidable lease collision.
 - [ ] Coalesce concurrent `ensurePresented(name)` calls through one in-memory per-session launch promise so two simultaneous MCP requests cannot open duplicate Kitty windows. Remove the single-flight entry on success or failure.
 - [ ] Add a concurrency test proving two simultaneous presentation requests for the same session perform exactly one spawn and both observe the same readiness result.
 - [ ] After launch, wait for the exact session to become `humanAttached=true` using a short bounded provider-internal readiness loop; terminate the wait early on launch error/early Kitty failure.
-- [ ] On timeout/failure, return a stable frontend error containing the exact manual fallback `bin/wsl-term attach <session>` and state that the tmux session remains alive.
+- [ ] On successful readiness, detach/unref the launched Kitty process group so its lifetime is independent of the provider request.
+- [ ] If a Kitty process was spawned by this request but readiness times out, setup fails, or the process exits before readiness, terminate only that launched frontend process group, preserve the tmux session, and return a stable frontend error containing the exact manual fallback `bin/wsl-term attach <session>`.
+- [ ] Add a unit test proving failed/timed-out readiness cleans up the launched process group and never calls a tmux-session destructive path.
 - [ ] Keep all process/filesystem/time seams injectable enough that unit tests never open a real GUI.
 - [ ] Run the new focused frontend tests plus full Terminal tests.
 
 **Acceptance criteria:**
 - Launch uses safe argv and deterministic Kitty discovery.
-- Existing presented client is reused, and concurrent first-presentation requests are single-flight.
+- Existing presented client is reused, concurrent provider-local first-presentation requests are single-flight, and attachment-in-progress state is respected without claiming global duplicate suppression.
 - Missing/broken GUI produces an actionable error without touching PTY lifetime.
 - Unit tests do not depend on WSLg or a visible desktop.
 
@@ -226,10 +236,10 @@
 - [ ] Run `cd providers/terminal && npm test` and require all Terminal tests green.
 - [ ] Run `bash tests/harness.sh` to verify personal/public provider composition and exact seven-tool Terminal surface.
 - [ ] Run `bash tests/publication.sh` because Terminal implementation/docs are private-only and publication boundaries must remain intact.
-- [ ] Run `bash tests/lifecycle.sh`; this change affects provider/broker rollout and must preserve the bridge lifecycle contract even though the suite is not Terminal-specific.
+- [ ] Run `bash tests/lifecycle.sh` only if implementation changes bridge lifecycle/render/systemd files. Otherwise rely on the Terminal broker-restart tests plus the live rollout acceptance for lifecycle evidence.
 - [ ] Run `node --check providers/terminal/*.mjs`.
-- [ ] Run `bash -n bin/wsl-term tests/harness.sh tests/publication.sh tests/lifecycle.sh` for touched/relevant shell entrypoints.
-- [ ] Run the documentation link checker used by publication tests.
+- [ ] Run `bash -n bin/wsl-term`; include any other shell file only if it was actually modified.
+- [ ] Do not run a second standalone documentation link check after `tests/publication.sh`; the publication suite already invokes `scripts/check-doc-links.mjs`.
 - [ ] Run `git diff --check` and review the exact diff for unintended profile, Herdr, or tmux-lifetime changes.
 - [ ] Perform an inline code review focused on ownership races, duplicate frontend launches, leaked GUI processes, partial-open retry hazards, secret handling, and unnecessary scope.
 
@@ -237,7 +247,29 @@
 - All affected automated gates are green on the exact candidate tree.
 - No public profile, Herdr backend, or tmux-lifetime regression is present.
 
-## Task 7: Controlled live rollout and real collaborative acceptance
+## Task 7: Activate the verified candidate at the canonical live source path
+
+**Files:**
+- No source changes unless integration conflict resolution is required.
+
+**Interfaces:**
+- Consumes: exact verified candidate SHA from Tasks 1-6 and the canonical live checkout `/home/hamza/repo/satori_bridge`.
+- Produces: an explicitly activated canonical checkout whose live broker/provider paths resolve to the verified candidate.
+
+**Steps:**
+- [ ] Record the exact verified feature-branch SHA and confirm the feature worktree is clean.
+- [ ] Stop before activation unless the user has explicitly authorized integration/live activation. Implementation completion alone is not permission to merge, rewrite `main`, push, or restart services.
+- [ ] Preferred activation: integrate the verified candidate into the canonical `/home/hamza/repo/satori_bridge` checkout using the approved branch-finishing decision, preserving unrelated changes and avoiding history rewrites.
+- [ ] After integration, verify `git rev-parse HEAD` in the canonical checkout contains the verified candidate and the checkout is clean enough for deployment.
+- [ ] Verify the rendered personal MCP config resolves Terminal provider execution to `/home/hamza/repo/satori_bridge/providers/terminal/mcp-server.mjs` from the activated candidate.
+- [ ] Verify the installed `wsl-agent-terminal-broker.service` `WorkingDirectory` and `ExecStart` resolve to `/home/hamza/repo/satori_bridge` and its `providers/terminal/broker.mjs` from the activated candidate.
+- [ ] Do not restart live services if either provider or broker still resolves to an older checkout/SHA.
+
+**Acceptance criteria:**
+- The live service paths are proven to execute the exact candidate that passed Task 6.
+- No worktree-only candidate is mistaken for the deployed code.
+
+## Task 8: Controlled live rollout and real collaborative acceptance
 
 **Files:**
 - No source changes unless a real acceptance defect is reproduced and fixed through the normal test-first loop.
@@ -254,27 +286,29 @@
 - [ ] Refresh ChatGPT MCP so the optional `terminal_open.present` schema is visible.
 - [ ] Acceptance A — headless default: `terminal_open` without `present` creates no Kitty window and remains fully usable.
 - [ ] Acceptance B — presented open: `terminal_open(..., present:true)` launches exactly one Kitty window on the exact tmux PTY, initially read-only; model send remains allowed while the user watches.
+- [ ] Acceptance B2 — dimension authority: create a model-owned PTY at a known size, present it in a differently sized Kitty window, and verify passive read-only presentation does not change the PTY dimensions; `terminal_resize` remains authoritative.
 - [ ] Acceptance C — reuse: call `terminal_yield`; the same Kitty client becomes writable, model send/resize/ordinary close are blocked, and model read still works.
 - [ ] Acceptance D — return: user presses `Ctrl-b T` or runs `wsl-term give`; same Kitty remains attached read-only and model send resumes.
 - [ ] Acceptance E — second yield: call `terminal_yield` again and verify the existing Kitty window is reused with no duplicate launch.
 - [ ] Acceptance F — headless-to-human: open a separate headless session, reach a harmless interaction point, call `terminal_yield`, and verify Kitty launches automatically and becomes the writable exact-session frontend.
 - [ ] Acceptance G — sudo: run `sudo -k && sudo -v` in a disposable Terminal session; yield; user types the password only in Kitty; return model control; verify `sudo -n true`; confirm the secret is absent from broker state/logs/transcript fixtures where the existing guarantee applies.
 - [ ] Acceptance H — failure fallback: with a deliberately invalid Kitty override in a disposable provider/test path, verify the PTY survives and the error gives the exact manual attach fallback without falsely claiming GUI success.
+- [ ] Acceptance I — presented-client restart: with a designated read-only Kitty client attached and the model owning the session, record tmux/pane and tmux-client identity; restart the broker and reconcile/restart the provider/1MCP; verify the same tmux/pane and Kitty client remain attached, `humanAttached` is reconstructed, and `terminal_yield` reuses that client without launching a second Kitty window.
 - [ ] Clean up only test-only Terminal sessions/windows after evidence is recorded.
 
 **Acceptance criteria:**
-- All ten design acceptance properties are demonstrated through the real product path.
+- All approved design acceptance properties are demonstrated through the real product path.
 - tmux remains lifetime authority across broker/provider rollout.
 - The GUI is launched only when presentation/handoff requires it.
 
-## Task 8: Final router-skill alignment after live acceptance
+## Task 9: Final router-skill alignment after live acceptance
 
 **Files:**
 - Modify if needed: `skills/mcp-harness-router/SKILL.md`
 - Package: complete updated `skill.zip`
 
 **Interfaces:**
-- Consumes: real live semantics proven in Task 7.
+- Consumes: real live semantics proven in Task 8.
 - Produces: concise routing guidance that matches the deployed harness.
 
 **Steps:**
@@ -288,6 +322,7 @@
 **Acceptance criteria:**
 - Skill instructions match deployed behavior and remain compact.
 - Natural local-machine requests can trigger the router without mentioning MCP by name.
+- This task is post-deployment validation and does not block declaring the Terminal runtime implementation complete after Tasks 1-6.
 
 ## Rollback
 

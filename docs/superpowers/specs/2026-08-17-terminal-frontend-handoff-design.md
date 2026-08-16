@@ -62,6 +62,8 @@ bin/wsl-term present <session>
 
 `present` must attach to the exact production tmux PTY and use the existing broker lease/bind/reconciliation machinery. Do not add a parallel ownership system.
 
+While a designated frontend is read-only and the model owns the PTY, presentation must not change the PTY dimensions merely because Kitty attached. Before the read-only attach, freeze the tmux window in manual-size mode so the existing model-controlled dimensions remain authoritative. When the human later becomes writable, the same attached client may resize the PTY through the existing collaborative resize path; returning control to the model must leave the frontend attached without letting passive viewport size changes resize the PTY.
+
 ## Architecture
 
 ```text
@@ -98,12 +100,17 @@ The current MCP/provider environment does not expose `DISPLAY` or `WAYLAND_DISPL
 
 Launch Kitty with argv, never shell interpolation. Session names remain validated by the existing Terminal name contract.
 
+`humanAttached` means only that a designated collaborative frontend exists. It does not prove that a particular Kitty process launched by the current request became the designated client. Provider-local presentation requests should be single-flight per session, but the implementation must tolerate an unrelated operator-side attach race without claiming global duplicate suppression.
+
+If broker state reports writable/temporary human ownership without a designated attached frontend (`humanLease=true`, `humanAttached=false`), treat that as attachment in progress. Wait boundedly for the designated frontend to appear or for the temporary lease to clear, then reevaluate before launching Kitty.
+
 ## Failure semantics
 
 Frontend failure must never destroy or silently replace the tmux session.
 
 - `terminal_open(..., present: true)` may create the session before presentation fails. Report that partial outcome explicitly so the model does not retry `terminal_open` and collide with the existing session.
 - `terminal_yield` frontend failure leaves the session model-owned and returns a manual exact-session attachment fallback.
+- If this request spawned Kitty but readiness fails or times out, terminate only that launched frontend process group before returning the error. Do not kill the tmux session or unrelated frontends.
 - Closing Kitty detaches only the human client; it does not kill the tmux session.
 - `terminal_close` remains the explicit destructive lifetime action.
 - Human writable ownership continues to block model send/resize/ordinary close.
@@ -150,4 +157,5 @@ The feature is accepted only when a real refreshed ChatGPT session demonstrates 
 7. yielding a previously headless session launches Kitty automatically;
 8. a harmless sudo flow lets the human type the password only in Kitty and then returns control safely;
 9. frontend-launch failure preserves the tmux session and produces the manual attach fallback;
-10. broker/provider restart behavior preserves tmux PTY lifetime exactly as before.
+10. passive read-only presentation does not change the model-owned PTY dimensions;
+11. after a designated read-only Kitty client exists, broker/provider restart preserves the same tmux PTY and attached frontend, reconstructs the designated-client state, and a later `terminal_yield` reuses it without opening a second Kitty window.
