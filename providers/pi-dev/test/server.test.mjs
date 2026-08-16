@@ -773,6 +773,24 @@ test('edit returns one diff artifact without generic success prose', async () =>
   });
 });
 
+
+
+test('edit v2 multi-target success returns compact path summaries instead of repeated full diffs', async () => {
+  const { workspaceRoot, env } = await fixture();
+  await fs.writeFile(path.join(workspaceRoot, 'a.txt'), 'alpha\n');
+  await fs.writeFile(path.join(workspaceRoot, 'b.txt'), 'beta\n');
+  await withClient(env, async client => {
+    const result = await client.callTool({
+      name: 'edit',
+      arguments: { targets: [
+        { path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] },
+        { path: 'b.txt', edits: [{ oldText: 'beta', newText: 'BETA' }] }
+      ] }
+    });
+    assert.equal(textOf(result), 'M a.txt\nM b.txt');
+  });
+});
+
 test('edit v2 rejects historical root path and edits arguments', async () => {
   const { workspaceRoot, env } = await fixture();
   await fs.writeFile(path.join(workspaceRoot, 'x.txt'), 'alpha\n');

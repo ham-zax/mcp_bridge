@@ -148,7 +148,9 @@ server.registerTool('edit', {
   }
 }, async (args, extra) => invoke(async () => {
   const result = await runEdit({ ...pathPolicy, ...args }, extra.signal);
-  const text = result.targets.map(target => renderEditText(target.path, target.diff)).join('\n');
+  const text = result.targets.length === 1
+    ? renderEditText(result.targets[0].path, result.targets[0].diff)
+    : result.targets.map(target => `M ${target.path}`).join('\n');
   return { content: [{ type: 'text', text }] };
 }));
 
