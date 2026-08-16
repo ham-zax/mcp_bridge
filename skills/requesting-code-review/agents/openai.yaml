@@ -1,0 +1,10 @@
+interface:
+  display_name: "Requesting Code Review"
+  short_description: "Review completed implementation before integration."
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

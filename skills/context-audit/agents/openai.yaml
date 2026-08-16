@@ -1,6 +1,6 @@
 interface:
-  display_name: MCP Harness Router
-  short_description: Route local WSL work across Dev, Code, Terminal, and wait.
+  display_name: Context Audit
+  short_description: Find conflicts, bloat, stale rules, and missing agent boundaries.
   icon_small: assets/icon.svg
   icon_large: assets/icon.svg
 policy:

@@ -1,0 +1,10 @@
+interface:
+  display_name: "Writing Plans"
+  short_description: "Turn approved requirements into executable implementation plans."
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

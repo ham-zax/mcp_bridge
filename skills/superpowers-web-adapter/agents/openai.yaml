@@ -1,6 +1,6 @@
 interface:
-  display_name: MCP Harness Router
-  short_description: Route local WSL work across Dev, Code, Terminal, and wait.
+  display_name: Superpowers Web Adapter
+  short_description: Run Superpowers reliably in ChatGPT Web with local execution
   icon_small: assets/icon.svg
   icon_large: assets/icon.svg
 policy:

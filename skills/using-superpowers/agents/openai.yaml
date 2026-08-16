@@ -1,0 +1,10 @@
+interface:
+  display_name: "Using Superpowers"
+  short_description: "Select and invoke the relevant Superpowers workflow for a task."
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

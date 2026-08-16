@@ -1,6 +1,6 @@
 interface:
-  display_name: MCP Harness Router
-  short_description: Route local WSL work across Dev, Code, Terminal, and wait.
+  display_name: Reflexion
+  short_description: Reflect, critique, verify, and curate lessons
   icon_small: assets/icon.svg
   icon_large: assets/icon.svg
 policy:

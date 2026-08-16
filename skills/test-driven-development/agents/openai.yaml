@@ -1,0 +1,10 @@
+interface:
+  display_name: "Test Driven Development"
+  short_description: "Implement features and bug fixes with RED-GREEN-REFACTOR discipline."
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
