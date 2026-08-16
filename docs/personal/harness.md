@@ -44,6 +44,15 @@ scripts/bootstrap-personal.sh
 
 The direct renderer, toolbox setup, unit installers, and `bin/start`/`bin/stop` remain supported lower-level repair and source-cutover primitives. They are not the normal first-install sequence.
 
+### New ChatGPT client
+
+The WSL side is persistent after the explicit startup install, but a new ChatGPT environment still owns two client-side pieces that the repository cannot silently mutate:
+
+1. connect ChatGPT to the configured public MCP endpoint and complete OAuth;
+2. install the desired tracked Skills from `skills/` through ChatGPT's Skills UI, then refresh/reopen the MCP connection when its tool schema changes.
+
+See [`skills/README.md`](../../skills/README.md) for the tracked Skill inventory and validation/install notes. These are one-time ChatGPT/workspace actions, not recurring WSL service-start commands.
+
 ## Dev
 
 ### `read`

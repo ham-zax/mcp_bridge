@@ -52,3 +52,11 @@ done
 ```
 
 The repository publication policy treats all `skills/*` paths as private-only.
+
+## Fresh ChatGPT installation
+
+The WSL bootstrap does not and cannot silently install these Skills into a new ChatGPT account/workspace. The repository is the source of truth for the bundles; ChatGPT owns its own installed-Skill state.
+
+For a new ChatGPT environment, install the desired bundles from this directory through ChatGPT's Skills UI (`Plugins` -> `Skills` -> `Create` -> upload from your computer). Package/upload one skill directory at a time so its `SKILL.md`, `agents/openai.yaml`, and supporting resources remain together. Validate the directory first with the command above.
+
+At minimum, install `mcp-harness-router` when you want the local Dev/Code/Terminal routing policy from this repository. The other tracked Skills are reusable workflow/process bundles and may be installed as desired. ChatGPT-side Skill installation is separate from connecting the MCP endpoint and completing OAuth.
