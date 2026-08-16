@@ -133,6 +133,7 @@ export class WaitEngine {
     signal,
     waitDeadlineAtMs,
     callDeadlineAtMs = null,
+    resultWinsOnResolve = false,
   }) {
     throwIfAborted(signal);
     const beforeMs = this.now();
@@ -163,6 +164,9 @@ export class WaitEngine {
 
     try {
       const result = await operation(controller.signal);
+      if (resultWinsOnResolve) {
+        return { boundary: null, result, postResultBoundary: boundary };
+      }
       if (signal?.aborted || boundary === 'caller') {
         throw new WaitError('WAIT_ABORTED', 'wait request was aborted');
       }
@@ -319,7 +323,47 @@ export class WaitEngine {
             );
           }
           throwIfAborted(signal);
-          record = await this.store.create(armedRecord);
+          if (armedRecord.status === 'timeout') {
+            record = await this.store.create(armedRecord, { signal });
+          } else {
+            const persistence = await this.runSourceOperation(
+              (operationSignal) => this.store.create(armedRecord, { signal: operationSignal }),
+              {
+                signal,
+                waitDeadlineAtMs: unpersisted.deadlineAtMs,
+                callDeadlineAtMs,
+                resultWinsOnResolve: true,
+              },
+            );
+            if (persistence.boundary === 'wait') {
+              return publicResult({
+                name,
+                status: 'timeout',
+                deadlineAtMs: unpersisted.deadlineAtMs,
+              });
+            }
+            if (persistence.boundary === 'hold') {
+              throw new WaitError(
+                'WAIT_HOLD_EXPIRED',
+                `${name} was not armed before the call hold expired; no durable wait was created`,
+              );
+            }
+            record = persistence.result;
+
+            // The atomic create commit already won. Later request/hold boundaries cannot deny that durable fact.
+            if (TERMINAL_STATUSES.has(record.status)) return publicResult(record);
+            if (this.now() >= record.deadlineAtMs) {
+              record = await this.persistTimeout(record);
+              return publicResult(record);
+            }
+            if (persistence.postResultBoundary === 'caller' || signal?.aborted) {
+              return publicResult(record);
+            }
+            if (persistence.postResultBoundary === 'hold'
+                || (callDeadlineAtMs !== null && this.now() >= callDeadlineAtMs)) {
+              return publicResult(record);
+            }
+          }
         }
       } else if (!record) {
         throw new WaitError('WAIT_NOT_FOUND', `wait not found: ${name}`);

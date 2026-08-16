@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -7,6 +7,54 @@ import test from 'node:test';
 import { WaitEngine } from '../wait-engine.mjs';
 import { LocalWaitSources } from '../wait-local.mjs';
 import { WaitStore } from '../wait-state.mjs';
+
+function abortableDelay(ms, signal) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      fn(value);
+    };
+    const onAbort = () => {
+      const error = new Error('pre-commit delay aborted');
+      error.name = 'AbortError';
+      error.code = 'ABORT_ERR';
+      finish(reject, error);
+    };
+    const timer = setTimeout(() => finish(resolve), ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
+async function noTempFiles(store) {
+  await store.ensureRoot();
+  return (await readdir(store.rootDir)).filter((entry) => entry.endsWith('.tmp'));
+}
+
+async function linearizationFixture(t, { beforeCreateCommit } = {}) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-linearization-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const stateDir = path.join(root, 'state');
+  await mkdir(stateDir, { recursive: true });
+  const store = new WaitStore({ stateDir, beforeCreateCommit });
+  let arms = 0;
+  const source = {
+    pollIntervalMs: 250,
+    async arm() {
+      arms += 1;
+      return { status: 'pending', baseline: { boundary: arms } };
+    },
+    async check(record) {
+      return { status: 'pending', baseline: record.baseline };
+    },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source } });
+  return { store, engine, arms: () => arms };
+}
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-test-'));
@@ -465,6 +513,193 @@ test('hold_seconds zero still allows one normal bounded initial arm and check', 
   assert.equal(arms, 1);
   assert.equal(checks, 1);
   assert.deepEqual((await store.read('hold-zero-arm')).baseline, { boundary: 'hold-zero' });
+});
+
+test('caller abort during first persistence wins before commit and leaves no late durable state', async (t) => {
+  let hookEntries = 0;
+  const fx = await linearizationFixture(t, {
+    beforeCreateCommit: async ({ signal }) => {
+      hookEntries += 1;
+      await abortableDelay(1500, signal);
+    },
+  });
+  const controller = new AbortController();
+  const started = Date.now();
+  const pending = fx.engine.run({
+    name: 'persist-abort', condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 0,
+  }, controller.signal);
+  setTimeout(() => controller.abort(), 50);
+  await assert.rejects(pending, (error) => error?.code === 'WAIT_ABORTED');
+  assert.equal(hookEntries, 1);
+  assert.ok(Date.now() - started < 350, 'abort did not interrupt first persistence promptly');
+  assert.equal(await fx.store.read('persist-abort'), null);
+  assert.deepEqual(await noTempFiles(fx.store), []);
+  await assert.rejects(
+    () => fx.engine.run({ name: 'persist-abort', hold_seconds: 0 }),
+    (error) => error?.code === 'WAIT_NOT_FOUND',
+  );
+  await new Promise((resolve) => setTimeout(resolve, 1550));
+  assert.equal(await fx.store.read('persist-abort'), null);
+  assert.deepEqual(await noTempFiles(fx.store), []);
+});
+
+test('positive hold during first persistence wins before commit without a late install', async (t) => {
+  let hookEntries = 0;
+  const fx = await linearizationFixture(t, {
+    beforeCreateCommit: async ({ signal }) => {
+      hookEntries += 1;
+      await abortableDelay(1500, signal);
+    },
+  });
+  const started = Date.now();
+  await assert.rejects(
+    () => fx.engine.run({
+      name: 'persist-hold', condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 1,
+    }),
+    (error) => error?.code === 'WAIT_HOLD_EXPIRED',
+  );
+  const elapsed = Date.now() - started;
+  assert.equal(hookEntries, 1);
+  assert.ok(elapsed >= 850, `hold returned too early during first persistence: ${elapsed}ms`);
+  assert.ok(elapsed < 1250, `first persistence overran positive hold: ${elapsed}ms`);
+  assert.equal(await fx.store.read('persist-hold'), null);
+  assert.deepEqual(await noTempFiles(fx.store), []);
+  await new Promise((resolve) => setTimeout(resolve, 650));
+  assert.equal(await fx.store.read('persist-hold'), null);
+  assert.deepEqual(await noTempFiles(fx.store), []);
+});
+
+test('atomic first commit wins over caller abort fired before create returns to the engine', async (t) => {
+  const fx = await linearizationFixture(t);
+  const controller = new AbortController();
+  const originalCreate = fx.store.create.bind(fx.store);
+  fx.store.create = async (record, options) => {
+    const committed = await originalCreate(record, options);
+    controller.abort();
+    return committed;
+  };
+  const result = await fx.engine.run({
+    name: 'commit-then-abort', condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 0,
+  }, controller.signal);
+  assert.equal(result.status, 'pending');
+  const saved = await fx.store.read('commit-then-abort');
+  assert.equal(saved.status, 'pending');
+  assert.equal(saved.sourceArmed, true);
+  assert.deepEqual(saved.baseline, { boundary: 1 });
+});
+
+test('first commit just before positive hold expiry wins and returns the committed pending wait', async (t) => {
+  let hookEntries = 0;
+  const fx = await linearizationFixture(t, {
+    beforeCreateCommit: async ({ signal }) => {
+      hookEntries += 1;
+      await abortableDelay(900, signal);
+    },
+  });
+  const started = Date.now();
+  const result = await fx.engine.run({
+    name: 'commit-then-hold', condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 1,
+  });
+  const elapsed = Date.now() - started;
+  assert.equal(hookEntries, 1);
+  assert.equal(result.status, 'pending');
+  assert.ok(elapsed >= 850 && elapsed < 1250, `commit/hold arbitration drifted: ${elapsed}ms`);
+  const saved = await fx.store.read('commit-then-hold');
+  assert.equal(saved.status, 'pending');
+  assert.deepEqual(saved.baseline, { boundary: 1 });
+});
+
+test('abort versus first-commit stress always produces one coherent linearized outcome', async (t) => {
+  const delays = new Map();
+  const fx = await linearizationFixture(t, {
+    beforeCreateCommit: ({ name, signal }) => abortableDelay(delays.get(name) ?? 20, signal),
+  });
+  for (let i = 0; i < 16; i += 1) {
+    const name = `abort-commit-stress-${i}`;
+    delays.set(name, i % 2 === 0 ? 24 : 16);
+    const controller = new AbortController();
+    const pending = fx.engine.run({
+      name, condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 0,
+    }, controller.signal);
+    setTimeout(() => controller.abort(), 20);
+    let result = null;
+    let error = null;
+    try {
+      result = await pending;
+    } catch (caught) {
+      error = caught;
+    }
+    const saved = await fx.store.read(name);
+    if (error) {
+      assert.equal(error.code, 'WAIT_ABORTED');
+      assert.equal(saved, null, `WAIT_ABORTED iteration ${i} left a committed record`);
+    } else {
+      assert.equal(result.status, 'pending');
+      assert.equal(saved?.status, 'pending', `commit-winning iteration ${i} lost durable state`);
+      assert.equal(saved?.sourceArmed, true);
+    }
+  }
+  assert.deepEqual(await noTempFiles(fx.store), []);
+});
+
+test('positive hold versus first-commit stress never reports pre-commit expiry with durable state', async (t) => {
+  const delays = new Map();
+  const fx = await linearizationFixture(t, {
+    beforeCreateCommit: ({ name, signal }) => abortableDelay(delays.get(name) ?? 1000, signal),
+  });
+  for (const [index, delayMs] of [950, 990, 1010, 1050].entries()) {
+    const name = `hold-commit-stress-${index}`;
+    delays.set(name, delayMs);
+    const started = Date.now();
+    let result = null;
+    let error = null;
+    try {
+      result = await fx.engine.run({
+        name, condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 1,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    const elapsed = Date.now() - started;
+    const saved = await fx.store.read(name);
+    assert.ok(elapsed < 1250, `hold/commit stress iteration ${index} overran: ${elapsed}ms`);
+    if (error) {
+      assert.equal(error.code, 'WAIT_HOLD_EXPIRED');
+      assert.equal(saved, null, `WAIT_HOLD_EXPIRED iteration ${index} left durable state`);
+    } else {
+      assert.equal(result.status, 'pending');
+      assert.equal(saved?.status, 'pending', `commit-winning hold iteration ${index} lost state`);
+      assert.equal(saved?.sourceArmed, true);
+    }
+  }
+  assert.deepEqual(await noTempFiles(fx.store), []);
+});
+
+test('durable deadline racing first persistence cannot commit pending or matched after deadline', async (t) => {
+  let hookEntries = 0;
+  const fx = await linearizationFixture(t, {
+    beforeCreateCommit: async ({ signal }) => {
+      hookEntries += 1;
+      await abortableDelay(1500, signal);
+    },
+  });
+  const started = Date.now();
+  const result = await fx.engine.run({
+    name: 'deadline-first-commit', condition: { kind: 'fake' }, timeout_seconds: 1, hold_seconds: 2,
+  });
+  const elapsed = Date.now() - started;
+  assert.equal(hookEntries, 1);
+  assert.equal(result.status, 'timeout');
+  assert.ok(elapsed >= 850 && elapsed < 1300, `deadline/commit arbitration drifted: ${elapsed}ms`);
+  const saved = await fx.store.read('deadline-first-commit');
+  if (saved !== null) {
+    assert.equal(saved.status, 'timeout');
+    assert.equal(saved.sourceArmed, true);
+    assert.ok(saved.completedAtMs >= saved.deadlineAtMs);
+  }
+  assert.notEqual(saved?.status, 'pending');
+  assert.notEqual(saved?.status, 'matched');
+  assert.deepEqual(await noTempFiles(fx.store), []);
 });
 
 test('same-definition retry after a successfully armed create preserves one arm boundary and deadline', async (t) => {

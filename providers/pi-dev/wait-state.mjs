@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { renameSync } from 'node:fs';
 import {
   chmod,
   mkdir,
@@ -207,13 +208,17 @@ function delay(ms, signal) {
 }
 
 export class WaitStore {
-  constructor({ stateDir } = {}) {
+  constructor({ stateDir, beforeCreateCommit = null } = {}) {
     if (typeof stateDir !== 'string' || !path.isAbsolute(stateDir)) {
       throw new WaitError('INVALID_WAIT_CONFIG', 'stateDir must be an absolute path');
+    }
+    if (beforeCreateCommit !== null && typeof beforeCreateCommit !== 'function') {
+      throw new WaitError('INVALID_WAIT_CONFIG', 'beforeCreateCommit must be a function');
     }
     this.stateDir = stateDir;
     this.rootDir = path.join(stateDir, 'waits');
     this.lockNamespaceRoot = null;
+    this.beforeCreateCommit = beforeCreateCommit;
   }
 
   fileFor(name) {
@@ -269,10 +274,62 @@ export class WaitStore {
     return { ...validated };
   }
 
-  async create(record) {
-    const existing = await this.read(record.name);
-    if (existing) throw new WaitError('WAIT_CONFLICT', `wait already exists: ${record.name}`);
-    return this.write(record);
+  async create(record, { signal } = {}) {
+    throwIfAborted(signal);
+    if (!record || typeof record !== 'object') throw new WaitError('WAIT_STATE_CORRUPT', 'wait record must be an object');
+    const name = validateName(record.name);
+    let validated;
+    try {
+      validated = validateWaitRecord({ ...record, version: 1 }, name);
+    } catch (error) {
+      throw new WaitError('WAIT_STATE_CORRUPT', `invalid wait state for ${name}: ${error.message}`);
+    }
+
+    const existing = await this.read(name);
+    throwIfAborted(signal);
+    if (existing) throw new WaitError('WAIT_CONFLICT', `wait already exists: ${name}`);
+    await this.ensureRoot();
+    throwIfAborted(signal);
+
+    const file = this.fileFor(name);
+    const temp = path.join(this.rootDir, `.${name}.${process.pid}.${crypto.randomUUID()}.tmp`);
+    const payload = `${JSON.stringify(validated)}\n`;
+    let committed = false;
+    try {
+      const handle = await open(temp, 'wx', 0o600);
+      try {
+        throwIfAborted(signal);
+        await handle.writeFile(payload);
+        throwIfAborted(signal);
+        await handle.sync();
+        throwIfAborted(signal);
+      } finally {
+        await handle.close();
+      }
+
+      if (this.beforeCreateCommit) {
+        try {
+          await this.beforeCreateCommit({ name, temp, file, signal });
+        } catch (error) {
+          if (signal?.aborted || error?.name === 'AbortError' || error?.code === 'ABORT_ERR') {
+            throw new WaitError('WAIT_ABORTED', 'wait request was aborted');
+          }
+          throw error;
+        }
+      }
+      throwIfAborted(signal);
+
+      // Linearization point: caller/hold/deadline signals cannot interleave with this synchronous atomic install.
+      renameSync(temp, file);
+      committed = true;
+      return { ...validated };
+    } finally {
+      if (!committed) {
+        await unlink(temp).catch((error) => {
+          if (error?.code !== 'ENOENT') throw error;
+        });
+      }
+    }
   }
 
   async acquire(name, { signal, maxWaitMs = DEFAULT_LOCK_WAIT_MS } = {}) {

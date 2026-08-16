@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { fork, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -11,12 +11,40 @@ import { WaitStore } from '../wait-state.mjs';
 
 const LOCK_WORKER = fileURLToPath(new URL('./wait-lock-worker.mjs', import.meta.url));
 
-async function fixtureStore(t) {
+async function fixtureStore(t, options = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wait-store-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const stateDir = path.join(root, 'state');
   await mkdir(stateDir, { recursive: true });
-  return new WaitStore({ stateDir });
+  return new WaitStore({ stateDir, ...options });
+}
+
+function abortableDelay(ms, signal) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      fn(value);
+    };
+    const onAbort = () => {
+      const error = new Error('pre-commit delay aborted');
+      error.name = 'AbortError';
+      error.code = 'ABORT_ERR';
+      finish(reject, error);
+    };
+    const timer = setTimeout(() => finish(resolve), ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
+async function assertNoTempFiles(store) {
+  await store.ensureRoot();
+  const entries = await readdir(store.rootDir);
+  assert.deepEqual(entries.filter((entry) => entry.endsWith('.tmp')), []);
 }
 
 function pendingRecord(name = 'build-ready') {
@@ -91,6 +119,28 @@ test('wait store writes versioned private state atomically', async (t) => {
   assert.equal(saved.status, 'pending');
   assert.equal((await stat(store.rootDir)).mode & 0o777, 0o700);
   assert.equal((await stat(store.fileFor('build-ready'))).mode & 0o777, 0o600);
+});
+
+test('first create aborts before atomic commit without installing or leaking temp state', async (t) => {
+  let hookEntered = false;
+  const store = await fixtureStore(t, {
+    beforeCreateCommit: async ({ signal }) => {
+      hookEntered = true;
+      await abortableDelay(1500, signal);
+    },
+  });
+  const controller = new AbortController();
+  const started = Date.now();
+  const pending = store.create(pendingRecord('abort-before-commit'), { signal: controller.signal });
+  setTimeout(() => controller.abort(), 50);
+  await assert.rejects(pending, (error) => error?.code === 'WAIT_ABORTED');
+  assert.equal(hookEntered, true);
+  assert.ok(Date.now() - started < 350, 'pre-commit abort did not interrupt persistence promptly');
+  assert.equal(await store.read('abort-before-commit'), null);
+  await assertNoTempFiles(store);
+  await new Promise((resolve) => setTimeout(resolve, 1550));
+  assert.equal(await store.read('abort-before-commit'), null);
+  await assertNoTempFiles(store);
 });
 
 test('wait store rejects invalid names and corrupt state', async (t) => {
