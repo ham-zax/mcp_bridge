@@ -289,6 +289,184 @@ test('abort during initial source arm leaves no resumable unarmed wait and retry
   assert.deepEqual(saved.baseline, { boundary: 2 });
 });
 
+test('positive hold expiring during initial arm returns WAIT_HOLD_EXPIRED and never creates late durable state', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-initial-hold-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  let lateCompletionFired = false;
+  const source = {
+    async arm(_condition, signal) {
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          lateCompletionFired = true;
+          resolve({ status: 'pending', baseline: { boundary: 'late' } });
+        }, 1500);
+        const onAbort = () => {
+          signal?.removeEventListener('abort', onAbort);
+          const error = new Error('initial arm aborted by operation boundary');
+          error.name = 'AbortError';
+          error.code = 'ABORT_ERR';
+          reject(error);
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        if (signal?.aborted) onAbort();
+      });
+    },
+    async check() { assert.fail('unpersisted arm must not reach check'); },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source } });
+  const started = Date.now();
+  await assert.rejects(
+    () => engine.run({
+      name: 'initial-hold-expired', condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 1,
+    }),
+    (error) => error?.code === 'WAIT_HOLD_EXPIRED',
+  );
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed >= 850, `positive initial hold returned too early: ${elapsed}ms`);
+  assert.ok(elapsed < 1250, `positive initial hold overran its budget: ${elapsed}ms`);
+  assert.equal(await store.read('initial-hold-expired'), null);
+  await assert.rejects(
+    () => engine.run({ name: 'initial-hold-expired', hold_seconds: 0 }),
+    (error) => error?.code === 'WAIT_NOT_FOUND',
+  );
+  await new Promise((resolve) => setTimeout(resolve, 650));
+  assert.equal(lateCompletionFired, true);
+  assert.equal(await store.read('initial-hold-expired'), null);
+});
+
+test('caller abort beats positive initial hold and leaves no durable record', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-initial-abort-priority-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  const source = {
+    async arm(_condition, signal) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve({ status: 'pending', baseline: { boundary: 'too-late' } }), 3000);
+        const onAbort = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
+          const error = new Error('arm aborted');
+          error.name = 'AbortError';
+          error.code = 'ABORT_ERR';
+          reject(error);
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        if (signal?.aborted) onAbort();
+      });
+    },
+    async check() { assert.fail('aborted create must not check'); },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source } });
+  const controller = new AbortController();
+  const started = Date.now();
+  const pending = engine.run({
+    name: 'initial-caller-abort', condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 10,
+  }, controller.signal);
+  setTimeout(() => controller.abort(), 50);
+  await assert.rejects(pending, (error) => error?.code === 'WAIT_ABORTED');
+  assert.ok(Date.now() - started < 300, 'caller abort did not beat positive hold promptly');
+  assert.equal(await store.read('initial-caller-abort'), null);
+});
+
+test('durable deadline beats positive initial hold before any baseline is persisted', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-initial-deadline-priority-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  const source = {
+    async arm(_condition, signal) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve({ status: 'matched', baseline: { boundary: 'late' }, evidence: 'late' }), 1500);
+        const onAbort = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
+          const error = new Error('arm deadline');
+          error.name = 'AbortError';
+          error.code = 'ABORT_ERR';
+          reject(error);
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        if (signal?.aborted) onAbort();
+      });
+    },
+    async check() { assert.fail('deadline-expired create must not check'); },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source } });
+  const result = await engine.run({
+    name: 'initial-deadline-wins', condition: { kind: 'fake' }, timeout_seconds: 1, hold_seconds: 2,
+  });
+  assert.equal(result.status, 'timeout');
+  assert.equal(result.name, 'initial-deadline-wins');
+  assert.equal(await store.read('initial-deadline-wins'), null);
+});
+
+test('initial arm inside positive hold persists a valid baseline and later hold expiry returns pending', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-fast-initial-arm-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  const source = {
+    pollIntervalMs: 250,
+    async arm(_condition, signal) {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, 200);
+        const onAbort = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', onAbort);
+          const error = new Error('fast arm unexpectedly aborted');
+          error.name = 'AbortError';
+          error.code = 'ABORT_ERR';
+          reject(error);
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+      return { status: 'pending', baseline: { boundary: 'inside-hold' } };
+    },
+    async check(record) {
+      return { status: 'pending', baseline: record.baseline };
+    },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source } });
+  const started = Date.now();
+  const result = await engine.run({
+    name: 'initial-inside-hold', condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 1,
+  });
+  const elapsed = Date.now() - started;
+  assert.equal(result.status, 'pending');
+  assert.ok(elapsed >= 850, `positive hold returned too early after arm: ${elapsed}ms`);
+  assert.ok(elapsed < 1250, `positive hold overran after successful arm: ${elapsed}ms`);
+  const saved = await store.read('initial-inside-hold');
+  assert.equal(saved.sourceArmed, true);
+  assert.deepEqual(saved.baseline, { boundary: 'inside-hold' });
+  assert.equal(saved.status, 'pending');
+});
+
+test('hold_seconds zero still allows one normal bounded initial arm and check', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-hold-zero-arm-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new WaitStore({ stateDir: path.join(root, 'state') });
+  let arms = 0;
+  let checks = 0;
+  const source = {
+    async arm() {
+      arms += 1;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return { status: 'pending', baseline: { boundary: 'hold-zero' } };
+    },
+    async check(record) {
+      checks += 1;
+      return { status: 'matched', baseline: record.baseline, evidence: 'checked-once' };
+    },
+  };
+  const engine = new WaitEngine({ store, sources: { fake: source } });
+  const result = await engine.run({
+    name: 'hold-zero-arm', condition: { kind: 'fake' }, timeout_seconds: 30, hold_seconds: 0,
+  });
+  assert.equal(result.status, 'matched');
+  assert.equal(arms, 1);
+  assert.equal(checks, 1);
+  assert.deepEqual((await store.read('hold-zero-arm')).baseline, { boundary: 'hold-zero' });
+});
+
 test('same-definition retry after a successfully armed create preserves one arm boundary and deadline', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'wait-engine-create-retry-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));

@@ -125,10 +125,6 @@ export class WaitEngine {
     };
   }
 
-  pendingFromSourceResult(record, result, nowMs) {
-    return this.sourceResultRecord(record, { ...result, status: 'pending' }, nowMs);
-  }
-
   async persistTimeout(record) {
     return this.store.write(this.timeoutRecord(record, this.now()));
   }
@@ -273,22 +269,54 @@ export class WaitEngine {
           };
           const source = this.sourceFor(unpersisted.condition);
           throwIfAborted(signal);
-          const armResult = await source.arm(unpersisted.condition, signal);
-          throwIfAborted(signal);
+          let armResult;
+          if (callDeadlineAtMs === null) {
+            armResult = await source.arm(unpersisted.condition, signal);
+            throwIfAborted(signal);
+          } else {
+            const operation = await this.runSourceOperation(
+              (operationSignal) => source.arm(unpersisted.condition, operationSignal),
+              {
+                signal,
+                waitDeadlineAtMs: unpersisted.deadlineAtMs,
+                callDeadlineAtMs,
+              },
+            );
+            if (operation.boundary === 'wait') {
+              return publicResult({
+                name,
+                status: 'timeout',
+                deadlineAtMs: unpersisted.deadlineAtMs,
+              });
+            }
+            if (operation.boundary === 'hold') {
+              throw new WaitError(
+                'WAIT_HOLD_EXPIRED',
+                `${name} was not armed before the call hold expired; no durable wait was created`,
+              );
+            }
+            armResult = operation.result;
+          }
+
           let nowMs = this.now();
-          let armedRecord = this.pendingFromSourceResult(unpersisted, armResult, nowMs);
+          let armedRecord = this.sourceResultRecord(unpersisted, armResult, nowMs);
           if (nowMs >= unpersisted.deadlineAtMs) {
             armedRecord = this.timeoutRecord(armedRecord, nowMs);
-          } else if (callDeadlineAtMs === null || nowMs < callDeadlineAtMs) {
-            armedRecord = this.sourceResultRecord(unpersisted, armResult, nowMs);
+          } else if (callDeadlineAtMs !== null && nowMs >= callDeadlineAtMs) {
+            throw new WaitError(
+              'WAIT_HOLD_EXPIRED',
+              `${name} was not armed before the call hold expired; no durable wait was created`,
+            );
           }
           throwIfAborted(signal);
           nowMs = this.now();
           if (nowMs >= unpersisted.deadlineAtMs) {
             armedRecord = this.timeoutRecord(armedRecord, nowMs);
-          } else if (callDeadlineAtMs !== null && nowMs >= callDeadlineAtMs
-              && armedRecord.status !== 'pending') {
-            armedRecord = this.pendingFromSourceResult(unpersisted, armResult, nowMs);
+          } else if (callDeadlineAtMs !== null && nowMs >= callDeadlineAtMs) {
+            throw new WaitError(
+              'WAIT_HOLD_EXPIRED',
+              `${name} was not armed before the call hold expired; no durable wait was created`,
+            );
           }
           throwIfAborted(signal);
           record = await this.store.create(armedRecord);

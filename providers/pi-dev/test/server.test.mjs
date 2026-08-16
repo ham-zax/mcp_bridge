@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -67,6 +68,42 @@ function textOf(result) {
 
 async function readWaitRecord(stateDir, name) {
   return JSON.parse(await fs.readFile(path.join(stateDir, 'waits', `${name}.json`), 'utf8'));
+}
+
+async function assertWaitRecordAbsent(stateDir, name) {
+  await assert.rejects(
+    () => fs.readFile(path.join(stateDir, 'waits', `${name}.json`), 'utf8'),
+    (error) => error?.code === 'ENOENT',
+  );
+}
+
+async function listenFakeBroker(socketPath, onRequest) {
+  const sockets = new Set();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.setEncoding('utf8');
+    let buffered = '';
+    socket.on('data', (chunk) => {
+      buffered += chunk;
+      const newline = buffered.indexOf('\n');
+      if (newline === -1) return;
+      const request = JSON.parse(buffered.slice(0, newline));
+      void onRequest({ request, socket });
+    });
+    socket.on('close', () => sockets.delete(socket));
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(socketPath, resolve);
+  });
+  return {
+    server,
+    sockets,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise((resolve) => server.close(resolve));
+    },
+  };
 }
 
 async function runServerProcess(env) {
@@ -293,6 +330,128 @@ test('Terminal output wait through personal MCP does not consume the Terminal mo
     assert.match(unread.text, /READY_FROM_WAIT/);
     const empty = await broker.request('model.read', { name: 'mcp-wait-cursor' });
     assert.equal(empty.text, '');
+  });
+});
+
+test('positive hold bounds delayed initial Terminal arm and returns WAIT_HOLD_EXPIRED without durable state', async (t) => {
+  const { stateDir, env } = await userFixture();
+  let requests = 0;
+  let lateResponseTimerFired = false;
+  const fake = await listenFakeBroker(env.MCP_DEV_TERMINAL_SOCKET, ({ request, socket }) => {
+    requests += 1;
+    assert.equal(request.op, 'session.observe');
+    setTimeout(() => {
+      lateResponseTimerFired = true;
+      if (socket.destroyed) return;
+      socket.end(`${JSON.stringify({
+        id: request.id,
+        ok: true,
+        result: {
+          name: request.params.name,
+          generation: '99999999-9999-4999-8999-999999999999',
+          paneDead: false,
+          paneDeadStatus: null,
+          panePid: 999,
+          transcript: { baseOffset: 0, endOffset: 0 },
+        },
+      })}\n`);
+    }, 1500);
+  });
+  t.after(() => fake.close());
+
+  await withClient(env, async client => {
+    const started = Date.now();
+    const result = await client.callTool({
+      name: 'wait',
+      arguments: {
+        name: 'delayed-initial-arm',
+        condition: { kind: 'terminal_output', session: 'delayed-arm', literal: 'READY' },
+        timeout_seconds: 30,
+        hold_seconds: 1,
+      },
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^WAIT_HOLD_EXPIRED: delayed-initial-arm was not armed before the call hold expired; no durable wait was created$/);
+    assert.ok(elapsed >= 850, `delayed initial arm returned too early: ${elapsed}ms`);
+    assert.ok(elapsed < 1400, `delayed initial arm overran positive hold: ${elapsed}ms`);
+    await assertWaitRecordAbsent(stateDir, 'delayed-initial-arm');
+
+    const resume = await client.callTool({
+      name: 'wait', arguments: { name: 'delayed-initial-arm', hold_seconds: 0 },
+    });
+    assert.equal(resume.isError, true);
+    assert.match(textOf(resume), /^WAIT_NOT_FOUND:/);
+
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    assert.equal(lateResponseTimerFired, true);
+    assert.equal(requests, 1);
+    assert.equal(fake.sockets.size, 0);
+    await assertWaitRecordAbsent(stateDir, 'delayed-initial-arm');
+  });
+});
+
+test('positive hold cancels a stalled initial Terminal broker request before its request timeout', async (t) => {
+  const { stateDir, env } = await userFixture();
+  let requests = 0;
+  const fake = await listenFakeBroker(env.MCP_DEV_TERMINAL_SOCKET, ({ request }) => {
+    requests += 1;
+    assert.equal(request.op, 'session.observe');
+  });
+  t.after(() => fake.close());
+
+  await withClient(env, async client => {
+    const started = Date.now();
+    const result = await client.callTool({
+      name: 'wait',
+      arguments: {
+        name: 'stalled-initial-broker',
+        condition: { kind: 'terminal_output', session: 'stalled-arm', literal: 'READY' },
+        timeout_seconds: 30,
+        hold_seconds: 1,
+      },
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^WAIT_HOLD_EXPIRED:/);
+    assert.ok(elapsed >= 850, `stalled broker returned too early: ${elapsed}ms`);
+    assert.ok(elapsed < 1400, `stalled broker waited through request timeout: ${elapsed}ms`);
+    await assertWaitRecordAbsent(stateDir, 'stalled-initial-broker');
+
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    assert.equal(requests, 1, 'broker client retried after WAIT_HOLD_EXPIRED returned');
+    assert.equal(fake.sockets.size, 0, 'broker client left an in-flight socket after hold expiry');
+    await assertWaitRecordAbsent(stateDir, 'stalled-initial-broker');
+  });
+});
+
+test('caller abort beats positive hold during initial Terminal arm and creates no wait', async (t) => {
+  const { stateDir, env } = await userFixture();
+  const fake = await listenFakeBroker(env.MCP_DEV_TERMINAL_SOCKET, () => {});
+  t.after(() => fake.close());
+
+  await withClient(env, async client => {
+    const controller = new AbortController();
+    const started = Date.now();
+    const pending = client.callTool(
+      {
+        name: 'wait',
+        arguments: {
+          name: 'initial-arm-caller-abort',
+          condition: { kind: 'terminal_exit', session: 'stalled-abort' },
+          timeout_seconds: 30,
+          hold_seconds: 10,
+        },
+      },
+      undefined,
+      { signal: controller.signal, timeout: 15000 },
+    );
+    setTimeout(() => controller.abort(), 50);
+    await assert.rejects(pending, /abort/i);
+    assert.ok(Date.now() - started < 400, 'caller abort did not stop initial arm promptly');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await assertWaitRecordAbsent(stateDir, 'initial-arm-caller-abort');
+    assert.equal(fake.sockets.size, 0);
   });
 });
 
