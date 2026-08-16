@@ -17,6 +17,7 @@ contains() { grep -Eq "$2" "$1"; }
 
 is_public_path() {
   case "$1" in
+    docs/history/* | \
     docs/superpowers/* | \
     docs/personal/* | \
     docs/benchmarks/terminal-preflight.md | \
@@ -43,6 +44,38 @@ public_tracked_files() {
     is_public_path "$path" || continue
     printf '%s\n' "$path"
   done
+}
+
+test_current_documentation_surface() {
+  local path
+  for path in \
+    README.md \
+    docs/getting-started.md \
+    docs/configuration.md \
+    docs/operations.md \
+    docs/architecture.md \
+    docs/security.md \
+    docs/development.md \
+    docs/troubleshooting.md \
+    docs/personal/harness.md \
+    docs/history/README.md; do
+    [ -f "$ROOT/$path" ] || {
+      echo "missing current documentation: $path" >&2
+      return 1
+    }
+  done
+
+  grep -Fq 'read edit write wait apply_patch bash' "$ROOT/README.md" || return 1
+  grep -Fq 'code_search code_context code_symbol' "$ROOT/README.md" || return 1
+  grep -Fq 'terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_close' "$ROOT/README.md" || return 1
+  grep -Fq 'docs/history/' "$ROOT/README.md" || return 1
+}
+
+test_documentation_compatibility_pointers() {
+  grep -Fq 'getting-started.md' "$ROOT/docs/installation.md" &&
+  grep -Fq 'history/acceptance/acceptance-procedure.md' "$ROOT/docs/acceptance.md" &&
+  grep -Fq 'history/acceptance/migration-from-local-bridge.md' "$ROOT/docs/migration-from-local-bridge.md" &&
+  grep -Fq '../history/' "$ROOT/docs/superpowers/README.md"
 }
 
 test_public_entrypoints() {
@@ -329,6 +362,8 @@ test_migration_guide_preserves_oauth_and_external_cutover() {
 
 run_test 'public bin entrypoints exist and are executable' test_public_entrypoints
 run_test 'publication directory structure exists' test_public_structure
+run_test 'current documentation surface exists and names the final personal actions' test_current_documentation_surface
+run_test 'important old documentation paths point to current or archived guidance' test_documentation_compatibility_pointers
 run_test 'setup requires explicit trust profile' test_explicit_profile_contract
 run_test 'trusted-dev is unrestricted while restricted is not' test_profiles_are_distinct
 run_test 'private-only paths stay outside the public publication surface' test_private_only_paths_are_not_public
