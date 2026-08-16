@@ -201,7 +201,7 @@ Expected: all Terminal tests pass and the public Terminal MCP catalog remains ex
 - `WaitEngine({ store, sources, now?, sleep? }).run(args, signal)` -> `{ status, name, text/evidence fields }`.
 - Wait statuses: `pending | matched | timeout | cancelled | failed`.
 - Named create is idempotent only for an identical normalized definition after a fully armed record has been persisted; conflicting redefinition returns `WAIT_CONFLICT`.
-- Initial create is linearized only after source arm/baseline capture succeeds. Request abort before that first persistence returns `WAIT_ABORTED` and leaves no named record; name-only resume then returns `WAIT_NOT_FOUND`, while an explicit create retry establishes a fresh arm boundary.
+- Initial create is linearized only after source arm/baseline capture succeeds **and** the fully prepared record is atomically installed at its final wait-state path. The successful atomic rename/install is the first-persistence commit point. Caller abort or positive hold before that commit prevents installation and leaves no named record; once the rename succeeds, the durable commit wins and later caller/hold events cannot retroactively deny or erase it.
 - Once a fully armed record exists, request abort stops lock acquisition/check/hold and leaves that durable status `pending` with the same baseline/deadline; lock contention can return transient `WAIT_BUSY`.
 
 - [ ] **Step 1: Write failing private-state permission and atomicity tests**
@@ -327,9 +327,13 @@ create -> normalize definition -> compute absolute deadline -> source.arm in mem
 hold_seconds=0 initial arm -> use the source's normal bounded arm behavior; do not impose a zero-ms hold deadline
 hold_seconds>0 initial arm -> reuse the derived operation boundary bounded by caller abort, absolute wait deadline, and positive call hold deadline
 positive hold expires before first durable baseline -> WAIT_HOLD_EXPIRED; no record exists; later name-only resume -> WAIT_NOT_FOUND
-initial arm success inside budget -> deadline/hold arbitration -> persist first fully armed record atomically
-initial arm request abort before first persistence -> WAIT_ABORTED; no record exists
-absolute wait deadline before first baseline persistence -> return timeout semantics without inventing an unarmed record
+initial arm success inside budget -> deadline/hold arbitration -> prepare first fully armed record privately
+first persistence temp/write/fsync -> remains private and boundary-aware
+caller abort before atomic final install -> WAIT_ABORTED; temp cleaned; no record exists
+positive hold before atomic final install -> WAIT_HOLD_EXPIRED; temp cleaned; no record exists
+atomic rename/install of fully prepared record -> FIRST DURABLE COMMIT / linearization point
+caller abort or hold after atomic install -> commit wins; do not deny/delete durable wait
+absolute wait deadline before a pending/matched first commit -> timeout semantics; never commit pending/matched after deadline
 resume -> load already-armed record
 cancel -> persist cancelled and return
 terminal status -> replay persisted result
@@ -342,7 +346,7 @@ call hold deadline wins over an unfinished check after durable arm -> return pen
 request AbortSignal wins before result commitment -> WAIT_ABORTED; an existing armed record remains pending unchanged
 ```
 
-`hold_seconds=0` means one immediate bounded arm/check cycle with no polling hold afterward; it does **not** impose a zero-millisecond deadline on source arming. For `hold_seconds>0`, the hold deadline is a true total invocation budget beginning near `WaitEngine.run()` entry and includes lock/GC/source arm/source check/polling work. The same internal operation-boundary machinery is used for initial arm and resumed checks so source timeouts/retry windows cannot add a full extra interval beyond the remaining positive hold. If the positive hold expires before the first fully armed persistence, the call returns `WAIT_HOLD_EXPIRED` and creates no durable state. If the hold expires after durable arm, the call returns `pending` and preserves the existing baseline/deadline. Initial create never exposes an unarmed durable record.
+`hold_seconds=0` means one immediate bounded arm/check cycle with no polling hold afterward; it does **not** impose a zero-millisecond deadline on source arming or first persistence. For `hold_seconds>0`, the hold deadline is a true total invocation budget beginning near `WaitEngine.run()` entry and includes lock/GC/source arm/first persistence/source check/polling work. The same internal operation-boundary machinery is used for initial arm, first durable creation, and resumed checks. First creation prepares a private temp record and checks the derived signal up to the synchronous atomic rename into the final state path. That rename is the commit point: pre-commit hold -> `WAIT_HOLD_EXPIRED` + no record; post-commit hold -> `pending` + preserved durable state. Caller abort follows the same pre/post-commit split with `WAIT_ABORTED` only when abort wins before commit. Initial create never exposes an unarmed durable record.
 
 Do not allow lock arbitration to turn `hold_seconds=0` into a long blocking call or to extend a 15-second hold by another long lock timeout.
 

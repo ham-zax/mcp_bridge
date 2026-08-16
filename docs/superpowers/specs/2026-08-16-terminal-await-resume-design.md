@@ -281,7 +281,7 @@ cancel:
   name + cancel=true
 ```
 
-Validation rejects ambiguous combinations. A repeated create using an existing name is idempotent only after a fully armed durable record exists and the normalized condition and original deadline inputs are identical; otherwise it returns `WAIT_CONFLICT`. This makes a retry after a lost response recover the same armed named state instead of creating an unresumable duplicate. Initial create is linearized at first fully armed persistence: the source baseline is captured in memory before the name becomes durable.
+Validation rejects ambiguous combinations. A repeated create using an existing name is idempotent only after a fully armed durable record exists and the normalized condition and original deadline inputs are identical; otherwise it returns `WAIT_CONFLICT`. This makes a retry after a lost response recover the same armed named state instead of creating an unresumable duplicate. Initial create is linearized at the atomic final installation of the first fully armed state file: the source baseline and complete record are prepared privately first, then a synchronous atomic rename into the final wait path is the single durable commit point.
 
 Defaults and bounds:
 
@@ -294,7 +294,7 @@ hold_seconds     default 10; range 0..15
 
 For `hold_seconds>0`, the hold clock starts near invocation entry and is the total per-call budget, including lock acquisition, state load/GC, initial source arm, resumed checks, polling sleeps, and source retries. Initial arm and resumed checks use the same internal operation boundary at the earliest of caller abort, durable wait deadline, or positive call hold deadline, so a source's independent timeout/retry window cannot add a full extra interval beyond the remaining hold.
 
-If positive hold expires **before the first fully armed durable persistence**, the call returns stable `WAIT_HOLD_EXPIRED` and creates no record. A name-only resume therefore returns `WAIT_NOT_FOUND`; the caller must explicitly retry create to choose a new arm boundary. If positive hold expires **after** a fully armed record exists, the invocation returns `pending` and preserves the original deadline/baseline/source identity. Hold expiration is not durable cancellation or durable timeout. A single MCP request never intentionally holds more than 15 seconds even when the durable deadline is much longer.
+If positive hold expires **before the atomic first-state install**, the call returns stable `WAIT_HOLD_EXPIRED`; private temp state is removed and no final record exists. A name-only resume therefore returns `WAIT_NOT_FOUND`; the caller must explicitly retry create to choose a new arm boundary. If the atomic install wins first, the durable wait exists and a later hold expiry returns `pending` with the original deadline/baseline/source identity. Hold expiration is not durable cancellation or durable timeout, and it never rolls back a committed wait.
 
 No `wait_list`, notification, history, cron, or workflow/action graph is included in Phase 2.
 
@@ -564,7 +564,7 @@ There are two different cancellations.
 
 ### MCP/request cancellation or ChatGPT disconnect
 
-Initial create has a stronger linearization rule than later resume calls. The engine computes the absolute deadline and obtains the source arm/baseline before writing the first durable record. If request cancellation wins before that fully armed record is persisted, the call returns `WAIT_ABORTED` and **no named wait exists**. If a positive hold deadline wins before that persistence, the call instead returns `WAIT_HOLD_EXPIRED` and likewise leaves no named wait. A name-only resume therefore returns `WAIT_NOT_FOUND` in either pre-arm case; an explicit create retry establishes a new arm boundary. There is never a durable `pending + sourceArmed=false + baseline=null` state that can silently re-arm later.
+Initial create has a stronger linearization rule than later resume calls. The engine computes the absolute deadline and obtains the source arm/baseline before preparing the first state file. Preparation remains private through temp write/fsync. The final synchronous atomic rename/install is the linearization point. If request cancellation wins before that install, the call returns `WAIT_ABORTED` and **no named wait exists**; if positive hold wins before it, the call returns `WAIT_HOLD_EXPIRED` with the same no-record result. If the atomic install wins first, later caller abort/hold cannot retroactively erase or deny the durable wait. A name-only resume returns `WAIT_NOT_FOUND` only for genuine pre-commit boundary wins. There is never a durable `pending + sourceArmed=false + baseline=null` state.
 
 Once a fully armed record exists, abort the current lock acquisition/check/hold promptly while preserving that record as `pending` with the same baseline/deadline. A request canceled while queued for the per-name wait lock must be removed from contention and must never later acquire the lock and continue checking after cancellation.
 
@@ -620,7 +620,7 @@ Requirements:
 
 - directory mode `0700`;
 - file mode `0600`;
-- atomic temp-file + rename writes;
+- atomic temp-file + rename writes; for first create, the successful synchronous atomic rename into the final path is the explicit durable linearization point, and pre-commit caller/hold/deadline signals clean private temp state rather than installing it;
 - per-name cross-process lock uses a Linux abstract Unix socket bind keyed by uid + canonical waits root + wait name;
 - kernel socket ownership releases automatically when the provider process dies, so no stale-path unlink or PID ownership inference is part of recovery;
 - legacy `$MCP_DEV_STATE_DIR/waits/.locks/*` files from the pre-review implementation are ignored and cannot block a new owner;
@@ -801,8 +801,8 @@ Implementation acceptance must be separate from this design mission.
 
 Prove:
 
-- initial create is not durable until a complete source baseline is captured; abort before first armed persistence leaves no name and cannot silently re-arm later;
-- named create is durable and retry-idempotent after first armed persistence;
+- initial create is not durable until a complete source baseline is captured and the fully prepared state wins the atomic final-path rename; abort/positive-hold before that commit leaves no name/temp state and cannot silently re-arm later;
+- once the atomic first install wins, caller abort/hold cannot retroactively deny the commit; named create is durable and retry-idempotent from that point onward;
 - absolute deadline beats source results that complete late, including late `matched` results from arm/check;
 - `hold_seconds=0` allows one normal bounded initial arm/check without a zero-ms hold deadline;
 - positive `hold_seconds` is the total invocation budget, including initial arm; pre-arm hold expiry returns `WAIT_HOLD_EXPIRED` with no record, while post-arm hold expiry returns pending with durable state preserved;

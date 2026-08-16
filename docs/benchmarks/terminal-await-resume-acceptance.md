@@ -3,7 +3,7 @@
 Date: 2026-08-16
 Branch: `feat/personal-harness-agent-3-await-implementation`
 Original implementation checkpoint entering qualification: `8c4715a8b5dc219ac32787ec860782871a310fd8`
-Independent-review blocker fixes: `2fa0e8196ba7a8ad6ef263f89b5a014636eb36d9` (systemd resumability/environment/abort), `46f62b08c22359d318940b56acd7833c9315c2c6` (crash-safe per-name locking), `a38e561a13c5fc7a8f9412d76c52a40089b37f37` (deadline/initial-arm/hold/Terminal-transport/state correctness), and `4473e3da66433f0e6ea72ca6086b1de2dc34006a` (positive-hold total budget during first source arm).
+Independent-review blocker fixes: `2fa0e8196ba7a8ad6ef263f89b5a014636eb36d9` (systemd resumability/environment/abort), `46f62b08c22359d318940b56acd7833c9315c2c6` (crash-safe per-name locking), `a38e561a13c5fc7a8f9412d76c52a40089b37f37` (deadline/initial-arm/hold/Terminal-transport/state correctness), `4473e3da66433f0e6ea72ca6086b1de2dc34006a` (positive-hold total budget during first source arm), and `57b5636e279f50dc29bf9d2beee1c77a67b0b496` (first durable persistence linearization).
 Scope: focused-plan Task 6 local qualification and independent-review correctness requalification only. Focused-plan Task 7, live bridge activation, and ChatGPT Actions refresh were **not run**.
 
 ```text
@@ -30,6 +30,7 @@ ddf2f5d  feat: add local readiness wait sources
 46f62b0  fix: make wait locks crash-safe
 a38e561  fix: harden durable wait correctness
 4473e3d  fix: bound initial wait arming by positive hold
+57b5636  fix: linearize first durable wait commit
 ```
 
 The accepted live integration worktree was not modified during Tasks 3-6 and remained at:
@@ -50,12 +51,12 @@ node --test .superpowers/web/2026-08-16-terminal-await-resume/qualify-task6.test
 Result:
 
 ```text
-15 tests
-15 pass
+17 tests
+17 pass
 0 fail
 ```
 
-The fifteen cases exercised the actual stdio personal `wait` tool plus disposable Terminal/local resources, including positive initial-arm hold expiry and shared-provider hold concurrency, not only direct source methods.
+The seventeen cases exercise the actual stdio personal `wait` tool plus disposable Terminal/local resources, including positive initial-arm hold expiry and shared-provider hold concurrency, plus two local persistence-boundary qualifications using the real `WaitStore`/`WaitEngine` commit path.
 
 ## 1. Race-safe Terminal output and independent model cursor
 
@@ -222,7 +223,7 @@ The private BrokerClient now accepts an internal request signal and makes connec
 
 Version-1 wait records are now semantically validated on every read/write. Durable pending records are always fully armed with a non-null baseline and consistent definition/timeout/deadline/timestamps; terminal statuses have status-dependent completion invariants. Malformed semantic state cannot become immortal pending state or silently re-arm.
 
-## 8. Final positive-hold initial-arm requalification
+## 8. Final positive-hold and first-persistence requalification
 
 The final narrow review identified one remaining activation blocker: positive `hold_seconds` bounded resumed source checks but initial `source.arm()` still received only the caller signal. The corrected engine reuses the existing operation-boundary machinery for first arm only when `hold_seconds>0`; zero-hold create retains its normal bounded source behavior.
 
@@ -260,6 +261,28 @@ identical create after durable arm              no re-arm; original baseline/dea
 hold_seconds=0 with ~150 ms arm                 normal arm + one check; no WAIT_HOLD_EXPIRED
 post-return delayed source completion           no later state mutation
 ```
+
+The final persistence-linearization repair makes the successful atomic rename/install of the fully prepared first state file the explicit durable commit point. `WaitStore.create(record, {signal})` checks the derived boundary during private temp preparation and immediately before the synchronous atomic rename; a pre-commit abort/hold removes temp state and never installs the final record. A resolved create means the commit won, so a caller/hold event that fires immediately afterward cannot be reported as though no wait exists.
+
+Fresh first-persistence qualification evidence:
+
+```text
+CALLER ABORT BEFORE COMMIT
+caller abort target                  ~50 ms
+observed WAIT_ABORTED                51.10 ms
+record after return                  absent
+record after old +1.5 s window       absent
+temp files after old completion      0
+
+POSITIVE HOLD BEFORE COMMIT
+hold_seconds                         1
+observed WAIT_HOLD_EXPIRED           999.92 ms
+record after return                  absent
+record after old +1.5 s window       absent
+temp files after old completion      0
+```
+
+Focused race coverage also proves atomic-commit-then-abort returns the committed pending wait rather than `WAIT_ABORTED`; commit just before hold expiry returns pending with the durable baseline; 16 tightly timed abort/commit iterations and four near-one-second hold/commit iterations satisfy exactly one coherent outcome; a durable deadline racing first persistence never installs `pending` or `matched` after deadline; and identical create retry after a committed first state does not re-arm or move its deadline/baseline.
 
 The successful shared-provider concurrency gate was also rerun using **one** Pi provider with two unrelated ten-second waits in flight:
 
@@ -408,9 +431,9 @@ This verdict is local/offline context evidence, not a claim about hidden ChatGPT
 After the final focused correction and requalification:
 
 ```text
-Pi provider               168 / 168 PASS
+Pi provider               176 / 176 PASS
 Terminal                  45 / 45 PASS
-local qualification        15 / 15 PASS
+local qualification        17 / 17 PASS
 schema-value workflow        1 / 1 PASS
 harness                      6 / 6 PASS
 publication                 16 / 16 PASS
