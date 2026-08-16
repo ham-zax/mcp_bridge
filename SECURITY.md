@@ -1,26 +1,25 @@
 # Security
 
-## Trust model
+MCP Development Bridge exposes development capabilities to ChatGPT. The security boundary is the trust profile plus the Linux account running the bridge.
 
-MCP Development Bridge intentionally supports two explicit operating profiles.
+## Profiles
 
-- `restricted`: conservative command policy for general installations.
-- `trusted-dev`: unrestricted agentic development authority as the Linux user running the bridge.
+- `restricted` keeps Files workspace-bounded and uses a separate allowlisted shell.
+- `trusted-dev` keeps Files workspace-bounded but gives native Bash the authority of the Linux service user.
+- `personal` is a private WSL-user-authority profile with unrestricted Files/Bash plus Code and persistent Terminal capabilities.
 
-`trusted-dev` can access anything that service account can access, including files outside the configured workspace through shell commands, local processes, network resources, credentials, and developer tooling. Use it only where that authority is deliberate.
+Use `trusted-dev` or `personal` only when that authority is deliberate. The bridge must never store, infer, log, transmit, or auto-fill a sudo password; elevated commands remain an explicit human/operator action.
 
-Filesystem provider roots and shell authority are separate concerns. Future provider implementations must preserve the profile semantics rather than coupling policy to a particular shell package.
+Read the full [Security and trust profiles](docs/security.md) guide before deployment.
 
 ## Public exposure
 
-1MCP listens on loopback. Cloudflare provides the public HTTPS transport. OAuth must remain enabled for the public origin.
-
-The pinned 1MCP 0.34.4 setup includes a verified CSP compatibility patch needed for the OAuth consent redirect to an HTTPS ChatGPT callback. The installer fails rather than applying that patch to unexpected upstream source.
+1MCP listens on loopback. Cloudflare supplies the public HTTPS path. OAuth remains required for the public MCP origin.
 
 ## Sensitive state
 
-Generated 1MCP configuration, OAuth/session state, logs, PID files, and runtime markers are kept outside the Git checkout by default. Do not commit `.env` or deployment credentials.
+Generated configuration, OAuth/session state, runtime files, logs, and deployment identity live outside Git by default. Do not commit `.env`, credentials, tunnel secrets, OAuth state, or private logs.
 
 ## Reporting
 
-For a public GitHub release, enable GitHub private vulnerability reporting and use that channel for security reports. Do not publish credentials, tunnel secrets, OAuth state, or private logs in a public issue.
+For a public GitHub release, use GitHub private vulnerability reporting. Do not publish secrets or private deployment data in a public issue.

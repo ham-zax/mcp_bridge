@@ -1,73 +1,89 @@
 # MCP Development Bridge
 
-Authenticated MCP development bridge for running coding tools on a Linux or WSL development machine through ChatGPT.
+A small, authenticated bridge that lets ChatGPT work against a Linux or WSL development machine through MCP.
+
+The project keeps the internet-facing layer narrow: Cloudflare handles HTTPS, 1MCP handles OAuth and MCP routing, and local providers expose development capabilities with explicit trust profiles.
+
+## Architecture
 
 ```text
 ChatGPT
-   |
-   | HTTPS + OAuth
-   v
+  |
+  | HTTPS + OAuth
+  v
 Cloudflare Tunnel
-   |
-   v
-1MCP on 127.0.0.1:3050
-   |
-   +-- dev (Pi read/edit/write; trusted-dev Bash)
-   `-- legacy shell (restricted profile only)
+  |
+  v
+1MCP on loopback
+  |
+  +-- Dev       Files, Bash, durable waits
+  +-- Code      repository-rooted code intelligence
+  `-- Terminal  persistent tmux-backed PTYs
 ```
 
-The project keeps public software generic while deployment identity and mutable state remain local. A deployment chooses a trust profile explicitly; there is no silent profile default.
+Not every profile enables every provider. Public/general installations use the smaller `restricted` or `trusted-dev` surfaces. The private `personal` profile adds the full WSL coding harness.
 
 ## Trust profiles
 
-### `restricted`
+| Profile | Files | Shell | Code / Terminal | Intended use |
+|---|---|---|---|---|
+| `restricted` | workspace-bounded `read`, `edit`, `write` | separate allowlisted legacy shell | no | conservative public/general installs |
+| `trusted-dev` | workspace-bounded `read`, `edit`, `write` | unrestricted native Bash as the Linux service user | no | dedicated trusted development hosts |
+| `personal` | WSL-user paths, including absolute paths | unrestricted native Bash | yes | private Codex-like personal harness |
 
-Recommended for general installations. Uses a conservative command policy and limits file access to configured workspace roots.
+`trusted-dev` and `personal` deliberately carry the authority of the Linux user running the bridge. Read [Security](docs/security.md) before enabling either.
 
-### `trusted-dev`
+## Personal harness surface
 
-First-class mode for dedicated agentic development machines. Command execution has the effective permissions of the Linux user running the bridge. Files, processes, network resources, credentials, and tools available to that account may therefore be reachable by the agent.
+The accepted private surface is 15 actions grouped into three obvious domains:
 
-`trusted-dev` is deliberate unrestricted development authority, not a hidden or unsupported mode.
+```text
+Dev       read edit write wait apply_patch bash
+Code      code_search code_context code_symbol
+Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_close
+```
+
+A few important design choices:
+
+- `edit` is the guarded single-file primitive; `apply_patch` is for multi-file or structural changes.
+- Bash is native Bash. RTK is optional when invoked explicitly; it is not an automatic execution layer.
+- `wait` is a Dev action. It provides durable named waits for Terminal output/exit and local readiness conditions without consuming the normal Terminal read cursor.
+- Terminal PTYs are owned by tmux, so they survive provider, broker, and 1MCP restarts.
+- Code requests are routed to the nearest canonical Git root; the raw CodeDB tool catalog is hidden behind three small actions.
+
+See [Personal harness](docs/personal/harness.md) for the practical workflow.
 
 ## Quick start
 
-Prerequisites include Node.js, npm/npx, `uv`/`uvx`, `cloudflared`, `curl`, `flock`, and a configured Cloudflare Tunnel hostname pointing at the local 1MCP origin.
+Public/general setup uses one explicit profile:
 
 ```bash
 cp .env.example .env
 # edit MCP_WORKSPACE_ROOT and MCP_PUBLIC_URL
 
 scripts/setup.sh --profile restricted
-# or deliberately:
+# or, deliberately:
 scripts/setup.sh --profile trusted-dev
 
 bin/start
 bin/status
 ```
 
-Setup renders deployment state outside the Git checkout, by default under:
+Generated configuration and OAuth/session state live outside the Git checkout by default:
 
 ```text
 ${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/
 ```
 
-Transient lifecycle state defaults to:
+Runtime state lives under:
 
 ```text
 ${XDG_RUNTIME_DIR:-/run/user/$UID}/mcp-dev-bridge/
 ```
 
-Install user-session autostart with:
+For the private `personal` profile, use the dedicated instructions in [Personal harness](docs/personal/harness.md); `scripts/setup.sh` intentionally exposes only the public `restricted` and `trusted-dev` setup path.
 
-```bash
-scripts/install-systemd-user.sh
-systemctl --user start mcp-dev-bridge.service
-```
-
-The installer does not automatically remove or disable an older service installation.
-
-## Public lifecycle interface
+## Day-to-day operations
 
 ```bash
 bin/start
@@ -75,37 +91,45 @@ bin/status
 bin/stop
 ```
 
-Legacy `scripts/start.sh`, `scripts/status.sh`, and `scripts/stop.sh` remain compatibility wrappers during migration.
+Optional user-session autostart:
 
-## Current development surface
+```bash
+scripts/install-systemd-user.sh
+systemctl --user start mcp-dev-bridge.service
+```
 
-The bridge evaluated CodeDB and removed it after its independent benchmark failed the required post-edit freshness gate. The Pi-backed `dev` provider then passed all 21 mandatory runtime/boundary cases and won the Files/Shell cutover. Both profiles now use workspace-relative `read`, exact guarded multi-`edit`, and atomic create-only `write` through pinned Pi primitives. Under `trusted-dev`, `dev.bash` is the Shell backend and accepts one native Bash command string; under `restricted`, Pi Bash is deliberately omitted and the legacy allowlisted shell remains as the transitional Shell backend. Dev results are plain model-facing text: source, one diff, a short create acknowledgement, or terminal output. Benchmark evidence remains under `docs/benchmarks/`.
-
-## Important 1MCP 0.34.4 compatibility behavior
-
-This project pins `@1mcp/agent@0.34.4` and preserves two verified workarounds:
-
-- lifecycle launches the real 1MCP Node entrypoint directly instead of relying on `serve --background`;
-- `scripts/setup.sh` automatically verifies/applies the OAuth consent CSP compatibility patch from `form-action 'self'` to `form-action 'self' https:` so ChatGPT can complete the HTTPS OAuth consent redirect. Setup refuses to patch blindly if the pinned upstream file no longer has the expected shape.
-
-See [Operations](docs/operations.md) for details.
+For Terminal lifetime and broker operations, recovery, logs, safe restarts, and source cutovers, see [Operations](docs/operations.md).
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
-- [Installation](docs/installation.md)
+- [Getting started](docs/getting-started.md)
 - [Configuration](docs/configuration.md)
 - [Operations](docs/operations.md)
+- [Architecture](docs/architecture.md)
 - [Security and trust profiles](docs/security.md)
-- [Development](docs/development.md)
-- [Acceptance procedure](docs/acceptance.md)
-- [Migrating an existing local bridge](docs/migration-from-local-bridge.md)
+- [Development and verification](docs/development.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Personal WSL harness](docs/personal/harness.md)
+- [Personal CLI toolbox](docs/personal/toolbox.md)
+- [Engineering history](docs/history/README.md) — benchmarks, plans, specs, and acceptance evidence
 
-Engineering design history is kept under `docs/superpowers/` but is not part of the primary public documentation.
+## Current status
 
-## Publication note
+The Phase-2 personal harness is merged, live-accepted, and released at:
 
-The current private development Git history contains historical machine-specific deployment values. Before making a public repository, review/export or squash the intended public history rather than assuming a clean current working tree sanitizes older commits.
+```text
+personal-harness-phase2-2026-08-16
+```
+
+The current documentation describes that accepted architecture. Older benchmark and planning documents are preserved under `docs/history/` and are intentionally not the operating manual.
+
+## 1MCP compatibility note
+
+The project pins 1MCP 0.34.4 and preserves two verified compatibility behaviors: direct supervision of the real Node entrypoint and a narrow OAuth consent CSP patch required for the HTTPS ChatGPT callback. The installer refuses to patch an unexpected upstream file shape. Details are in [Operations](docs/operations.md).
+
+## Public/private publication boundary
+
+This source tree contains private-only personal-harness implementation and historical engineering evidence. Publication tests keep those paths out of the public export. Public users should rely on `restricted` or deliberately `trusted-dev` unless the private personal composition is available to them.
 
 ## License
 

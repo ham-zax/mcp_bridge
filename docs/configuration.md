@@ -1,38 +1,56 @@
 # Configuration
 
-Configuration is composed from three categories:
+Configuration is built from three inputs:
 
 ```text
 tracked template + explicit trust profile + local deployment identity
-                              -> external generated 1MCP state
+                              -> generated external state
 ```
 
 ## Deployment identity
 
-An ignored `.env` supplies machine-specific values:
+Local machine-specific values come from `.env` (or another file passed with `--env-file`):
 
 ```text
 MCP_WORKSPACE_ROOT=/absolute/path/to/code
 MCP_PUBLIC_URL=https://mcp.example.com
 MCP_TUNNEL_NAME=
+MCP_DEV_MAX_OUTPUT_BYTES=1048576
 ```
 
-Trust profile is intentionally not stored in `.env`; setup requires `--profile` and records the selected profile in generated state.
+Do not put trust policy or secrets in that file.
 
 ## Profiles
 
-Tracked files:
+### `restricted`
+
+- Dev Files: workspace-bounded `read`, `edit`, `write`.
+- Shell: separate allowlisted legacy shell.
+- No Code provider.
+- No Terminal provider.
+
+### `trusted-dev`
+
+- Dev Files: workspace-bounded `read`, `edit`, `write`.
+- Dev Bash: unrestricted native Bash as the Linux service user.
+- No Code provider.
+- No Terminal provider.
+
+### `personal`
+
+Private-only profile:
 
 ```text
-config/profiles/restricted.env
-config/profiles/trusted-dev.env
+Dev       read edit write wait apply_patch bash
+Code      code_search code_context code_symbol
+Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_close
 ```
 
-Profiles describe policy only. They must not contain machine usernames, home paths, domains, tunnel identities, or repository roots.
+Its tracked private profile must provide an absolute user-mode default cwd. The renderer uses that same default for Dev and Code. Terminal communicates through the private broker socket.
 
 ## Rendering
 
-`scripts/render-config.mjs` can be used directly:
+Public/general setup calls the renderer for you. Direct rendering is also supported:
 
 ```bash
 node scripts/render-config.mjs \
@@ -40,19 +58,39 @@ node scripts/render-config.mjs \
   --env-file .env
 ```
 
-Default output:
+The renderer accepts `restricted`, `trusted-dev`, and `personal`.
+
+Useful overrides:
 
 ```text
-${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/bridge.env
-${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/1mcp/mcp.json
+--env-file PATH
+--state-dir PATH
+--repo-root PATH
 ```
 
-The containing 1MCP directory is writable because 1MCP stores runtime/auth state beneath its config root.
+## Generated state
 
-When migrating an existing OAuth-connected bridge to a different 1MCP `--config-dir`, preserve inbound OAuth continuity explicitly with `scripts/migrate-legacy-oauth-state.sh` before starting the replacement service. Do not copy Streamable HTTP transport sessions as credential state; see `docs/migration-from-local-bridge.md`.
+Default persistent root:
 
-Tests and unusual deployments may override `--state-dir`, `BRIDGE_STATE_DIR`, `XDG_STATE_HOME`, and `XDG_RUNTIME_DIR`.
+```text
+${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge
+```
 
-## Compatibility
+Important files:
 
-During local migration the lifecycle prefers generated external state when present. If no generated deployment exists and a legacy tracked-style `config/mcp.json` exists, the compatibility path can still use the repository `config/` and `run/` directories until migration is complete.
+```text
+bridge.env        selected profile, public URL, workspace/default cwd, source root
+1mcp/mcp.json     rendered provider composition
+1mcp/             1MCP writable application/OAuth/session state
+dev/              private Dev durable state when enabled
+```
+
+Transient process state is kept under `${XDG_RUNTIME_DIR:-/run/user/$UID}/mcp-dev-bridge`.
+
+## Source root matters
+
+Generated provider commands contain the repository root used during rendering. If you move or delete that checkout/worktree, render again from the new source root before removing the old one. See [Operations: safe source cutover](operations.md#safe-source-cutover).
+
+## Output policy
+
+`MCP_DEV_MAX_OUTPUT_BYTES` is deployment policy, not a model-facing tool argument. Increase it only when the operator deliberately wants a larger model-visible Bash result budget.

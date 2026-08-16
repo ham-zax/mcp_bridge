@@ -3,40 +3,71 @@
 ## Repository layout
 
 ```text
-bin/            public lifecycle entrypoints
-lib/bridge/     lifecycle/process internals
-providers/      MCP provider implementations
-config/         tracked templates and policy profiles
-scripts/        setup, config rendering, compatibility helpers
-systemd/        generic service template
-tests/          behavioral/publication checks
+bin/                 lifecycle and human Terminal entrypoints
+lib/bridge/          lifecycle/process supervision internals
+providers/pi-dev/    Dev Files/Bash/patch/wait provider
+providers/code-router/ Code facade + rooted CodeDB router
+providers/terminal/  Terminal MCP, broker, tmux/transcript logic
+providers/legacy-shell/ restricted-profile legacy shell
+config/              tracked templates and trust profiles
+scripts/             setup, rendering, migration, toolbox, installers
+systemd/             user-service templates
+tests/               root integration/publication/lifecycle contracts
+docs/                current documentation
+docs/history/        non-current engineering evidence
 ```
 
-Provider code should not leak into lifecycle code, and trust profiles should not encode machine identity.
+## Provider dependency setup
 
-## Verification
-
-Run:
+Fresh linked worktrees do not inherit ignored `node_modules`. Install pinned dependencies before running provider-aware root tests:
 
 ```bash
-bash tests/lifecycle.sh
+npm --prefix providers/pi-dev ci --omit=dev
+npm --prefix providers/terminal ci --omit=dev
+npm --prefix providers/code-router ci --omit=dev
+```
+
+## Full verification
+
+```bash
+bash tests/harness.sh
 bash tests/publication.sh
+bash tests/lifecycle.sh
+(cd providers/pi-dev && npm test)
+(cd providers/terminal && npm test)
+(cd providers/code-router && npm test)
+bash scripts/check-personal-toolbox.sh
 bash -n bin/* lib/bridge/*.sh scripts/*.sh tests/*.sh
-node --check scripts/render-config.mjs
-python -m py_compile providers/legacy-shell/server.py
+node --check scripts/*.mjs providers/pi-dev/*.mjs providers/terminal/*.mjs providers/code-router/*.mjs
 git diff --check
 ```
 
-Lifecycle tests use isolated fake processes and paths; they must not restart the live bridge.
+If a single MCP Bash request risks exceeding the connector request window, run the long suite inside a durable Terminal session and use `wait`/`terminal_read` for completion evidence.
 
-## Dependency pins
+## Change boundaries
 
-The current privileged runtime pins 1MCP, Pi coding primitives, the MCP SDK/Zod used by the `dev` provider, and the legacy shell dependency retained for the `restricted` profile. Upgrade them intentionally and rerun OAuth/lifecycle/provider acceptance. The 1MCP OAuth CSP compatibility patch is version-specific.
+- Public profile behavior must not accidentally inherit private personal capability.
+- Do not expose the raw CodeDB tool catalog.
+- Do not make tmux lifetime depend on the broker or 1MCP.
+- Keep `wait` durable and separate from the normal Terminal model-read cursor.
+- Keep native Bash as the authoritative execution path.
+- Preserve provider-internal same-canonical-path mutation serialization.
 
-## Engineering history
+## Documentation
 
-`docs/superpowers/` contains internal design and implementation planning history. Public-facing documentation should not depend on those files being read by an installer or end user.
+Current docs describe current behavior. Put design chronology, benchmarks, plans, agent coordination, and superseded acceptance procedures under `docs/history/`.
 
-## Public-history hygiene
+When moving an important old doc path, leave a small compatibility pointer rather than duplicated stale guidance.
 
-Removing machine-specific values from current files does not remove them from older commits. Before publication, inspect the history intended for release and use a reviewed squash/export/new-public-repository workflow if the existing private history contains deployment details that should not be published.
+## Release checklist
+
+1. run the full verification gate;
+2. ensure the working tree is clean;
+3. confirm generated live config points at the intended source root;
+4. verify bridge `issues: 0` and public/local health;
+5. push `main` only after the merged result is verified;
+6. create tags/releases only at a known-good commit.
+
+## Dependency upgrades
+
+Treat 1MCP, Pi coding primitives, MCP SDK/Zod, CodeDB, tmux behavior, and the legacy restricted-shell dependency as qualified pins. Upgrade intentionally and rerun the relevant provider, lifecycle, OAuth, and product-path acceptance.

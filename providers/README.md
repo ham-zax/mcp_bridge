@@ -1,9 +1,41 @@
 # Providers
 
-Provider-specific MCP implementations live here. Bridge lifecycle code must not contain provider business logic.
+The bridge is organized around capability boundaries, not one tool per package.
 
-Current transitional provider:
+## Dev — `providers/pi-dev/`
 
-- `legacy-shell/server.py` — compatibility shim around `mcp-shell-server==1.1.8` used by the current Files/Shell stack.
+Files, native Bash, patching, and durable local waits.
 
-Future providers such as a Pi-backed development harness should be added as separate directories with their own tests and dependency pins. The `trusted-dev` / `restricted` policy profiles are architectural policy and must remain independent of a particular provider implementation.
+Personal surface:
+
+```text
+read edit write wait apply_patch bash
+```
+
+Public profiles expose a smaller subset according to their trust policy.
+
+## Code — `providers/code-router/`
+
+Private repository intelligence:
+
+```text
+code_search code_context code_symbol
+```
+
+Each call resolves the nearest canonical Git root and routes to a correctly rooted CodeDB child. The raw CodeDB MCP catalog is not model-facing.
+
+## Terminal — `providers/terminal/`
+
+Private persistent PTY control:
+
+```text
+terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_close
+```
+
+The MCP provider talks to a local broker over a Unix socket. tmux owns PTY/process lifetime; the broker owns metadata, transcript/cursor state, and human/model control leases.
+
+## Legacy shell — `providers/legacy-shell/`
+
+Retained only for the public `restricted` profile's conservative allowlisted shell policy.
+
+See [Architecture](../docs/architecture.md) and [Security](../docs/security.md) for the current boundaries.

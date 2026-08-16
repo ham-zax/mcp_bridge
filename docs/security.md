@@ -1,29 +1,64 @@
 # Security and Trust Profiles
 
-The bridge exposes development capability on a Linux account. The selected profile determines intended authority; deployment identity is configured separately.
+The effective security boundary is the selected profile plus the Linux account running the bridge.
 
 ## `restricted`
 
-Recommended for general installs. The current transitional shell provider uses a command policy rather than unrestricted dangerous-command bypass. Workspace file access remains rooted at configured paths.
+Use for conservative/public installations.
+
+- Files are confined to the configured workspace.
+- Dev does not expose unrestricted Bash.
+- A separate legacy shell provider enforces an allowlist policy.
+- No private Code or Terminal provider is present.
 
 ## `trusted-dev`
 
-Designed for dedicated agentic development environments. Shell execution is intentionally unrestricted and has the effective authority of the Linux service user.
+Use only on a dedicated development host where unrestricted shell authority is intentional.
 
-That may include access to:
+- Files remain workspace-bounded.
+- Dev exposes native Bash with the permissions of the Linux service user.
+- Bash may reach files, processes, network resources, developer tools, and credentials accessible to that account even when the Files tools are workspace-bounded.
+- No private Code or Terminal provider is present.
 
-- files outside the configured Pi Files workspace through trusted Shell commands;
-- developer credentials readable by the service user;
-- local processes and systemd user services;
-- network endpoints available to that account;
-- installed compilers, package managers, Git tooling, and other Linux commands.
+## `personal`
 
-This is a supported operating model. Use it when that authority is part of the intended development workflow.
+Private Codex-like WSL authority.
 
-## Policy survives provider replacement
+- Files use user-mode paths and may accept absolute paths.
+- Bash has the authority of the WSL user.
+- Code can inspect Git repositories reachable by that user.
+- Terminal can create and control persistent tmux-backed PTYs.
+- Durable waits can observe local process/port/file/HTTP/systemd state and private Terminal state.
 
-The policy abstraction is not tied to `mcp-shell-server` environment variable names. When the shell implementation later changes, `trusted-dev` must continue to mean unrestricted service-user authority and `restricted` must continue to enforce a reduced policy.
+This profile is intentionally powerful. Treat it like giving a coding agent an interactive shell as your WSL user.
 
-## OAuth/public transport
+## Sudo
 
-1MCP listens on loopback and is published through Cloudflare. OAuth remains enabled at the 1MCP origin. Do not publish the loopback origin directly without an equivalent authenticated transport design.
+Sudo is never an automated credential feature.
+
+- The harness may execute `sudo` only when the operator deliberately requests it.
+- Password entry belongs in an explicitly human-controlled Terminal session.
+- The bridge must not store, infer, log, transmit, or auto-fill a sudo password.
+
+## Human Terminal takeover
+
+`bin/wsl-term attach <session>` acquires the exact tmux PTY for a human. While the human lease is active, model send/resize/ordinary close are blocked; model observation remains available. Detaching releases control back to the model.
+
+## Public exposure
+
+1MCP listens on loopback. Cloudflare exposes HTTPS. OAuth remains required for the public MCP origin.
+
+The pinned 1MCP 0.34.4 installation carries one narrow CSP compatibility patch for the HTTPS OAuth consent callback. Setup verifies the expected upstream source before applying it and fails closed if the shape changed.
+
+## Sensitive state
+
+Keep these outside Git:
+
+- `.env` deployment identity;
+- generated 1MCP configuration;
+- OAuth/session state;
+- logs and PID/runtime files;
+- private Terminal state;
+- credentials and tunnel secrets.
+
+Historical engineering evidence under `docs/history/` is excluded from the public publication surface because it can contain old private-machine context.
