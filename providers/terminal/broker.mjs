@@ -170,8 +170,9 @@ export async function createBroker(config = loadConfig()) {
       }
     }
 
+    const writableClients = clients.filter((client) => client.readOnly !== true);
     return {
-      humanHasControl: clients.length > 0 || leases.has(name),
+      humanHasControl: writableClients.length > 0 || leases.has(name),
       clients,
       lease: leases.get(name) ?? null,
     };

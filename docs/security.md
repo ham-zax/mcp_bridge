@@ -40,9 +40,11 @@ Sudo is never an automated credential feature.
 - Password entry belongs in an explicitly human-controlled Terminal session.
 - The bridge must not store, infer, log, transmit, or auto-fill a sudo password.
 
-## Human Terminal takeover
+## Human Terminal observation and takeover
 
-`bin/wsl-term attach <session>` acquires the exact tmux PTY for a human. While the human lease is active, model send/resize/ordinary close are blocked; model observation remains available. Detaching releases control back to the model.
+`bin/wsl-term watch <session>` attaches a read-only, ignore-size tmux client to the exact private harness PTY. It does not acquire a human lease, cannot inject terminal input, and does not block model send/resize/ordinary close. The broker treats only an explicit tmux read-only client as a non-owning observer; unknown client state remains writable for fail-closed control.
+
+`bin/wsl-term attach <session>` acquires the exact tmux PTY for writable human control. While the human lease or a writable tmux client is active, model send/resize/ordinary close are blocked; model observation remains available. Detaching releases control back to the model.
 
 ## Public exposure
 

@@ -23,12 +23,12 @@ function tmuxClients(socketPath) {
   const result = spawnSync('tmux', [
     '-N', '-S', socketPath,
     'list-clients',
-    '-F', '#{client_pid}|#{client_session}|#{client_tty}',
+    '-F', '#{client_pid}|#{client_session}|#{client_tty}|#{client_readonly}',
   ], { encoding: 'utf8' });
   if (result.status !== 0) return [];
   return result.stdout.split('\n').filter(Boolean).map((line) => {
-    const [pid, session, tty] = line.split('|');
-    return { pid: Number(pid), session, tty };
+    const [pid, session, tty, readOnly] = line.split('|');
+    return { pid: Number(pid), session, tty, readOnly: readOnly === '1' };
   });
 }
 
@@ -58,6 +58,11 @@ function spawnTmuxAttach(t, sandbox, name) {
 
 function spawnWslTermAttach(t, sandbox, name) {
   const command = `exec '${WSL_TERM}' attach '${name}'`;
+  return spawnPseudoTtyCommand(t, command, sandbox.env);
+}
+
+function spawnWslTermWatch(t, sandbox, name) {
+  const command = `exec '${WSL_TERM}' watch '${name}'`;
   return spawnPseudoTtyCommand(t, command, sandbox.env);
 }
 
@@ -209,6 +214,60 @@ test('real tmux client ownership reconciles stale leases and survives broker res
     name: 'real-human', cols: 91, rows: 31,
   }));
   assert.equal(restoredAfterRestart.ok, true, JSON.stringify(restoredAfterRestart));
+});
+
+test('read-only tmux observer does not take model control or inject input', async (t) => {
+  const sandbox = await makeSandbox(t);
+  await startBroker(t, sandbox);
+
+  const opened = await brokerRequest(sandbox.brokerSocket, request('observer-open', 'session.open', {
+    name: 'observer', command: 'cat', cols: 80, rows: 24,
+  }));
+  assert.equal(opened.ok, true, JSON.stringify(opened));
+
+  const observer = spawnWslTermWatch(t, sandbox, 'observer');
+  let actualClient;
+  await waitFor(() => {
+    actualClient = tmuxClients(sandbox.socketPath).find((client) => client.session === 'observer');
+    return Boolean(actualClient?.readOnly);
+  }, { description: 'read-only tmux observer' });
+
+  const listed = await brokerRequest(sandbox.brokerSocket, request('observer-list', 'session.list'));
+  assert.equal(listed.ok, true, JSON.stringify(listed));
+  assert.equal(listed.result.sessions.find((session) => session.name === 'observer')?.humanLease, false);
+
+  const watcherMarker = `WATCHER_INPUT_${process.pid}_${Date.now()}`;
+  observer.stdin.write(`${watcherMarker}\n`);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const afterWatcherInput = await brokerRequest(sandbox.brokerSocket, request('observer-read-watcher', 'session.read', {
+    name: 'observer', cursor: 0, maxBytes: 65536,
+  }));
+  assert.equal(afterWatcherInput.ok, true, JSON.stringify(afterWatcherInput));
+  assert.doesNotMatch(afterWatcherInput.result.text, new RegExp(watcherMarker));
+
+  const modelMarker = `MODEL_INPUT_${process.pid}_${Date.now()}`;
+  const sent = await brokerRequest(sandbox.brokerSocket, request('observer-send', 'session.send', {
+    name: 'observer', text: `${modelMarker}\n`,
+  }));
+  assert.equal(sent.ok, true, JSON.stringify(sent));
+
+  const resized = await brokerRequest(sandbox.brokerSocket, request('observer-resize', 'session.resize', {
+    name: 'observer', cols: 93, rows: 33,
+  }));
+  assert.equal(resized.ok, true, JSON.stringify(resized));
+
+  await waitFor(async () => {
+    const response = await brokerRequest(sandbox.brokerSocket, request('observer-read-model', 'session.read', {
+      name: 'observer', cursor: 0, maxBytes: 65536,
+    }));
+    return response.ok && response.result.text.includes(modelMarker);
+  }, { description: 'model marker while read-only observer attached' });
+
+  const detached = spawnSync('tmux', [
+    '-N', '-S', sandbox.socketPath, 'detach-client', '-t', actualClient.tty,
+  ], { encoding: 'utf8' });
+  assert.equal(detached.status, 0, detached.stderr);
+  await onceExit(observer);
 });
 
 test('bound lease that never becomes a real tmux client expires after attach grace', async (t) => {

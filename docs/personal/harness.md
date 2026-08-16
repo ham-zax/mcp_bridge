@@ -147,11 +147,19 @@ terminal_list   inspect live/dead sessions and human-control state
 terminal_close  explicitly destroy a session
 ```
 
-A broker restart or 1MCP restart does not own the PTY lifetime; tmux does.
+A broker restart or 1MCP restart does not own the PTY lifetime; tmux does. Terminal sessions live in the harness-owned private tmux namespace (production default `wsl-agent`), not the user's default tmux server.
 
-### Human takeover
+### Human observation and takeover
 
-Attach to the exact PTY:
+Watch the exact PTY without taking model control:
+
+```bash
+bin/wsl-term watch <session>
+```
+
+A watcher is a tmux read-only, ignore-size client. It receives the live terminal display, cannot inject input, does not resize the PTY, and does not block model send/resize/ordinary close. This is the normal Kitty workflow when the operator wants to observe the same terminal the model controls.
+
+Take writable control of the exact PTY:
 
 ```bash
 bin/wsl-term attach <session>
@@ -164,7 +172,7 @@ While attached:
 - human input is not copied into broker logs as a separate input log;
 - detach returns model control.
 
-This is the right place for interactive sudo/password entry when explicitly needed.
+Use writable takeover for interactive sudo/password entry when explicitly needed. Kitty is only the terminal emulator; both commands target the harness-owned private tmux namespace.
 
 ## Typical coding loop
 

@@ -41,6 +41,39 @@ function waitForChild(child) {
   });
 }
 
+async function watchSession(name) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error('wsl-term watch requires an interactive TTY');
+  }
+
+  const args = [...tmuxArgs(), 'attach-session', '-r', '-t', name];
+  const child = spawn(process.env.MCP_TERMINAL_TMUX_BIN || 'tmux', args, {
+    stdio: 'inherit',
+    env: process.env,
+  });
+  const signalHandlers = new Map();
+  try {
+    await new Promise((resolve, reject) => {
+      child.once('spawn', resolve);
+      child.once('error', reject);
+    });
+
+    for (const signal of ['SIGTERM', 'SIGHUP']) {
+      const handler = () => {
+        if (child.exitCode === null) child.kill(signal);
+      };
+      signalHandlers.set(signal, handler);
+      process.on(signal, handler);
+    }
+
+    const result = await waitForChild(child);
+    if (result.code !== null) return result.code;
+    return 128;
+  } finally {
+    for (const [signal, handler] of signalHandlers) process.off(signal, handler);
+  }
+}
+
 async function listSessions(client) {
   const result = await client.request('session.list', {});
   if (result.sessions.length > 0) {
@@ -98,16 +131,17 @@ async function attachSession(client, name) {
 
 export async function runCli(argv = process.argv.slice(2)) {
   const [command, name, ...rest] = argv;
-  if (rest.length > 0 || !['list', 'attach'].includes(command)) {
-    throw new Error('usage: wsl-term list | wsl-term attach <session>');
+  if (rest.length > 0 || !['list', 'watch', 'attach'].includes(command)) {
+    throw new Error('usage: wsl-term list | wsl-term watch <session> | wsl-term attach <session>');
   }
-  if (command === 'attach' && (!name || name.length === 0)) {
-    throw new Error('usage: wsl-term attach <session>');
+  if ((command === 'watch' || command === 'attach') && (!name || name.length === 0)) {
+    throw new Error(`usage: wsl-term ${command} <session>`);
   }
   if (command === 'list' && name !== undefined) {
     throw new Error('usage: wsl-term list');
   }
 
+  if (command === 'watch') return watchSession(name);
   const client = new BrokerClient({ socketPath: socketPath() });
   return command === 'list' ? listSessions(client) : attachSession(client, name);
 }

@@ -196,11 +196,11 @@ export class TmuxBackend {
     const { stdout } = await this.run([
       'list-clients',
       '-F',
-      '#{client_pid}|#{client_session}|#{client_tty}',
+      '#{client_pid}|#{client_session}|#{client_tty}|#{client_readonly}',
     ]);
     return stdout.split('\n').filter(Boolean).map((line) => {
-      const [pid, session, tty] = line.split('|');
-      return { pid: Number(pid), session, tty };
+      const [pid, session, tty, readOnly] = line.split('|');
+      return { pid: Number(pid), session, tty, readOnly: parseBoolean(readOnly) };
     });
   }
 

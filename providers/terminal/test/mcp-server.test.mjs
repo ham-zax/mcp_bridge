@@ -92,6 +92,12 @@ test('Terminal MCP exposes exactly six public tools with the frozen schemas', as
     const open = tools.find((tool) => tool.name === 'terminal_open');
     assert.deepEqual(Object.keys(open.inputSchema.properties).sort(), ['cols', 'command', 'cwd', 'name', 'rows']);
     assert.deepEqual(open.inputSchema.required, ['name']);
+    assert.match(open.description, /private.*wsl-agent/i);
+    assert.match(open.description, /default tmux/i);
+
+    const send = tools.find((tool) => tool.name === 'terminal_send');
+    assert.match(send.description, /wsl-term watch <session>/i);
+    assert.match(send.description, /wsl-term attach <session>/i);
 
     const read = tools.find((tool) => tool.name === 'terminal_read');
     assert.deepEqual(Object.keys(read.inputSchema.properties).sort(), ['cursor', 'name', 'snapshot']);

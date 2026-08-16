@@ -81,7 +81,7 @@ export function createTerminalMcpServer({ client } = {}) {
   const dimension = z.number().int().positive().max(1000);
 
   server.registerTool('terminal_open', {
-    description: 'Open one durable terminal session backed by the personal tmux lifetime authority.',
+    description: 'Open one durable terminal session in the private harness tmux namespace (production default wsl-agent), not the user\'s default tmux server.',
     inputSchema: {
       name,
       command: z.string().optional(),
@@ -95,7 +95,7 @@ export function createTerminalMcpServer({ client } = {}) {
   }));
 
   server.registerTool('terminal_read', {
-    description: 'Read only unread terminal transcript output by default; use cursor for recovery or snapshot for current-screen/TUI recovery.',
+    description: 'Read only unread output from a private harness Terminal session; use cursor for recovery or snapshot for current-screen/TUI recovery.',
     inputSchema: {
       name,
       cursor: z.number().int().nonnegative().optional(),
@@ -122,7 +122,7 @@ export function createTerminalMcpServer({ client } = {}) {
   });
 
   server.registerTool('terminal_send', {
-    description: 'Send literal text or one recognized control/navigation key to a terminal session.',
+    description: 'Send literal text or one recognized control/navigation key to a session in the private harness tmux namespace (production default wsl-agent), not a same-named session in the user\'s default tmux server. bin/wsl-term watch <session> is read-only observation and leaves model control available; bin/wsl-term attach <session> is writable human takeover and blocks model mutation.',
     inputSchema: sendSchema,
   }, async (args) => invoke(async () => {
     const params = args.key === undefined
@@ -133,7 +133,7 @@ export function createTerminalMcpServer({ client } = {}) {
   }));
 
   server.registerTool('terminal_resize', {
-    description: 'Resize an existing terminal session.',
+    description: 'Resize an existing private harness Terminal session; writable human takeover blocks model resize.',
     inputSchema: { name, cols: dimension, rows: dimension },
   }, async (args) => invoke(async () => {
     const result = await client.request('session.resize', args);
@@ -141,7 +141,7 @@ export function createTerminalMcpServer({ client } = {}) {
   }));
 
   server.registerTool('terminal_list', {
-    description: 'List durable terminal sessions, dead exit status, dimensions, and human-control state.',
+    description: 'List durable sessions in the private harness tmux namespace, including dead exit status, dimensions, and writable human-control state.',
     inputSchema: {},
   }, async () => invoke(async () => {
     const result = await client.request('session.list', {});
@@ -149,7 +149,7 @@ export function createTerminalMcpServer({ client } = {}) {
   }));
 
   server.registerTool('terminal_close', {
-    description: 'Close a terminal session; force=true explicitly overrides human control.',
+    description: 'Close a private harness Terminal session; force=true explicitly overrides writable human control.',
     inputSchema: { name, force: z.boolean().optional() },
   }, async (args) => invoke(async () => {
     const result = await client.request('session.close', compactParams(args));
