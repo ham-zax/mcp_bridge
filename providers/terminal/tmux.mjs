@@ -200,7 +200,7 @@ export class TmuxBackend {
     ]);
     return stdout.split('\n').filter(Boolean).map((line) => {
       const [pid, session, tty, readOnly] = line.split('|');
-      return { pid: Number(pid), session, tty, readOnly: parseBoolean(readOnly) };
+      return { pid: Number(pid), session, tty, readOnly: readOnly === '1' };
     });
   }
 
@@ -323,6 +323,10 @@ export class TmuxBackend {
       ]);
       created = true;
       await this.run(['set-option', '-w', '-t', `${name}:0`, 'remain-on-exit', 'on']);
+      await this.run([
+        'resize-window', '-t', `${name}:0`,
+        '-x', String(resolvedCols), '-y', String(resolvedRows),
+      ]);
       await this.installTranscriptPipe(name, sessionDir);
       await this.writeSessionMetadata(name, {
         version: 2,
@@ -348,6 +352,10 @@ export class TmuxBackend {
     validateSessionName(name);
     await this.ensureStateRoot();
     const info = await this.sessionInfo(name);
+    await this.run([
+      'resize-window', '-t', `${name}:0`,
+      '-x', String(info.cols), '-y', String(info.rows),
+    ]);
     const prior = await this.readSessionMetadata(name);
     const generation = typeof prior?.generation === 'string' && prior.generation.length > 0
       ? prior.generation

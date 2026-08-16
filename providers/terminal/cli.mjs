@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 import { BrokerClient } from './broker-client.mjs';
+import { validateSessionName } from './tmux.mjs';
 
 function socketPath() {
   if (process.env.MCP_TERMINAL_SOCKET) return process.env.MCP_TERMINAL_SOCKET;
@@ -41,12 +42,28 @@ function waitForChild(child) {
   });
 }
 
+function resizeWindowToTerminal(name) {
+  const cols = process.stdout.columns;
+  const rows = process.stdout.rows;
+  if (!Number.isInteger(cols) || cols <= 0 || !Number.isInteger(rows) || rows <= 0) return;
+  const result = spawnSync(
+    process.env.MCP_TERMINAL_TMUX_BIN || 'tmux',
+    [...tmuxArgs(), 'resize-window', '-t', `=${name}:0`, '-x', String(cols), '-y', String(rows)],
+    { encoding: 'utf8', env: process.env },
+  );
+  if (result.status !== 0) {
+    const message = String(result.stderr || '').trim() || 'tmux resize-window failed';
+    throw new Error(message);
+  }
+}
+
 async function watchSession(name) {
+  validateSessionName(name);
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('wsl-term watch requires an interactive TTY');
   }
 
-  const args = [...tmuxArgs(), 'attach-session', '-r', '-t', name];
+  const args = [...tmuxArgs(), 'attach-session', '-r', '-t', `=${name}`];
   const child = spawn(process.env.MCP_TERMINAL_TMUX_BIN || 'tmux', args, {
     stdio: 'inherit',
     env: process.env,
@@ -92,6 +109,7 @@ async function attachSession(client, name) {
     clientId: `wsl-term:${process.pid}`,
   });
   let child = null;
+  let resizeHandler = null;
   const signalHandlers = new Map();
   try {
     const args = [...tmuxArgs(), 'attach-session', '-t', name];
@@ -110,6 +128,16 @@ async function attachSession(client, name) {
       clientPid: child.pid,
     });
 
+    resizeWindowToTerminal(name);
+    resizeHandler = () => {
+      try {
+        resizeWindowToTerminal(name);
+      } catch (error) {
+        process.stderr.write(`wsl-term resize failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      }
+    };
+    process.stdout.on('resize', resizeHandler);
+
     for (const signal of ['SIGTERM', 'SIGHUP']) {
       const handler = () => {
         if (child && child.exitCode === null) child.kill(signal);
@@ -123,6 +151,7 @@ async function attachSession(client, name) {
     return 128;
   } finally {
     for (const [signal, handler] of signalHandlers) process.off(signal, handler);
+    if (resizeHandler) process.stdout.off('resize', resizeHandler);
     try {
       await client.request('lease.release_human', { name, leaseId: lease.leaseId });
     } catch {}
