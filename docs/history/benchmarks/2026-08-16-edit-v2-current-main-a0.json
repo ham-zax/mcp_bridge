@@ -1,0 +1,1401 @@
+{
+  "formatVersion": 1,
+  "capturedAt": "2026-08-16T11:22:19.626Z",
+  "modelFacingBaselineSha": "9098c9fcc9088d3ddf31e30f7df2a9b18a86c1b1",
+  "captureWorktreeHead": "65dd95ab3baf4c33d5bf99b6d3bf30d9a3b09d8c",
+  "captureBranch": "feature/edit-v2-current-main",
+  "repositoryRoot": "<repository-root>",
+  "configSource": "<local-personal-rendered-config>",
+  "nodeVersion": "v24.19.0",
+  "providers": {
+    "dev": {
+      "serverVersion": {
+        "name": "pi-dev",
+        "version": "0.1.0"
+      },
+      "serverCapabilities": {
+        "tools": {
+          "listChanged": true
+        }
+      },
+      "count": 6,
+      "normalizedBytes": 6781,
+      "perTool": [
+        {
+          "name": "read",
+          "bytes": 792,
+          "tool": {
+            "name": "read",
+            "description": "Read focused UTF-8/text available to the WSL user; prefer this over Bash cat/sed for ordinary bounded file reads. offset is a 1-based line number, limit is a line count, and large text is bounded/truncated with continuation guidance; this Dev wrapper is text-only. Relative paths use the configured default cwd and absolute paths are accepted",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Path; relative paths resolve from the configured default cwd and absolute paths are accepted"
+                },
+                "offset": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "limit": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 178
+        },
+        {
+          "name": "edit",
+          "bytes": 811,
+          "tool": {
+            "name": "edit",
+            "description": "Apply guarded exact, disjoint replacements to one existing text file; each oldText must identify a unique match and concurrent change fails rather than blindly overwriting. Prefer apply_patch for multi-file, add/delete/move, or structural work; relative paths use the configured default cwd and absolute paths are accepted",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Path; relative paths resolve from the configured default cwd and absolute paths are accepted"
+                },
+                "edits": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "oldText": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "newText": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "oldText",
+                      "newText"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "path",
+                "edits"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 178
+        },
+        {
+          "name": "write",
+          "bytes": 582,
+          "tool": {
+            "name": "write",
+            "description": "Create-only: create a new WSL-user-accessible text file whose parent directory already exists; fails if the target exists. Use edit or apply_patch for existing files; relative paths use the configured default cwd and absolute paths are accepted",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Path; relative paths resolve from the configured default cwd and absolute paths are accepted"
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 121
+        },
+        {
+          "name": "wait",
+          "bytes": 2677,
+          "tool": {
+            "name": "wait",
+            "description": "Create, resume, or cancel one durable named wait; prefer this over Bash polling/sleep loops. Supported conditions include Terminal output/exit, process exit, TCP listen, file exists/change, HTTP readiness, and user-systemd state. A condition arms the wait, a later name-only call resumes it, cancel=true cancels it, and hold_seconds bounds one invocation rather than the durable deadline. Terminal-output waits match only output produced after arming and do not consume the Terminal model cursor.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._-]{1,64}$"
+                },
+                "condition": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "terminal_output"
+                        },
+                        "session": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "literal": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "Literal in new transcript output after the wait is armed"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "session",
+                        "literal"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "terminal_exit"
+                        },
+                        "session": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "session"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "process_exit"
+                        },
+                        "pid": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "pid"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "tcp_listen"
+                        },
+                        "host": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "port": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 65535
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "port"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "file_exists"
+                        },
+                        "path": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "file_changed"
+                        },
+                        "path": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "path"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "http_ready"
+                        },
+                        "url": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "status": {
+                          "type": "integer",
+                          "minimum": 100,
+                          "maximum": 599
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "systemd_user"
+                        },
+                        "unit": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "inactive",
+                            "failed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "unit"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "timeout_seconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 86400
+                },
+                "hold_seconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 15
+                },
+                "cancel": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false
+            }
+          },
+          "tokensO200kBase": 630
+        },
+        {
+          "name": "apply_patch",
+          "bytes": 811,
+          "tool": {
+            "name": "apply_patch",
+            "description": "Apply one exact-context Codex-style patch for coordinated multi-file or structural text changes, including add/delete/move; exact context must uniquely identify the intended edit. All targets are preflighted before mutation, but a later runtime failure can report partial application.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "patch": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Patch text using *** Begin Patch, *** Update File:, optional *** Move to:, @@ hunks with space/-/+ lines, *** Add File:, *** Delete File:, and *** End Patch"
+                },
+                "cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Optional cwd; relative paths resolve from the configured default cwd and absolute paths are accepted"
+                }
+              },
+              "required": [
+                "patch"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 170
+        },
+        {
+          "name": "bash",
+          "bytes": 1101,
+          "tool": {
+            "name": "bash",
+            "description": "Run one bounded, noninteractive native Bash command as the WSL user; prefer for short commands, Git, builds, tests, rg, repository inspection, and ordinary execution. Default timeout is 30 seconds, maximum 300 seconds, and large output may be truncated with a full-output path. Use Terminal for processes that must persist or need a PTY/interactive workflow. For a large or unfamiliar repository, Bash with rg plus focused read is the lower-cost discovery path before potentially heavyweight CodeDB-backed Code tools. Do not use raw tmux or wsl-term through Bash to bypass human Terminal ownership. cwd defaults to the configured default cwd and may be relative to it or absolute",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Optional cwd; relative paths resolve from the configured default cwd and absolute paths are accepted"
+                },
+                "timeout_seconds": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 300
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 231
+        }
+      ],
+      "tools": [
+        {
+          "name": "read",
+          "description": "Read focused UTF-8/text available to the WSL user; prefer this over Bash cat/sed for ordinary bounded file reads. offset is a 1-based line number, limit is a line count, and large text is bounded/truncated with continuation guidance; this Dev wrapper is text-only. Relative paths use the configured default cwd and absolute paths are accepted",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Path; relative paths resolve from the configured default cwd and absolute paths are accepted"
+              },
+              "offset": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "limit": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "edit",
+          "description": "Apply guarded exact, disjoint replacements to one existing text file; each oldText must identify a unique match and concurrent change fails rather than blindly overwriting. Prefer apply_patch for multi-file, add/delete/move, or structural work; relative paths use the configured default cwd and absolute paths are accepted",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Path; relative paths resolve from the configured default cwd and absolute paths are accepted"
+              },
+              "edits": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "oldText": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "newText": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "oldText",
+                    "newText"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "path",
+              "edits"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "write",
+          "description": "Create-only: create a new WSL-user-accessible text file whose parent directory already exists; fails if the target exists. Use edit or apply_patch for existing files; relative paths use the configured default cwd and absolute paths are accepted",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Path; relative paths resolve from the configured default cwd and absolute paths are accepted"
+              },
+              "content": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "content"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "wait",
+          "description": "Create, resume, or cancel one durable named wait; prefer this over Bash polling/sleep loops. Supported conditions include Terminal output/exit, process exit, TCP listen, file exists/change, HTTP readiness, and user-systemd state. A condition arms the wait, a later name-only call resumes it, cancel=true cancels it, and hold_seconds bounds one invocation rather than the durable deadline. Terminal-output waits match only output produced after arming and do not consume the Terminal model cursor.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]{1,64}$"
+              },
+              "condition": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "terminal_output"
+                      },
+                      "session": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "literal": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Literal in new transcript output after the wait is armed"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "session",
+                      "literal"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "terminal_exit"
+                      },
+                      "session": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "session"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "process_exit"
+                      },
+                      "pid": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "pid"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "tcp_listen"
+                      },
+                      "host": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "port": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65535
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "port"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "file_exists"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "path"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "file_changed"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "path"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "http_ready"
+                      },
+                      "url": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "status": {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 599
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "url"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "systemd_user"
+                      },
+                      "unit": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "active",
+                          "inactive",
+                          "failed"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "unit"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "timeout_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 86400
+              },
+              "hold_seconds": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 15
+              },
+              "cancel": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "apply_patch",
+          "description": "Apply one exact-context Codex-style patch for coordinated multi-file or structural text changes, including add/delete/move; exact context must uniquely identify the intended edit. All targets are preflighted before mutation, but a later runtime failure can report partial application.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "patch": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Patch text using *** Begin Patch, *** Update File:, optional *** Move to:, @@ hunks with space/-/+ lines, *** Add File:, *** Delete File:, and *** End Patch"
+              },
+              "cwd": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional cwd; relative paths resolve from the configured default cwd and absolute paths are accepted"
+              }
+            },
+            "required": [
+              "patch"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "bash",
+          "description": "Run one bounded, noninteractive native Bash command as the WSL user; prefer for short commands, Git, builds, tests, rg, repository inspection, and ordinary execution. Default timeout is 30 seconds, maximum 300 seconds, and large output may be truncated with a full-output path. Use Terminal for processes that must persist or need a PTY/interactive workflow. For a large or unfamiliar repository, Bash with rg plus focused read is the lower-cost discovery path before potentially heavyweight CodeDB-backed Code tools. Do not use raw tmux or wsl-term through Bash to bypass human Terminal ownership. cwd defaults to the configured default cwd and may be relative to it or absolute",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cwd": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional cwd; relative paths resolve from the configured default cwd and absolute paths are accepted"
+              },
+              "timeout_seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 300
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        }
+      ],
+      "normalizedTokensO200kBase": 1510
+    },
+    "code": {
+      "serverVersion": {
+        "name": "code",
+        "version": "0.1.0"
+      },
+      "serverCapabilities": {
+        "tools": {
+          "listChanged": true
+        }
+      },
+      "count": 3,
+      "normalizedBytes": 2841,
+      "perTool": [
+        {
+          "name": "code_search",
+          "bytes": 993,
+          "tool": {
+            "name": "code_search",
+            "description": "Ranked repository-rooted search for exploratory text when the exact symbol is unknown; prefer code_symbol when a symbol or definition name is known or guessable. First use may start a persistent rooted CodeDB child and create or update substantial on-disk index state, consuming significant disk and RAM. For a large or unfamiliar repository with unknown CodeDB state, prefer Dev bash with rg plus focused read before invoking Code automatically.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Path inside the intended Git repository. Pass it explicitly for multi-repository work; omission uses the configured Code default cwd and may fail when that path is not inside a Git repository."
+                },
+                "limit": {
+                  "description": "Maximum ranked results",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 200
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 202
+        },
+        {
+          "name": "code_context",
+          "bytes": 1006,
+          "tool": {
+            "name": "code_context",
+            "description": "Compact repository-rooted first-touch task orientation with definitions, focused bodies, graph neighbors, ranked files, and snippets; first-touch does not mean always call this first. It uses the same persistent CodeDB child/index lifecycle and can consume significant disk and RAM. For a large or unfamiliar repository with unknown CodeDB state, prefer Dev bash with rg plus focused read unless CodeDB-backed repository intelligence is specifically needed.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "task": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Path inside the intended Git repository. Pass it explicitly for multi-repository work; omission uses the configured Code default cwd and may fail when that path is not inside a Git repository."
+                },
+                "limit": {
+                  "description": "Approximate output-token budget",
+                  "type": "integer",
+                  "minimum": 256,
+                  "maximum": 4000
+                }
+              },
+              "required": [
+                "task"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 202
+        },
+        {
+          "name": "code_symbol",
+          "bytes": 838,
+          "tool": {
+            "name": "code_symbol",
+            "description": "Locate a known or guessed symbol definition in the Git repository containing cwd; prefer this over code_search when the symbol name is known. It shares the same persistent CodeDB child/index lifecycle, so first use can consume significant disk and RAM. For a large or unfamiliar repository with unknown CodeDB state, prefer Dev bash with rg plus focused read before invoking Code automatically.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Path inside the intended Git repository. Pass it explicitly for multi-repository work; omission uses the configured Code default cwd and may fail when that path is not inside a Git repository."
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 170
+        }
+      ],
+      "tools": [
+        {
+          "name": "code_search",
+          "description": "Ranked repository-rooted search for exploratory text when the exact symbol is unknown; prefer code_symbol when a symbol or definition name is known or guessable. First use may start a persistent rooted CodeDB child and create or update substantial on-disk index state, consuming significant disk and RAM. For a large or unfamiliar repository with unknown CodeDB state, prefer Dev bash with rg plus focused read before invoking Code automatically.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cwd": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Path inside the intended Git repository. Pass it explicitly for multi-repository work; omission uses the configured Code default cwd and may fail when that path is not inside a Git repository."
+              },
+              "limit": {
+                "description": "Maximum ranked results",
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 200
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "code_context",
+          "description": "Compact repository-rooted first-touch task orientation with definitions, focused bodies, graph neighbors, ranked files, and snippets; first-touch does not mean always call this first. It uses the same persistent CodeDB child/index lifecycle and can consume significant disk and RAM. For a large or unfamiliar repository with unknown CodeDB state, prefer Dev bash with rg plus focused read unless CodeDB-backed repository intelligence is specifically needed.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "task": {
+                "type": "string",
+                "minLength": 3
+              },
+              "cwd": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Path inside the intended Git repository. Pass it explicitly for multi-repository work; omission uses the configured Code default cwd and may fail when that path is not inside a Git repository."
+              },
+              "limit": {
+                "description": "Approximate output-token budget",
+                "type": "integer",
+                "minimum": 256,
+                "maximum": 4000
+              }
+            },
+            "required": [
+              "task"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "code_symbol",
+          "description": "Locate a known or guessed symbol definition in the Git repository containing cwd; prefer this over code_search when the symbol name is known. It shares the same persistent CodeDB child/index lifecycle, so first use can consume significant disk and RAM. For a large or unfamiliar repository with unknown CodeDB state, prefer Dev bash with rg plus focused read before invoking Code automatically.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cwd": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Path inside the intended Git repository. Pass it explicitly for multi-repository work; omission uses the configured Code default cwd and may fail when that path is not inside a Git repository."
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        }
+      ],
+      "normalizedTokensO200kBase": 576
+    },
+    "terminal": {
+      "serverVersion": {
+        "name": "terminal",
+        "version": "0.1.0"
+      },
+      "serverCapabilities": {
+        "tools": {
+          "listChanged": true
+        }
+      },
+      "count": 7,
+      "normalizedBytes": 4453,
+      "perTool": [
+        {
+          "name": "terminal_open",
+          "bytes": 908,
+          "tool": {
+            "name": "terminal_open",
+            "description": "Open one model-owned durable tmux PTY/process in the private harness namespace (production default wsl-agent), not the user's default tmux server. Use this for interactive or persistent work that should survive MCP or broker restart; prefer Dev Bash for bounded noninteractive commands. Omitting command starts the normal interactive shell. Human-first collaborative creation is an operator-side interactive-TTY workflow, not something the model should emulate through Bash.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9._-]+$"
+                },
+                "command": {
+                  "type": "string"
+                },
+                "cwd": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cols": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1000
+                },
+                "rows": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1000
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 203
+        },
+        {
+          "name": "terminal_read",
+          "bytes": 777,
+          "tool": {
+            "name": "terminal_read",
+            "description": "Read a private harness Terminal session. Normally omit cursor to consume from the broker-owned persisted model unread position; successful reads advance that position. An explicit cursor intentionally replays/repositions from that offset and advances the persisted position to the returned point. snapshot=true captures the current tmux screen/TUI without advancing transcript position; use explicit cursors only for replay or recovery.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9._-]+$"
+                },
+                "cursor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "snapshot": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 166
+        },
+        {
+          "name": "terminal_send",
+          "bytes": 770,
+          "tool": {
+            "name": "terminal_send",
+            "description": "Send exactly one of literal text or one recognized control/navigation key to a private harness session. text is literal and does not append Enter, so executing a shell command normally requires a text send followed by key=ENTER. Writable human ownership blocks model mutation with HUMAN_HAS_CONTROL; do not bypass ownership through Dev Bash, raw tmux, or operator wsl-term commands.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9._-]+$"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "ENTER",
+                    "CTRL_C",
+                    "CTRL_D",
+                    "CTRL_Z",
+                    "ESC",
+                    "TAB",
+                    "BACKSPACE",
+                    "UP",
+                    "DOWN",
+                    "LEFT",
+                    "RIGHT"
+                  ]
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 183
+        },
+        {
+          "name": "terminal_resize",
+          "bytes": 580,
+          "tool": {
+            "name": "terminal_resize",
+            "description": "Resize an existing private harness PTY while the model owns it; changing dimensions may cause terminal applications to observe resize/SIGWINCH behavior. Writable human control blocks model resize.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9._-]+$"
+                },
+                "cols": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1000
+                },
+                "rows": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1000
+                }
+              },
+              "required": [
+                "name",
+                "cols",
+                "rows"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 139
+        },
+        {
+          "name": "terminal_list",
+          "bytes": 373,
+          "tool": {
+            "name": "terminal_list",
+            "description": "List durable sessions in the private harness tmux namespace, including dead exit status, dimensions, and whether writable human control currently blocks model mutation; use this to resolve session identity and state before mutation.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {},
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 73
+        },
+        {
+          "name": "terminal_yield",
+          "bytes": 491,
+          "tool": {
+            "name": "terminal_yield",
+            "description": "Yield a model-owned collaborative Terminal session only to its already attached designated human client; this does not create or attach a human client. After success, model send/resize/ordinary close is blocked until the human gives control back.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9._-]+$"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 113
+        },
+        {
+          "name": "terminal_close",
+          "bytes": 546,
+          "tool": {
+            "name": "terminal_close",
+            "description": "Destructively close a private harness Terminal session by killing its tmux session, which destroys that session's PTY/process lifetime. Ordinary close is blocked while a human owns the session; force=true explicitly overrides human ownership and destroys the session anyway.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[A-Za-z0-9._-]+$"
+                },
+                "force": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "$schema": "http://json-schema.org/draft-07/schema#"
+            }
+          },
+          "tokensO200kBase": 123
+        }
+      ],
+      "tools": [
+        {
+          "name": "terminal_open",
+          "description": "Open one model-owned durable tmux PTY/process in the private harness namespace (production default wsl-agent), not the user's default tmux server. Use this for interactive or persistent work that should survive MCP or broker restart; prefer Dev Bash for bounded noninteractive commands. Omitting command starts the normal interactive shell. Human-first collaborative creation is an operator-side interactive-TTY workflow, not something the model should emulate through Bash.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9._-]+$"
+              },
+              "command": {
+                "type": "string"
+              },
+              "cwd": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cols": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 1000
+              },
+              "rows": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 1000
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "terminal_read",
+          "description": "Read a private harness Terminal session. Normally omit cursor to consume from the broker-owned persisted model unread position; successful reads advance that position. An explicit cursor intentionally replays/repositions from that offset and advances the persisted position to the returned point. snapshot=true captures the current tmux screen/TUI without advancing transcript position; use explicit cursors only for replay or recovery.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9._-]+$"
+              },
+              "cursor": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "snapshot": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "terminal_send",
+          "description": "Send exactly one of literal text or one recognized control/navigation key to a private harness session. text is literal and does not append Enter, so executing a shell command normally requires a text send followed by key=ENTER. Writable human ownership blocks model mutation with HUMAN_HAS_CONTROL; do not bypass ownership through Dev Bash, raw tmux, or operator wsl-term commands.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9._-]+$"
+              },
+              "text": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string",
+                "enum": [
+                  "ENTER",
+                  "CTRL_C",
+                  "CTRL_D",
+                  "CTRL_Z",
+                  "ESC",
+                  "TAB",
+                  "BACKSPACE",
+                  "UP",
+                  "DOWN",
+                  "LEFT",
+                  "RIGHT"
+                ]
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "terminal_resize",
+          "description": "Resize an existing private harness PTY while the model owns it; changing dimensions may cause terminal applications to observe resize/SIGWINCH behavior. Writable human control blocks model resize.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9._-]+$"
+              },
+              "cols": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 1000
+              },
+              "rows": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 1000
+              }
+            },
+            "required": [
+              "name",
+              "cols",
+              "rows"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "terminal_list",
+          "description": "List durable sessions in the private harness tmux namespace, including dead exit status, dimensions, and whether writable human control currently blocks model mutation; use this to resolve session identity and state before mutation.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "terminal_yield",
+          "description": "Yield a model-owned collaborative Terminal session only to its already attached designated human client; this does not create or attach a human client. After success, model send/resize/ordinary close is blocked until the human gives control back.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9._-]+$"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        },
+        {
+          "name": "terminal_close",
+          "description": "Destructively close a private harness Terminal session by killing its tmux session, which destroys that session's PTY/process lifetime. Ordinary close is blocked while a human owns the session; force=true explicitly overrides human ownership and destroys the session anyway.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9._-]+$"
+              },
+              "force": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          }
+        }
+      ],
+      "normalizedTokensO200kBase": 1002
+    }
+  },
+  "totalNormalizedBytes": 14075,
+  "editV1": {
+    "description": "Apply guarded exact, disjoint replacements to one existing text file; each oldText must identify a unique match and concurrent change fails rather than blindly overwriting. Prefer apply_patch for multi-file, add/delete/move, or structural work; relative paths use the configured default cwd and absolute paths are accepted",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path; relative paths resolve from the configured default cwd and absolute paths are accepted"
+        },
+        "edits": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "oldText": {
+                "type": "string",
+                "minLength": 1
+              },
+              "newText": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "oldText",
+              "newText"
+            ]
+          }
+        }
+      },
+      "required": [
+        "path",
+        "edits"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "normalizedBytes": 811,
+    "tokensO200kBase": 178
+  },
+  "totalNormalizedTokensO200kBase": 3088,
+  "tokenizer": {
+    "package": "tiktoken",
+    "version": "0.13.0",
+    "encoding": "o200k_base"
+  }
+}
