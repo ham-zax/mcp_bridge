@@ -200,8 +200,9 @@ Expected: all Terminal tests pass and the public Terminal MCP catalog remains ex
 - `WaitStore.withLock(name, fn, { signal, maxWaitMs })` is cross-process, abort-aware, kernel-released on process death, and never lets a canceled queued waiter enter later.
 - `WaitEngine({ store, sources, now?, sleep? }).run(args, signal)` -> `{ status, name, text/evidence fields }`.
 - Wait statuses: `pending | matched | timeout | cancelled | failed`.
-- Named create is idempotent only for an identical normalized definition; conflicting redefinition returns `WAIT_CONFLICT`.
-- Request abort stops lock acquisition/check/hold and leaves durable status `pending`; lock contention can return transient `WAIT_BUSY`.
+- Named create is idempotent only for an identical normalized definition after a fully armed record has been persisted; conflicting redefinition returns `WAIT_CONFLICT`.
+- Initial create is linearized only after source arm/baseline capture succeeds. Request abort before that first persistence returns `WAIT_ABORTED` and leaves no named record; name-only resume then returns `WAIT_NOT_FOUND`, while an explicit create retry establishes a fresh arm boundary.
+- Once a fully armed record exists, request abort stops lock acquisition/check/hold and leaves that durable status `pending` with the same baseline/deadline; lock contention can return transient `WAIT_BUSY`.
 
 - [ ] **Step 1: Write failing private-state permission and atomicity tests**
 
@@ -212,12 +213,18 @@ test('wait store writes versioned private state atomically', async (t) => {
   const store = await fixtureStore(t);
   await store.create({
     name: 'build-ready',
+    definition: {
+      condition: { kind: 'tcp_listen', host: '127.0.0.1', port: 43210 },
+      timeoutSeconds: 300,
+    },
     condition: { kind: 'tcp_listen', host: '127.0.0.1', port: 43210 },
     timeoutSeconds: 300,
     armedAtMs: 1000,
     deadlineAtMs: 301000,
     status: 'pending',
-    baseline: null,
+    sourceArmed: true,
+    baseline: { host: '127.0.0.1', port: 43210 },
+    lastCheckedAtMs: 1000,
   });
   const saved = await store.read('build-ready');
   assert.equal(saved.version, 1);
@@ -266,7 +273,7 @@ migration     legacy $stateDir/waits/.locks files are ignored and cannot block o
 retention     completed records retained 24 hours
 ```
 
-The store must expose `withLock(name, fn, { signal, maxWaitMs })`, `read(name)`, `create(record)`, `write(record)`, and `gc(nowMs)`. `withLock` checks cancellation before acquisition, while queued, after grant, and immediately before callback entry.
+The store must expose `withLock(name, fn, { signal, maxWaitMs })`, `read(name)`, `create(record)`, `write(record)`, and `gc(nowMs)`. `withLock` checks cancellation before acquisition, while queued, after grant, and immediately before callback entry. Version-1 records are semantically validated on read/write: every durable pending record is fully armed (`sourceArmed=true`) with a non-null baseline, consistent definition/condition/timeout/deadline, valid arm/check timestamps, and no completion timestamp; terminal statuses require their appropriate completion invariants. Invalid semantic state returns `WAIT_STATE_CORRUPT` rather than being re-armed or treated as immortal pending state.
 
 Run the state tests and require PASS.
 
@@ -313,17 +320,25 @@ export const COMPLETED_RETENTION_MS = 24 * 60 * 60 * 1000;
 Engine sequence under the per-name lock:
 
 ```text
-compute one bounded call budget
+start the invocation hold budget near WaitEngine.run() entry
 abort-aware lock acquisition is capped at WAIT_LOCK_ACQUIRE_MS (250 ms)
 lock unavailable within 250 ms -> WAIT_BUSY; durable state unchanged
-create -> normalize definition -> persist pending before first check
-resume -> load record
+create -> normalize definition -> compute absolute deadline -> source.arm in memory
+initial arm success -> deadline arbitration -> persist first fully armed record atomically
+initial arm request abort before first persistence -> WAIT_ABORTED; no record exists
+resume -> load already-armed record
 cancel -> persist cancelled and return
 terminal status -> replay persisted result
-pending -> check source -> persist any baseline/cursor patch -> persist terminal result before return
-hold loop -> never sleep/check past min(deadline, callStart+holdSeconds)
-request AbortSignal -> stop acquisition/check/loop, keep durable pending state
+before each source check -> absolute deadline arbitration
+source check -> derived operation signal bounded by caller abort, absolute wait deadline, and current call hold deadline
+after each awaited source arm/check -> absolute deadline arbitration
+immediately before source-result persistence -> absolute deadline arbitration again
+absolute deadline wins over any late matched/pending/failed source result -> persist timeout
+call hold deadline wins over an unfinished check -> return pending; do not persist timeout or the late source result
+request AbortSignal wins before result commitment -> WAIT_ABORTED; an existing armed record remains pending unchanged
 ```
+
+For `hold_seconds>0`, the hold deadline is a total invocation budget and includes lock/GC/source work; an in-flight check receives an internal boundary signal so it cannot overrun the remaining call budget by its full source timeout. `hold_seconds=0` remains a single bounded arm/check without intentional holding. Initial create never exposes an unarmed durable record: if first arm cannot complete before caller cancellation, no resumable name is created.
 
 Do not allow lock arbitration to turn `hold_seconds=0` into a long blocking call or to extend a 15-second hold by another long lock timeout.
 
@@ -353,6 +368,7 @@ git commit -m "feat: add durable local wait state machine"
 - `arm(condition)` for `terminal_output` -> baseline `{ generation, cursor, overlapBase64: '', paneDead, paneDeadStatus }` where cursor is arm-time transcript `endOffset`.
 - `arm(condition)` for `terminal_exit` -> baseline `{ generation }`.
 - `check(record)` -> `{ status: 'pending'|'matched'|'failed', baseline?, evidence?, code?, details? }`.
+- All private broker calls accept/pass an internal request `AbortSignal`; Terminal wait transport failures are normalized rather than exposed as raw socket/tmux diagnostics.
 
 - [ ] **Step 1: Write failing independent-cursor and immediate-output tests**
 
@@ -417,6 +433,10 @@ terminal_exit on retained exit 7 -> matched exit=7
 same name, new generation -> WAIT_SOURCE_REPLACED
 same-name replacement racing transcript read -> WAIT_SOURCE_REPLACED, never false match
 broker restart while pending -> same generation/cursor resumes and later matches
+broker unavailable after retry window -> transient WAIT_SOURCE_UNAVAILABLE; baseline/deadline unchanged
+request abort during broker connect/retry/in-flight request -> prompt WAIT_ABORTED; no delayed retries/socket/listener leak
+explicitly destroyed old generation with name absent -> WAIT_SOURCE_ENDED with bounded unknown-exit details
+same name reopened at a different generation -> WAIT_SOURCE_REPLACED
 human attach -> output source remains read-only/usable
 ```
 

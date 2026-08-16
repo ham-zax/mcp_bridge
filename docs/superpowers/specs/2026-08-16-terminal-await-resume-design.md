@@ -281,7 +281,7 @@ cancel:
   name + cancel=true
 ```
 
-Validation rejects ambiguous combinations. A repeated create using an existing name is idempotent only when the normalized condition and original deadline inputs are identical; otherwise it returns `WAIT_CONFLICT`. This makes a retry after a lost response recover the same named state instead of creating an unresumable duplicate.
+Validation rejects ambiguous combinations. A repeated create using an existing name is idempotent only after a fully armed durable record exists and the normalized condition and original deadline inputs are identical; otherwise it returns `WAIT_CONFLICT`. This makes a retry after a lost response recover the same armed named state instead of creating an unresumable duplicate. Initial create is linearized at first fully armed persistence: the source baseline is captured in memory before the name becomes durable.
 
 Defaults and bounds:
 
@@ -290,7 +290,7 @@ timeout_seconds  default 300; range 1..86400
 hold_seconds     default 10; range 0..15
 ```
 
-`hold_seconds=0` creates/checks without intentionally blocking. A single MCP request never waits more than 15 seconds, even when the durable deadline is much longer.
+`hold_seconds=0` performs one bounded create/check without intentionally holding for another poll. For `hold_seconds>0`, the hold clock starts near invocation entry and is the total per-call budget, including lock/GC/source work. An in-flight source check receives an internal boundary signal at the earlier of caller abort, durable wait deadline, or call hold deadline, so a source's independent timeout cannot add a full extra probe window. Hold expiration returns `pending`; it is not a durable timeout. A single MCP request never intentionally holds more than 15 seconds even when the durable deadline is much longer.
 
 No `wait_list`, notification, history, cron, or workflow/action graph is included in Phase 2.
 
@@ -550,9 +550,9 @@ maximum         86400
 
 The timeout applies to the durable wait across all resume calls, not separately to each MCP request.
 
-When the deadline passes, the engine persists terminal status `timeout` before returning. Timeout is expected control flow and returns native success text rather than `isError`.
+The absolute deadline is authoritative over source results. The engine arbitrates it before starting each arm/check, after every awaited arm/check, and immediately before source-result persistence. If a source result completes at or after `deadlineAtMs`, including a nominal `matched`, the engine persists `timeout` instead. This applies to initial arm, ordinary checks, and resumed waits across every source kind.
 
-Timeout never kills or closes the observed resource.
+Timeout is expected control flow and returns native success text rather than `isError`. Timeout never kills or closes the observed resource.
 
 ## Cancellation model
 
@@ -560,9 +560,11 @@ There are two different cancellations.
 
 ### MCP/request cancellation or ChatGPT disconnect
 
-Abort the current lock acquisition/check/hold promptly. A request canceled while queued for the per-name wait lock must be removed from contention and must never later acquire the lock and continue checking after cancellation. The durable wait record itself remains pending and may be resumed later.
+Initial create has a stronger linearization rule than later resume calls. The engine computes the absolute deadline and obtains the source arm/baseline before writing the first durable record. If request cancellation wins before that fully armed record is persisted, the call returns `WAIT_ABORTED` and **no named wait exists**. A name-only resume therefore returns `WAIT_NOT_FOUND`; an explicit create retry establishes a new arm boundary. There is never a durable `pending + sourceArmed=false + baseline=null` state that can silently re-arm later.
 
-This prevents both a transient ChatGPT/1MCP disconnect from destroying the logical wait and the queued-cancellation defect already found/fixed in Files mutation coordination from being reintroduced in the wait subsystem.
+Once a fully armed record exists, abort the current lock acquisition/check/hold promptly while preserving that record as `pending` with the same baseline/deadline. A request canceled while queued for the per-name wait lock must be removed from contention and must never later acquire the lock and continue checking after cancellation.
+
+This prevents both eligible-output loss from a canceled initial arm and a transient ChatGPT/1MCP disconnect from destroying an already-established logical wait. It also prevents the queued-cancellation defect already found/fixed in Files mutation coordination from being reintroduced in the wait subsystem.
 
 ### Explicit model cancellation
 
@@ -578,7 +580,7 @@ Cancellation never sends a signal, kills a process, closes a Terminal session, o
 
 ### ChatGPT disconnect
 
-Current request stops. Named wait state remains on disk. Resume by calling `wait(name=...)`.
+Current request stops. If the wait had already reached its first fully armed durable persistence, named state remains on disk and resumes via `wait(name=...)`. If disconnect/cancellation wins during initial arm before that persistence, no name exists and a name-only resume returns `WAIT_NOT_FOUND`; the caller must retry the original create explicitly.
 
 ### 1MCP restart
 
@@ -594,13 +596,13 @@ No effect on wait state. The wait engine does not depend on the Terminal MCP std
 
 ### Terminal broker restart
 
-The adapter uses reconnect/retry behavior. A short broker-only restart does not alter the wait cursor or generation. Transcript and tmux remain authoritative.
+The private `BrokerClient.request(op, params, { signal })` path is cancellation-aware across connect, retry delay, and an in-flight socket request. Caller abort destroys the active socket, stops retry work, removes timers/listeners, and maps through `TerminalWaitSource` to `WAIT_ABORTED`. Raw transport failures such as `ENOENT`, `ECONNREFUSED`, `ECONNRESET`, `EPIPE`, `BROKER_CONNECTION_CLOSED`, and broker request timeout are not model-visible wait semantics.
 
-If the broker remains unavailable for the current bounded call, return `WAIT_SOURCE_UNAVAILABLE` while leaving the wait pending. A later resume retries the same durable state.
+The adapter uses bounded reconnect/retry behavior. A short broker-only restart does not alter the wait cursor or generation. Transcript and tmux remain authoritative. If the broker remains unavailable for the current bounded call, `TerminalWaitSource` returns transient `WAIT_SOURCE_UNAVAILABLE` while leaving the armed wait pending with the same deadline/generation/cursor/baseline. A later resume retries the same durable state.
 
-### tmux lifetime boundary ends
+### tmux lifetime boundary ends or a Terminal is explicitly destroyed
 
-A terminal condition cannot be silently retargeted. If its captured generation is gone, it returns source-ended/not-found semantics as appropriate. Killing the tmux lifetime boundary is not caused by wait timeout or cancellation.
+A terminal condition cannot be silently retargeted. If the originally armed name is absent, the old generation is ended and the wait returns stable `WAIT_SOURCE_ENDED` with bounded unknown-exit details when no retained pane status exists. If the same name exists with a different generation, it remains `WAIT_SOURCE_REPLACED`. Raw tmux target diagnostics such as `TMUX_ERROR: no such window` are private implementation detail and are not exposed as wait semantics. Killing or explicitly closing the Terminal lifetime is not caused by wait timeout or cancellation.
 
 ## Persistent state requirements
 
@@ -620,14 +622,15 @@ Requirements:
 - legacy `$MCP_DEV_STATE_DIR/waits/.locks/*` files from the pre-review implementation are ignored and cannot block a new owner;
 - lock contention must fast-fail within a 250 ms arbitration window rather than extending one MCP call beyond its configured hold budget;
 - canceled lock waiters never enter the protected state machine later;
-- versioned state schema;
-- normalized condition stored for retry conflict checking;
-- arm timestamp and absolute deadline;
+- versioned state schema with semantic validation on every read/write;
+- every durable `pending` version-1 record is fully armed (`sourceArmed=true`) and has a non-null baseline; unarmed durable records are corrupt rather than silently re-armed;
+- normalized condition stored for retry conflict checking and semantically equal to the stored condition;
+- validated timeout, arm timestamp, absolute deadline, and last-check timestamp;
 - condition baseline/source identity;
 - independent Terminal cursor and matcher overlap when applicable;
 - status: `pending | matched | timeout | cancelled | failed`;
 - bounded completion evidence/error;
-- completion timestamp.
+- status-dependent completion invariants: pending has no completion timestamp; terminal states require one; `matched` must complete before its absolute deadline; `timeout` completes at/after it; failed records carry a stable code.
 
 Terminal states are retained for 24 hours to make a lost completion response replayable. Opportunistic garbage collection during later `wait` calls removes terminal records older than 24 hours. No background GC service is required.
 
@@ -791,10 +794,13 @@ Implementation acceptance must be separate from this design mission.
 
 Prove:
 
-- named create is durable and retry-idempotent;
+- initial create is not durable until a complete source baseline is captured; abort before first armed persistence leaves no name and cannot silently re-arm later;
+- named create is durable and retry-idempotent after first armed persistence;
+- absolute deadline beats source results that complete late, including late `matched` results from arm/check;
+- `hold_seconds` is the total bounded budget for resumed calls and hold expiration returns pending rather than durable timeout;
 - conflicting same-name definition returns `WAIT_CONFLICT`;
 - resume after provider restart uses persisted deadline/baseline;
-- request abort while acquiring the per-name lock or during the current hold stops promptly, never enters later, and leaves wait pending;
+- request abort while acquiring the per-name lock or during the current hold stops promptly, never enters later, and leaves an already-armed wait pending;
 - same-name lock contention fast-fails as transient `WAIT_BUSY` rather than silently exceeding the bounded-call contract;
 - explicit cancel persists cancelled state and never kills the source;
 - timeout persists before response and never kills the source;
@@ -804,9 +810,11 @@ Prove:
 - session generation replacement fails explicitly;
 - close/reopen of the same Terminal name starts with fresh transcript/model-cursor state and cannot replay prior-incarnation bytes;
 - a replacement racing an explicit wait transcript read is rejected by generation validation rather than matching replacement bytes;
-- retained pane exit returns exact status;
+- retained pane exit returns exact status; explicit Terminal destruction with the name absent returns stable `WAIT_SOURCE_ENDED`, while same-name replacement remains `WAIT_SOURCE_REPLACED`;
+- broker transport outage returns transient `WAIT_SOURCE_UNAVAILABLE`, request abort during connect/retry/in-flight I/O returns promptly as `WAIT_ABORTED`, and broker recovery resumes the same durable Terminal baseline;
 - process PID reuse is not misclassified as the same process;
 - TCP/file/HTTP/systemd level conditions behave as specified;
+- semantic corruption in version-1 durable records returns `WAIT_STATE_CORRUPT` rather than producing immortal pending state, NaN time behavior, or silent re-arm;
 - terminal records GC only after retention.
 
 ### Terminal integration
@@ -852,6 +860,11 @@ After local qualification and external activation, verify from a fresh ChatGPT s
 9. interrupt one wait request and prove the durable wait remains resumable.
 
 Also record the schema/context value gate above. Product activation is not the place to discover that the new union costs more context than the polling it is intended to remove.
+
+## Known out-of-scope debt
+
+- **Terminal incarnation retention:** prior `sessions/<name>/incarnations/<generation>/` directories remain after same-name reopen. Immediate recursive deletion previously raced the retiring `pipe-pane` writer, so bounded post-quiescence GC remains follow-up debt rather than part of Task 8 activation correctness.
+- **Pre-existing `session.open` broker-crash gate window:** if the broker is killed after tmux session creation but before metadata/start-gate completion, a gated tmux session can remain. This predates Task 8 and is explicitly not redesigned by the await/resume correctness pass; Task 7 must not treat this known crash window as newly solved.
 
 ## Deferred triggers
 

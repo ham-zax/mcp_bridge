@@ -3,8 +3,8 @@
 Date: 2026-08-16
 Branch: `feat/personal-harness-agent-3-await-implementation`
 Original implementation checkpoint entering qualification: `8c4715a8b5dc219ac32787ec860782871a310fd8`
-Independent-review blocker fixes: `2fa0e8196ba7a8ad6ef263f89b5a014636eb36d9` (systemd resumability/environment/abort) and `46f62b08c22359d318940b56acd7833c9315c2c6` (crash-safe per-name locking).
-Scope: focused-plan Task 6 local qualification and blocker requalification only. Focused-plan Task 7, live bridge activation, and ChatGPT Actions refresh were **not run**.
+Independent-review blocker fixes: `2fa0e8196ba7a8ad6ef263f89b5a014636eb36d9` (systemd resumability/environment/abort), `46f62b08c22359d318940b56acd7833c9315c2c6` (crash-safe per-name locking), and `a38e561a13c5fc7a8f9412d76c52a40089b37f37` (deadline/initial-arm/hold/Terminal-transport/state correctness).
+Scope: focused-plan Task 6 local qualification and independent-review correctness requalification only. Focused-plan Task 7, live bridge activation, and ChatGPT Actions refresh were **not run**.
 
 ```text
 WAIT_BOUNDARY                 SPLIT_LAYER
@@ -26,6 +26,9 @@ ddeaa0f  feat: add durable local wait state machine
 defe9b5  feat: wait on durable terminal transcript state
 ddf2f5d  feat: add local readiness wait sources
 8c4715a  feat: expose durable personal wait action
+2fa0e81  fix: keep systemd waits resumable
+46f62b0  fix: make wait locks crash-safe
+a38e561  fix: harden durable wait correctness
 ```
 
 The accepted live integration worktree was not modified during Tasks 3-6 and remained at:
@@ -46,12 +49,12 @@ node --test .superpowers/web/2026-08-16-terminal-await-resume/qualify-task6.test
 Result:
 
 ```text
-7 tests
-7 pass
+12 tests
+12 pass
 0 fail
 ```
 
-The seven cases exercised the actual stdio personal `wait` tool plus disposable Terminal/local resources, not only direct source methods.
+The twelve cases exercised the actual stdio personal `wait` tool plus disposable Terminal/local resources, not only direct source methods.
 
 ## 1. Race-safe Terminal output and independent model cursor
 
@@ -69,7 +72,7 @@ terminal_read -> empty
 Captured evidence:
 
 ```text
-generation                    91e76131-51bc-4461-9306-9f2e8fcd3135
+generation                    599d72f6-adbb-4c32-ba1e-051943e39e3d
 wait cursor at arm            0
 wait cursor after match       22
 model cursor after wait       0
@@ -85,17 +88,17 @@ A named output wait was armed against `task8-broker-restart`, then only the brok
 Captured evidence:
 
 ```text
-broker PID before             3337209
-broker PID after              3337284
+broker PID before             3607428
+broker PID after              3607497
 
-tmux PID before               3337206
-tmux PID after                3337206
+tmux PID before               3607425
+tmux PID after                3607425
 
-pane PID before               3337225
-pane PID after                3337225
+pane PID before               3607444
+pane PID after                3607444
 
-generation before             f78e7013-bd1b-46d1-bb79-cfffb853f19a
-generation after              f78e7013-bd1b-46d1-bb79-cfffb853f19a
+generation before             679db5aa-4298-4d52-a9bb-1231cc18eaa3
+generation after              679db5aa-4298-4d52-a9bb-1231cc18eaa3
 
 wait cursor before            0
 wait cursor after restart     0
@@ -190,7 +193,35 @@ The replacement generation never satisfied the old wait, and the new model read 
 
 **Post-Task-8 retention debt:** each same-name Terminal generation currently keeps its prior `sessions/<name>/incarnations/<generation>/` directory. This mission does not delete those directories because immediate recursive cleanup previously raced the retiring tmux `pipe-pane` writer. Old incarnations are isolated from new model/wait cursors and cannot replay into the replacement session, but a later bounded retention/GC design should reclaim them safely after writer quiescence. This is recorded as cleanup debt, not a live-activation blocker for the current Task-8 wait mission.
 
-## 7. Personal schema measurement
+**Pre-existing Terminal crash-window debt:** killing the broker during `session.open` after tmux session creation but before metadata/start-gate completion can leave a gated tmux session behind. Independent review reproduced this older Terminal lifecycle window. It predates Task 8 and was deliberately not redesigned in this correctness pass; no Task-7 or live-activation claim should imply that crash window is solved.
+
+## 7. Independent-review correctness requalification
+
+The second independent review found temporal, cancellation, transport, destruction, and state-integrity defects without changing the accepted split-layer/schema architecture. The focused correction produced this local acceptance matrix:
+
+```text
+LATE_HTTP_AFTER_DEADLINE      TIMEOUT (completedAt - deadline = +4 ms)
+LATE_MATCH_AFTER_DEADLINE     TIMEOUT (deterministic late check and late initial-arm regressions)
+FAST_MATCH_BEFORE_DEADLINE    MATCHED
+INITIAL_ARM_ABORT             WAIT_ABORTED; no durable record; name-only resume -> WAIT_NOT_FOUND
+LOST_RESPONSE_AFTER_ARM       identical create retry keeps same baseline/deadline; source arm count remains 1
+TERMINAL_BROKER_DOWN          WAIT_SOURCE_UNAVAILABLE; durable state unchanged
+TERMINAL_BROKER_DOWN_ABORT    WAIT_ABORTED promptly (51 ms in qualification)
+TERMINAL_BROKER_RECOVERY      same named wait resumed and matched after broker restart
+HOLD_SECONDS_TOTAL_BOUND      PASS (1,004 ms for hold_seconds=1 with ~700 ms HTTP probes)
+EXPLICIT_TERMINAL_CLOSE       WAIT_SOURCE_ENDED; durable failed record carries stable code
+SEMANTIC_CORRUPT_STATE        WAIT_STATE_CORRUPT
+```
+
+The initial-create linearization contract is now explicit: compute the absolute deadline, obtain the source arm/baseline in memory, arbitrate the deadline, then persist the first fully armed record. If request cancellation wins before that persistence, no resumable unarmed record exists. Once armed state is durable, later request cancellation continues to preserve the same pending baseline/deadline.
+
+Deadline arbitration occurs before source work, after awaited source work, and immediately before source-result persistence. A late `matched` result cannot beat the durable absolute deadline. For resumed calls with `hold_seconds>0`, the call budget begins near `WaitEngine.run()` entry and an internal source-operation signal distinguishes caller abort, durable deadline, and hold expiration. Hold expiration returns pending and does not become durable timeout.
+
+The private BrokerClient now accepts an internal request signal and makes connection attempts, retry sleeps, and in-flight sockets abortable. Terminal wait transport errors normalize to transient `WAIT_SOURCE_UNAVAILABLE`; caller abort normalizes to `WAIT_ABORTED`; an absent explicitly destroyed Terminal generation normalizes to `WAIT_SOURCE_ENDED`; a reopened same-name different generation remains `WAIT_SOURCE_REPLACED`.
+
+Version-1 wait records are now semantically validated on every read/write. Durable pending records are always fully armed with a non-null baseline and consistent definition/timeout/deadline/timestamps; terminal statuses have status-dependent completion invariants. Malformed semantic state cannot become immortal pending state or silently re-arm.
+
+## 8. Personal schema measurement
 
 Tokenizer/accounting matches the Phase-2 benchmarks:
 
@@ -240,7 +271,7 @@ cancel          {name, cancel:true}
 
 No regex, agent lifecycle, shell predicate, cron, notification, or arbitrary-command condition is present.
 
-## 8. `WAIT_SCHEMA_VALUE_GATE`
+## 9. `WAIT_SCHEMA_VALUE_GATE`
 
 The value benchmark used two identical disposable Terminal build/watch sessions in parallel for about 31 seconds. Each emitted one moderate compile/status line every 0.5 seconds and then `SERVER_READY`.
 
@@ -276,7 +307,7 @@ Result:
 1 test
 1 pass
 0 fail
-~31.5 s workflow
+~32.6 s workflow on the latest correctness checkpoint
 ```
 
 Actual token accounting:
@@ -303,6 +334,8 @@ Break-even is reached after **two additional noisy polling checks after the init
 
 Call count is intentionally equal in this bounded-resume workflow. The value comes from durable predicate/baseline state, name-only follow-ups, and preventing irrelevant transcript bytes from entering model context on every readiness poll. The final measured workflow remains context-positive even after charging the entire eight-condition schema tax once.
 
+The correctness repair does not modify `wait-schema.mjs`, dev-provider registration, personal composition, or any model-facing field. A fresh ~32.6-second benchmark rerun again produced four calls per side and the same aggregate result bytes (manual 5,534; named wait 247). The local WSL connector currently does not have the previously used `tiktoken` Python package installed, so this focused mission did not install a new dependency solely to re-tokenize an unchanged schema surface. The saved qualified `o200k_base` accounting above remains the reference measurement; the 590-token margin is materially larger than any token-boundary variation from fresh timestamps/chunk boundaries.
+
 Therefore:
 
 ```text
@@ -311,13 +344,13 @@ WAIT_SCHEMA_VALUE_GATE = PASS
 
 This verdict is local/offline context evidence, not a claim about hidden ChatGPT billing. Focused-plan Task 7 must still confirm that the product-visible refreshed catalog matches the locally measured schema before live acceptance.
 
-## Final local regression gates after independent-review blockers
+## Final local regression gates after independent-review correctness repair
 
-After both blocker fixes and the real no-user-bus requalification:
+After the focused correctness repair:
 
 ```text
-Pi provider               142 / 142 PASS
-Terminal                  42 / 42 PASS
+Pi provider               160 / 160 PASS
+Terminal                  45 / 45 PASS
 harness                    6 / 6 PASS
 publication               16 / 16 PASS
 lifecycle                 27 / 27 PASS
@@ -326,7 +359,7 @@ Bash syntax                        PASS
 git diff --check                  PASS
 ```
 
-The model-facing catalog remained byte-for-byte identical to the Task-5 post-wait capture at 5,293 bytes / 1,213 `o200k_base` tokens. The blocker fixes added no MCP field or tool. The ~30-second schema-value workflow was rerun and again measured 1,947 tokens for manual polling versus 1,357 for named wait, preserving the 590-token local savings and `WAIT_SCHEMA_VALUE_GATE=PASS`.
+The model-facing schema/registration paths have no diff from the independently reviewed `18b59f1` checkpoint. The qualified catalog remains 5,293 bytes / 1,213 `o200k_base` tokens with the 557-token incremental wait tax. The fresh schema-value workflow retained the same call count and aggregate result-byte totals, preserving the prior 1,947-versus-1,357 reference accounting and `WAIT_SCHEMA_VALUE_GATE=PASS`.
 
 ## Product gate
 
