@@ -353,11 +353,11 @@ test_legacy_oauth_migration_noop_and_repo_guard() {
   rm -rf "$tmp"
 }
 
-test_migration_guide_preserves_oauth_and_external_cutover() {
+test_migration_guide_points_to_current_and_historical_guidance() {
   local doc="$ROOT/docs/migration-from-local-bridge.md"
-  grep -Fq 'migrate-legacy-oauth-state.sh' "$doc" && \
-  grep -Eq 'direct WSL terminal|outside.*MCP|outside.*1MCP' "$doc" && \
-  grep -Eq 'transport session|streamable' "$doc"
+  grep -Fq 'getting-started.md' "$doc" && \
+  grep -Fq 'operations.md' "$doc" && \
+  grep -Fq 'history/acceptance/migration-from-local-bridge.md' "$doc"
 }
 
 run_test 'public bin entrypoints exist and are executable' test_public_entrypoints
@@ -377,7 +377,7 @@ run_test 'generic systemd template targets public bin entrypoints' test_generic_
 run_test 'systemd installer renders a valid fixture without live manager' test_systemd_installer_renders_without_live_manager
 run_test 'legacy OAuth continuity migrates without transient transport state' test_legacy_oauth_state_migration
 run_test 'legacy OAuth migration is a clean no-op and never targets Git state' test_legacy_oauth_migration_noop_and_repo_guard
-run_test 'migration guide preserves OAuth and requires external cutover control' test_migration_guide_preserves_oauth_and_external_cutover
+run_test 'migration compatibility guide points to current and historical guidance' test_migration_guide_points_to_current_and_historical_guidance
 
 printf '\n%s tests, %s failures\n' "$TESTS" "$FAILURES"
 [ "$FAILURES" -eq 0 ]
