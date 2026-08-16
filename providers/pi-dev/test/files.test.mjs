@@ -198,8 +198,6 @@ test('edit operation detects a changed snapshot before write', async () => {
   assert.equal(await fs.readFile(file, 'utf8'), 'other\n');
 });
 
-
-
 test('edit v2 rejects pathname replacement before same-descriptor mutation', async () => {
   const workspaceRoot = await tempDir('pi-edit-v2-inode-');
   const file = path.join(workspaceRoot, 'a.txt');
@@ -235,8 +233,6 @@ test('edit v2 rejects changed bytes before same-descriptor mutation', async () =
   );
   assert.equal(await fs.readFile(file, 'utf8'), 'external\n');
 });
-
-
 
 test('edit v2 reports uncertain state when the first mutating write fails', async () => {
   const workspaceRoot = await tempDir('pi-edit-v2-write-fail-');
@@ -340,10 +336,6 @@ test('edit v2 reports applied failed and unattempted targets after a later stale
   assert.equal(await fs.readFile(path.join(workspaceRoot, 'b.txt'), 'utf8'), 'external\n');
   assert.equal(await fs.readFile(path.join(workspaceRoot, 'c.txt'), 'utf8'), 'gamma\n');
 });
-
-
-
-
 
 test('edit v2 writes longer output completely through the guarded descriptor', async () => {
   const workspaceRoot = await tempDir('pi-edit-v2-longer-');
@@ -486,6 +478,158 @@ test('independent personal edits in different files both succeed', async () => {
   assert.ok(settled.every(x => x.status === 'fulfilled'));
   assert.equal(await fs.readFile(path.join(defaultCwd, 'a.txt'), 'utf8'), 'ALPHA\n');
   assert.equal(await fs.readFile(path.join(defaultCwd, 'b.txt'), 'utf8'), 'BETA\n');
+});
+
+test('edit v2 opposite-order overlapping batches finish without deadlock and preserve explicit outcomes', async () => {
+  const defaultCwd = await tempDir('pi-edit-v2-overlap-');
+  const a = path.join(defaultCwd, 'a.txt');
+  const b = path.join(defaultCwd, 'b.txt');
+  const c = path.join(defaultCwd, 'c.txt');
+  await fs.writeFile(a, 'a0\n');
+  await fs.writeFile(b, 'b0\n');
+  await fs.writeFile(c, 'c0\n');
+
+  const first = runEdit({
+    pathMode: 'user', defaultCwd,
+    targets: [
+      { path: 'a.txt', edits: [{ oldText: 'a0', newText: 'a1' }] },
+      { path: 'b.txt', edits: [{ oldText: 'b0', newText: 'b1' }] }
+    ]
+  });
+  const second = runEdit({
+    pathMode: 'user', defaultCwd,
+    targets: [
+      { path: 'c.txt', edits: [{ oldText: 'c0', newText: 'c2' }] },
+      { path: 'b.txt', edits: [{ oldText: 'b0', newText: 'b2' }] }
+    ]
+  });
+
+  const settled = await Promise.race([
+    Promise.allSettled([first, second]),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('edit v2 overlap deadlocked')), 1000))
+  ]);
+  assert.equal(settled.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(settled.filter(result => result.status === 'rejected').length, 1);
+  const bFinal = await fs.readFile(b, 'utf8');
+  assert.match(bFinal, /^b[12]\n$/);
+});
+
+test('edit v2 disjoint multi-target batches remain concurrent', async () => {
+  const defaultCwd = await tempDir('pi-edit-v2-disjoint-batches-');
+  for (const [name, text] of [['a.txt','a\n'],['b.txt','b\n'],['c.txt','c\n'],['d.txt','d\n']]) {
+    await fs.writeFile(path.join(defaultCwd, name), text);
+  }
+  let entered = 0;
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const beforeGuard = async () => {
+    entered += 1;
+    if (entered < 2) await gate;
+    else release();
+  };
+  const [one, two] = await Promise.all([
+    runEdit({ pathMode: 'user', defaultCwd, targets: [
+      { path: 'a.txt', edits: [{ oldText: 'a', newText: 'A' }] },
+      { path: 'b.txt', edits: [{ oldText: 'b', newText: 'B' }] }
+    ] }, undefined, { beforeGuard }),
+    runEdit({ pathMode: 'user', defaultCwd, targets: [
+      { path: 'c.txt', edits: [{ oldText: 'c', newText: 'C' }] },
+      { path: 'd.txt', edits: [{ oldText: 'd', newText: 'D' }] }
+    ] }, undefined, { beforeGuard })
+  ]);
+  assert.equal(one.targets.length, 2);
+  assert.equal(two.targets.length, 2);
+  assert.ok(entered >= 2);
+});
+
+test('edit v2 cancellation after one target applies reports remaining targets unattempted', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-cancel-after-first-');
+  const a = path.join(workspaceRoot, 'a.txt');
+  const b = path.join(workspaceRoot, 'b.txt');
+  await fs.writeFile(a, 'alpha\n');
+  await fs.writeFile(b, 'beta\n');
+  const controller = new AbortController();
+  let opens = 0;
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [
+        { path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] },
+        { path: 'b.txt', edits: [{ oldText: 'beta', newText: 'BETA' }] }
+      ]
+    }, controller.signal, {
+      openFile: async (target, flags) => {
+        const real = await fs.open(target, flags);
+        opens += 1;
+        const ordinal = opens;
+        return {
+          stat: (...args) => real.stat(...args),
+          read: (...args) => real.read(...args),
+          write: (...args) => real.write(...args),
+          truncate: async (...args) => {
+            const result = await real.truncate(...args);
+            if (ordinal === 1) controller.abort();
+            return result;
+          },
+          close: () => real.close()
+        };
+      }
+    }),
+    (error) => {
+      assert.equal(error.code, 'EDIT_PARTIAL');
+      assert.deepEqual(error.editPartial.applied, ['a.txt']);
+      assert.equal(error.editPartial.reason, 'cancelled');
+      assert.deepEqual(error.editPartial.unattempted, ['b.txt']);
+      return true;
+    }
+  );
+  assert.equal(await fs.readFile(a, 'utf8'), 'ALPHA\n');
+  assert.equal(await fs.readFile(b, 'utf8'), 'beta\n');
+});
+
+test('edit v2 cancellation during the final target mutation lets that target settle successfully', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-cancel-final-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'alpha\n');
+  const controller = new AbortController();
+  const result = await runEdit({
+    workspaceRoot,
+    targets: [{ path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA-LONGER' }] }]
+  }, controller.signal, {
+    openFile: async (target, flags) => {
+      const real = await fs.open(target, flags);
+      return {
+        stat: (...args) => real.stat(...args),
+        read: (...args) => real.read(...args),
+        write: async (...args) => {
+          const written = await real.write(...args);
+          controller.abort();
+          return written;
+        },
+        truncate: (...args) => real.truncate(...args),
+        close: () => real.close()
+      };
+    }
+  });
+  assert.equal(result.targets.length, 1);
+  assert.equal(await fs.readFile(file, 'utf8'), 'ALPHA-LONGER\n');
+});
+
+test('edit v2 cancellation before the mutation barrier leaves the target untouched', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-cancel-prebarrier-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'alpha\n');
+  const controller = new AbortController();
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [{ path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }]
+    }, controller.signal, {
+      beforeGuard: async () => controller.abort()
+    }),
+    /abort/i
+  );
+  assert.equal(await fs.readFile(file, 'utf8'), 'alpha\n');
 });
 
 test('edit snapshot rejects a native Bash mutation before write', async () => {

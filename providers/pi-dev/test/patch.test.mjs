@@ -507,8 +507,7 @@ test('30 concurrent personal mutation batches on disjoint paths do not interfere
       runEdit({
         pathMode: 'user',
         defaultCwd,
-        path: `${relativeDir}/edit.txt`,
-        edits: [{ oldText: 'alpha', newText: 'ALPHA' }]
+        targets: [{ path: `${relativeDir}/edit.txt`, edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }]
       }),
       runPatch({
         pathMode: 'user',
@@ -659,8 +658,7 @@ test('apply_patch and exact edit on one file preserve both effects or explicitly
       runEdit({
         pathMode: 'user',
         defaultCwd,
-        path: 'x.txt',
-        edits: [{ oldText: 'omega', newText: 'OMEGA' }]
+        targets: [{ path: 'x.txt', edits: [{ oldText: 'omega', newText: 'OMEGA' }] }]
       })
     ]);
 
