@@ -87,7 +87,7 @@ For the private `personal` profile, the normal install is one explicit bootstrap
 scripts/bootstrap-personal.sh --enable-startup
 ```
 
-`--enable-startup` is the consent boundary: it installs/enables/starts the user-systemd services and user linger so the harness comes back automatically when this WSL user manager starts later. Omit the flag to prepare dependencies/configuration and install `wsl-term` without changing persistent startup state. This does **not** configure Windows to launch WSL automatically. See [Personal harness](docs/personal/harness.md).
+`--enable-startup` is the consent boundary: the bootstrap qualifies the local toolbox, installs/verifies the pinned 1MCP bridge runtime and providers, renders personal configuration, installs `wsl-term`, and then installs/enables/starts the user-systemd services and user linger so the harness comes back automatically when this WSL user manager starts later. Omit the flag to perform the preparation without changing persistent startup state. This does **not** configure Windows to launch WSL automatically. See [Personal harness](docs/personal/harness.md).
 
 ## Day-to-day operations
 

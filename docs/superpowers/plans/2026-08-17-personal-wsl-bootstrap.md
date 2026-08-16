@@ -25,7 +25,9 @@
 ## File structure
 
 - Create `scripts/bootstrap-personal.sh` — the single personal orchestration entrypoint and explicit startup-consent boundary.
+- Create `scripts/install-bridge-runtime.sh` — shared pinned 1MCP/CSP/prerequisite installer used by public and personal setup.
 - Create `tests/personal-bootstrap.sh` — fixture-driven bootstrap/portability/idempotency regression tests without touching live systemd.
+- Modify `scripts/setup.sh` — delegate pinned bridge-runtime setup to the shared helper without changing public profile rendering semantics.
 - Modify `scripts/render-config.mjs` — derive portable personal default cwd and support `MCP_PERSONAL_DEFAULT_CWD`.
 - Modify `config/profiles/personal.env` — retain policy only; remove machine-specific cwd.
 - Modify `config/templates/mcp-personal.json` — remove machine-specific cwd literals; renderer supplies Dev/Code cwd.
@@ -241,6 +243,8 @@ systemctl --user enable --now \
 
 12. Require all three to be enabled and active. Run `bin/status` as the final bridge health check.
 13. Print the installed `wsl-term` path and the remaining unavoidable ChatGPT connect/refresh step.
+
+During exact-tree review, factor the existing pinned 1MCP/CSP/prerequisite block out of public `scripts/setup.sh` into `scripts/install-bridge-runtime.sh`, and require both public setup and personal bootstrap to use it. This prevents a fresh personal clone from depending on an undocumented prior public setup.
 
 - [ ] **Step 5: Extend lifecycle/publication source contracts**
 

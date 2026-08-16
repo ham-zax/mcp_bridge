@@ -10,9 +10,10 @@ You need a Linux or WSL user environment with:
 - `uv` / `uvx`;
 - `cloudflared`;
 - `curl` and `flock`;
-- a Cloudflare Tunnel hostname that reaches the local 1MCP origin.
+- a Cloudflare Tunnel hostname that reaches the local 1MCP origin;
+- a working systemd user manager when you want persistent personal `--enable-startup` behavior.
 
-The repository also pins provider dependencies and validates them during setup/tests.
+The repository installs/verifies its pinned 1MCP runtime and provider dependencies during setup. Current Ubuntu installations created by `wsl --install` use systemd by default; other WSL distributions must expose a working systemd user manager before the persistent personal startup path can be enabled.
 
 ## 2. Configure deployment identity
 

@@ -30,7 +30,7 @@ scripts/bootstrap-personal.sh --enable-startup
 
 `--enable-startup` is explicit consent to install the user-systemd units, enable user linger, enable the services, and start them now. After that, the services start automatically whenever this WSL user's systemd manager starts. The bootstrap does **not** configure Windows to launch WSL.
 
-The same command also qualifies the personal CLI toolbox, installs all three pinned provider dependency trees, renders the personal 1MCP composition, and installs:
+The same command also qualifies the personal CLI toolbox, installs/verifies the pinned 1MCP runtime and OAuth compatibility patch through the repository's shared runtime installer, installs all three pinned provider dependency trees, renders the personal 1MCP composition, and installs:
 
 ```text
 ~/.local/bin/wsl-term -> <this checkout>/bin/wsl-term

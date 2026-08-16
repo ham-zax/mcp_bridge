@@ -21,7 +21,7 @@ contains() { grep -Eq "$2" "$1"; }
 
 test_scripts_are_executable() {
   local script
-  for script in setup.sh bootstrap-personal.sh start.sh stop.sh status.sh tunnel-up.sh tunnel-down.sh; do
+  for script in setup.sh install-bridge-runtime.sh bootstrap-personal.sh start.sh stop.sh status.sh tunnel-up.sh tunnel-down.sh; do
     [ -x "$ROOT/scripts/$script" ] || return 1
   done
   [ -x "$ROOT/bin/start" ] && [ -x "$ROOT/bin/status" ] && [ -x "$ROOT/bin/stop" ] && \
@@ -33,15 +33,24 @@ test_no_global_process_matching() {
 }
 
 test_dependencies_are_pinned() {
-  contains "$ROOT/scripts/setup.sh" 'ONE_MCP_VERSION="0\.34\.4"' && \
+  contains "$ROOT/scripts/install-bridge-runtime.sh" 'ONE_MCP_VERSION="0\.34\.4"' && \
   contains "$ROOT/providers/pi-dev/package.json" '"@earendil-works/pi-coding-agent"[[:space:]]*:[[:space:]]*"0\.84\.1"' && \
   contains "$ROOT/config/templates/mcp.json" 'mcp-shell-server==1\.1\.8'
 }
 
 test_oauth_csp_patch_is_preserved() {
-  contains "$ROOT/scripts/setup.sh" "form-action 'self' https:" && \
-  contains "$ROOT/scripts/setup.sh" "form-action 'self'" && \
-  contains "$ROOT/scripts/setup.sh" 'unexpected 1MCP .* OAuth provider contents; refusing blind patch'
+  contains "$ROOT/scripts/install-bridge-runtime.sh" "form-action 'self' https:" && \
+  contains "$ROOT/scripts/install-bridge-runtime.sh" "form-action 'self'" && \
+  contains "$ROOT/scripts/install-bridge-runtime.sh" 'unexpected 1MCP .* OAuth provider contents; refusing blind patch'
+}
+
+test_shared_bridge_runtime_installer_is_used() {
+  local helper="$ROOT/scripts/install-bridge-runtime.sh"
+  [ -x "$helper" ] && \
+  contains "$ROOT/scripts/setup.sh" 'install-bridge-runtime\.sh' && \
+  contains "$ROOT/scripts/bootstrap-personal.sh" 'install-bridge-runtime\.sh' && \
+  contains "$helper" 'npm install -g "@1mcp/agent@\$ONE_MCP_VERSION"' && \
+  contains "$helper" 'for cmd in node npm npx uv uvx cloudflared curl flock'
 }
 
 test_cloudflare_oauth_is_canonical() {
@@ -127,6 +136,7 @@ run_test 'lifecycle entrypoint scripts remain executable' test_scripts_are_execu
 run_test 'no global pkill/pgrep lifecycle management' test_no_global_process_matching
 run_test 'privileged MCP dependencies are pinned' test_dependencies_are_pinned
 run_test '1MCP OAuth consent CSP compatibility patch is preserved' test_oauth_csp_patch_is_preserved
+run_test 'public and personal setup share the pinned bridge runtime installer' test_shared_bridge_runtime_installer_is_used
 run_test 'Cloudflare OAuth Bridge is the only canonical stack' test_cloudflare_oauth_is_canonical
 run_test 'start.sh is the canonical Cloudflare OAuth entrypoint' test_start_is_canonical_entrypoint
 run_test 'direct 1MCP startup is used without serve --background' test_no_internal_1mcp_background_supervisor

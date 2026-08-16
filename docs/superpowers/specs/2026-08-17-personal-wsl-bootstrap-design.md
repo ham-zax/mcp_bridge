@@ -28,6 +28,7 @@ Use one thin orchestration script over the repository's existing trusted primiti
 scripts/bootstrap-personal.sh
   |
   +-- qualify/install personal CLI toolbox
+  +-- install/verify pinned bridge runtime (1MCP + CSP compatibility)
   +-- install pinned provider npm dependencies
   +-- render personal 1MCP composition
   +-- install ~/.local/bin/wsl-term
@@ -99,7 +100,9 @@ With explicit startup consent, the bootstrap should ensure user lingering is ena
 
 ## Dependency policy
 
-The bootstrap reuses `scripts/setup-personal-toolbox.sh` and the pinned npm lockfiles. It may install the approved user/distro CLI toolbox according to that script's existing policy and run:
+The public and personal setup paths share `scripts/install-bridge-runtime.sh` as the single owner of the pinned 1MCP installation, HTTPS OAuth consent CSP compatibility patch, and foundational runtime prerequisite checks (`node`, `npm`, `npx`, `uv`, `uvx`, `cloudflared`, `curl`, and `flock`). Public `scripts/setup.sh` and personal `scripts/bootstrap-personal.sh` both call that helper rather than duplicating the compatibility logic.
+
+The personal bootstrap also reuses `scripts/setup-personal-toolbox.sh` and the pinned npm lockfiles. It may install the approved user/distro CLI toolbox according to that script's existing policy and run:
 
 ```text
 npm --prefix providers/pi-dev ci --omit=dev
@@ -163,7 +166,8 @@ Automated tests must prove at least:
 5. Bootstrap with `--enable-startup` renders all three units plus the personal ordering drop-in, enables lingering when needed, and requests `enable --now` for the correct services.
 6. The user-bin installation makes `wsl-term` executable through the installed path and resolves back to the current checkout correctly.
 7. Rerunning the fixture bootstrap is idempotent.
-8. Existing harness, lifecycle, personal-toolbox, publication, Terminal, documentation-link, and syntax checks remain green where their contracts are affected.
+8. Public and personal setup both use the same pinned bridge-runtime installer, preserving the qualified 1MCP version and CSP patch.
+9. Existing harness, lifecycle, personal-toolbox, publication, Terminal, Code Router, documentation-link, and syntax checks remain green where their contracts are affected.
 
 Live acceptance on this machine, after code is merged into the canonical checkout, should run the new bootstrap with explicit startup consent and verify:
 

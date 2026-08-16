@@ -68,6 +68,8 @@ if [ "${PERSONAL_BOOTSTRAP_SKIP_INSTALL:-0}" != "1" ]; then
   echo "== qualifying personal CLI toolbox =="
   "$ROOT/scripts/setup-personal-toolbox.sh"
 
+  "$ROOT/scripts/install-bridge-runtime.sh"
+
   echo "== installing pinned personal provider dependencies =="
   npm --prefix "$ROOT/providers/pi-dev" ci --omit=dev
   npm --prefix "$ROOT/providers/code-router" ci --omit=dev
