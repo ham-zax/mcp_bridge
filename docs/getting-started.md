@@ -46,7 +46,13 @@ scripts/setup.sh --profile trusted-dev
 
 There is no silent default. Read [Security](security.md) before choosing `trusted-dev`.
 
-The private `personal` profile is rendered through the private harness path described in [Personal harness](personal/harness.md); `scripts/setup.sh` intentionally accepts only the two public/general profiles.
+The private `personal` profile uses its dedicated bootstrap rather than `scripts/setup.sh`:
+
+```bash
+scripts/bootstrap-personal.sh --enable-startup
+```
+
+That flag is explicit permission to install, enable, and start the personal user-systemd services and user linger. After that one-time install, the services start with the WSL user manager on later WSL sessions. Omit the flag when you only want dependencies/configuration plus the user-local `wsl-term` command and do not want persistent startup changed. The bootstrap never configures Windows to launch WSL. See [Personal harness](personal/harness.md).
 
 ## 4. Start and verify
 

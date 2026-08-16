@@ -18,47 +18,31 @@ Think in three domains, not 16 unrelated tools:
 
 ## Private setup
 
-`scripts/setup.sh` intentionally handles only the public `restricted` and `trusted-dev` profiles. The private profile is rendered directly.
+`scripts/setup.sh` intentionally handles only the public `restricted` and `trusted-dev` profiles. The private profile has one normal bootstrap path.
 
-Before rendering, make sure `config/profiles/personal.env` contains the intended absolute default cwd for this WSL user.
+Create/configure `.env` first, at minimum supplying the public MCP URL. The personal default cwd is optional: set `MCP_PERSONAL_DEFAULT_CWD=/absolute/path` when you want something other than this WSL user's `$HOME`.
 
-Install provider dependencies:
-
-```bash
-npm --prefix providers/pi-dev ci --omit=dev
-npm --prefix providers/code-router ci --omit=dev
-scripts/install-terminal-broker-user.sh
-```
-
-Render the private composition into external state:
+For a complete install with automatic startup in later WSL sessions:
 
 ```bash
-STATE="${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge"
-node scripts/render-config.mjs \
-  --profile personal \
-  --env-file .env \
-  --state-dir "$STATE" \
-  --repo-root "$PWD"
+scripts/bootstrap-personal.sh --enable-startup
 ```
 
-Start the Terminal lifetime services if needed:
+`--enable-startup` is explicit consent to install the user-systemd units, enable user linger, enable the services, and start them now. After that, the services start automatically whenever this WSL user's systemd manager starts. The bootstrap does **not** configure Windows to launch WSL.
+
+The same command also qualifies the personal CLI toolbox, installs all three pinned provider dependency trees, renders the personal 1MCP composition, and installs:
+
+```text
+~/.local/bin/wsl-term -> <this checkout>/bin/wsl-term
+```
+
+Omit `--enable-startup` when you only want dependencies/configuration plus `wsl-term` and do not want persistent startup state changed:
 
 ```bash
-systemctl --user start wsl-agent-tmux.service wsl-agent-terminal-broker.service
+scripts/bootstrap-personal.sh
 ```
 
-Then start/reconcile the bridge:
-
-```bash
-bin/start
-bin/status
-```
-
-Optional native CLI toolbox:
-
-```bash
-scripts/setup-personal-toolbox.sh
-```
+The direct renderer, toolbox setup, unit installers, and `bin/start`/`bin/stop` remain supported lower-level repair and source-cutover primitives. They are not the normal first-install sequence.
 
 ## Dev
 
@@ -174,7 +158,7 @@ Normal `terminal_open` stays headless. Set `present:true` only when the human sh
 Create a durable session from the interactive terminal you are already using:
 
 ```bash
-bin/wsl-term new <session>
+wsl-term new <session>
 ```
 
 `new` creates the private tmux session under an immediate human lease and attaches the invoking TTY as the writable human client. ChatGPT may read the terminal immediately, but model send/resize/ordinary close return `HUMAN_HAS_CONTROL` until control is given away.
@@ -182,7 +166,7 @@ bin/wsl-term new <session>
 Hand the same attached PTY to the model:
 
 ```bash
-bin/wsl-term give <session>
+wsl-term give <session>
 ```
 
 The human client stays attached but becomes tmux read-only + ignore-size. Human terminal resizing no longer changes the PTY; model send and `terminal_resize` become authoritative.
@@ -190,19 +174,19 @@ The human client stays attached but becomes tmux read-only + ignore-size. Human 
 Take it back from another shell or terminal tab:
 
 ```bash
-bin/wsl-term take <session>
+wsl-term take <session>
 ```
 
 For same-pane handoff, `Ctrl-b T` directly toggles the current tmux client between writable and read-only. A read-only watcher remains unable to type until this explicit takeover. The broker reconciles real tmux client flags before every model mutation: a unique writable client becomes the designated human owner; multiple writable human clients block model mutation and are never auto-resolved.
 
-ChatGPT can voluntarily return a model-owned collaborative session with `terminal_yield`. If a designated human frontend is already attached, it reuses that exact client and makes it writable. If none is attached, the personal provider attempts to launch Kitty on the exact tmux session, waits for the collaborative frontend, then yields to it. Frontend failure leaves the tmux session model-owned and reports the exact manual `bin/wsl-term attach <session>` fallback. It never lets the model seize control from a human.
+ChatGPT can voluntarily return a model-owned collaborative session with `terminal_yield`. If a designated human frontend is already attached, it reuses that exact client and makes it writable. If none is attached, the personal provider attempts to launch Kitty on the exact tmux session, waits for the collaborative frontend, then yields to it. Frontend failure leaves the tmux session model-owned and reports the exact manual `wsl-term attach <session>` fallback. It never lets the model seize control from a human.
 
 ### Observation, takeover, and recovery
 
 Watch an existing exact PTY without becoming the collaborative handoff target:
 
 ```bash
-bin/wsl-term watch <session>
+wsl-term watch <session>
 ```
 
 A watcher starts as an anonymous tmux read-only, ignore-size client. It receives the live terminal display, cannot inject pane input, does not resize the PTY, and does not block model send/resize/ordinary close unless the human explicitly presses `Ctrl-b T` to take control.
@@ -210,7 +194,7 @@ A watcher starts as an anonymous tmux read-only, ignore-size client. It receives
 Attach a persistent designated collaborative viewport while the model keeps control:
 
 ```bash
-bin/wsl-term present <session>
+wsl-term present <session>
 ```
 
 `present` attaches read-only to the exact PTY, registers that client as the handoff target, and freezes the tmux window in manual-size mode before attachment so a smaller passive viewport does not resize the model-owned PTY. Model `terminal_resize` remains authoritative while the client is read-only. If the client later becomes writable through `terminal_yield` or `wsl-term take`, normal terminal resize events can resize the PTY; `wsl-term give` or `Ctrl-b T` returns the same visible client to read-only model-owned mode.
@@ -218,7 +202,7 @@ bin/wsl-term present <session>
 Take writable control of an existing exact PTY or rejoin after the original human client disappeared:
 
 ```bash
-bin/wsl-term attach <session>
+wsl-term attach <session>
 ```
 
 Writable attach uses the same lease/client reconciliation as collaborative `new`; while attached, model mutation is blocked and model reads remain available. Human input, including sudo/password entry, flows directly from the terminal client to tmux/PTY and is not copied into a separate broker input log.

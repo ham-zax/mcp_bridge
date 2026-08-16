@@ -16,9 +16,10 @@ MCP_WORKSPACE_ROOT=/absolute/path/to/code
 MCP_PUBLIC_URL=https://mcp.example.com
 MCP_TUNNEL_NAME=
 MCP_DEV_MAX_OUTPUT_BYTES=1048576
+MCP_PERSONAL_DEFAULT_CWD=
 ```
 
-Do not put trust policy or secrets in that file.
+`MCP_PERSONAL_DEFAULT_CWD` is optional and applies only to the private personal profile. Leave it empty/unset to use the actual WSL user's `$HOME`. Do not put trust policy or secrets in this file.
 
 ## Profiles
 
@@ -46,7 +47,7 @@ Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 ```
 
-Its tracked private profile must provide an absolute user-mode default cwd. The renderer uses that same default for Dev and Code. Terminal communicates through the private broker socket. Code has no repository-size preflight or threshold: first use may start a persistent CodeDB child and create or update substantial on-disk index state, potentially consuming significant disk and RAM. Tool descriptions steer large or unfamiliar repository discovery toward Dev Bash/`rg` and focused `read` first; that guidance is not runtime enforcement.
+The renderer resolves one absolute personal default cwd from `MCP_PERSONAL_DEFAULT_CWD` when supplied, otherwise from the actual WSL user's `$HOME`, and uses it for both Dev and Code. No tracked personal profile/template carries a machine-specific home path. Terminal communicates through the private broker socket. Code has no repository-size preflight or threshold: first use may start a persistent CodeDB child and create or update substantial on-disk index state, potentially consuming significant disk and RAM. Tool descriptions steer large or unfamiliar repository discovery toward Dev Bash/`rg` and focused `read` first; that guidance is not runtime enforcement.
 
 ## Rendering
 

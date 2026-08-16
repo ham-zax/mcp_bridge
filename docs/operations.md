@@ -10,7 +10,27 @@ bin/stop
 
 Healthy status should report one config-scoped 1MCP process, local health ready, cloudflared running, watchdog running, public health OK, and `issues: 0`.
 
-## User-systemd bridge service
+## Personal installed lifecycle
+
+The normal private WSL installation is:
+
+```bash
+scripts/bootstrap-personal.sh --enable-startup
+```
+
+The flag is the explicit startup-consent boundary. The bootstrap renders the personal MCP state, installs `wsl-term` under `~/.local/bin`, renders all user units, enables user linger, and runs `systemctl --user enable --now` for:
+
+```text
+wsl-agent-tmux.service
+wsl-agent-terminal-broker.service
+mcp-dev-bridge.service
+```
+
+It also installs a personal `mcp-dev-bridge.service.d/personal.conf` drop-in with `Wants=`/`After=` ordering on the broker. That is startup ordering only: the bridge does not own or stop the tmux lifetime service. Once installed, the services start when this WSL user's systemd manager starts in later WSL sessions. Nothing here configures Windows to launch WSL.
+
+Omitting `--enable-startup` prepares dependencies/configuration and the user-local `wsl-term` command but deliberately leaves user-systemd and linger untouched.
+
+## Public/general user-systemd bridge service
 
 Install the generic bridge unit with:
 
@@ -21,7 +41,7 @@ systemctl --user start mcp-dev-bridge.service
 
 The generated unit uses external `bridge.env` state and the repository's public lifecycle entrypoints.
 
-## Personal Terminal services
+## Personal Terminal services: lower-level repair path
 
 The private personal harness has two separate user services:
 
@@ -30,13 +50,13 @@ wsl-agent-tmux.service
 wsl-agent-terminal-broker.service
 ```
 
-Install/render them with:
+The personal bootstrap installs these during the normal path. To render/enable only the Terminal units during repair or source cutover, use:
 
 ```bash
 scripts/install-terminal-broker-user.sh
 ```
 
-Then start them if needed:
+Start them directly only when performing lower-level recovery:
 
 ```bash
 systemctl --user start wsl-agent-tmux.service wsl-agent-terminal-broker.service
@@ -46,7 +66,7 @@ Do not restart tmux merely to deploy broker/provider or frontend-launch code. tm
 
 ## Personal Terminal frontend
 
-The personal provider keeps Terminal sessions headless by default. When presentation is requested or a human handoff needs a visible client, it can launch Kitty attached to the exact tmux PTY through `bin/wsl-term present <session>`.
+The personal provider keeps Terminal sessions headless by default. When presentation is requested or a human handoff needs a visible client, it can launch Kitty attached to the exact tmux PTY through `wsl-term present <session>`.
 
 Kitty discovery order is:
 
@@ -59,10 +79,10 @@ The launcher inherits the explicit Terminal broker socket. If GUI variables are 
 If automatic presentation fails, the tmux session remains alive. Use an interactive WSL terminal and attach directly:
 
 ```bash
-bin/wsl-term attach <session>
+wsl-term attach <session>
 ```
 
-Use `bin/wsl-term present <session>` when you want a designated read-only collaborative viewport while the model keeps control; use `watch` for anonymous observation and `attach` for immediate writable human control.
+Use `wsl-term present <session>` when you want a designated read-only collaborative viewport while the model keeps control; use `watch` for anonymous observation and `attach` for immediate writable human control.
 
 ## User-systemd environment
 
@@ -118,6 +138,8 @@ Rendered configuration contains absolute provider source paths. Before deleting 
 5. restart the bridge from a control process that is not inside the 1MCP process tree being replaced;
 6. verify generated provider paths, `issues: 0`, local/public health, and a real action call;
 7. only then remove the old worktree.
+
+For an installed personal checkout, rerunning `scripts/bootstrap-personal.sh --enable-startup` from the new canonical source root performs the normal render/unit/user-bin convergence before the old checkout is removed.
 
 A tmux-owned Terminal shell is suitable as an external control process because the PTY lifetime is not owned by 1MCP.
 

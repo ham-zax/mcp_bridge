@@ -14,6 +14,8 @@ Install/repair the qualified user-level toolbox:
 scripts/setup-personal-toolbox.sh
 ```
 
+The normal personal WSL bootstrap runs this qualification automatically. Use the standalone command when inspecting or repairing the toolbox independently.
+
 ## Required capabilities
 
 The checker qualifies the normal development baseline, including:

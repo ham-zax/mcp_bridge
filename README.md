@@ -35,12 +35,12 @@ Not every profile enables every provider. Public/general installations use the s
 
 ## Personal harness surface
 
-The accepted private surface is 15 actions grouped into three obvious domains:
+The accepted private surface is 16 actions grouped into three obvious domains:
 
 ```text
 Dev       read edit write wait apply_patch bash
 Code      code_search code_context code_symbol
-Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_close
+Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 ```
 
 A few important design choices:
@@ -81,7 +81,13 @@ Runtime state lives under:
 ${XDG_RUNTIME_DIR:-/run/user/$UID}/mcp-dev-bridge/
 ```
 
-For the private `personal` profile, use the dedicated instructions in [Personal harness](docs/personal/harness.md); `scripts/setup.sh` intentionally exposes only the public `restricted` and `trusted-dev` setup path.
+For the private `personal` profile, the normal install is one explicit bootstrap:
+
+```bash
+scripts/bootstrap-personal.sh --enable-startup
+```
+
+`--enable-startup` is the consent boundary: it installs/enables/starts the user-systemd services and user linger so the harness comes back automatically when this WSL user manager starts later. Omit the flag to prepare dependencies/configuration and install `wsl-term` without changing persistent startup state. This does **not** configure Windows to launch WSL automatically. See [Personal harness](docs/personal/harness.md).
 
 ## Day-to-day operations
 
@@ -91,7 +97,7 @@ bin/status
 bin/stop
 ```
 
-Optional user-session autostart:
+Public/general optional user-session autostart:
 
 ```bash
 scripts/install-systemd-user.sh
