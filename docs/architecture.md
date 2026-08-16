@@ -50,19 +50,21 @@ Terminal owns exactly seven actions:
 terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 ```
 
-tmux is the PTY/process lifetime authority. A separate broker owns session metadata, transcripts, model cursors, generation identity, and human/model control leases. Restarting the broker or 1MCP must not become the PTY lifetime boundary.
+tmux is the PTY/process lifetime authority. A separate broker owns session metadata, transcripts, model cursors, generation identity, and human/model control leases. A personal frontend helper may launch Kitty as a human viewport and attach it to the exact tmux session, but Kitty does not own PTY/process lifetime. Restarting the broker, frontend helper, or 1MCP must not become the PTY lifetime boundary.
 
 ## Durable Terminal data flow
 
 ```text
 Terminal MCP -> Unix socket -> broker -> tmux pane / transcript
-                         |
-                         +-> generation + model cursor + human lease
+      |                  |
+      |                  +-> generation + model cursor + human lease
+      |
+      +-> personal frontend helper -> Kitty -> wsl-term present -> exact tmux PTY
 
 Dev wait -> private broker observation -> independent wait cursor
 ```
 
-Normal Terminal reads and output waits therefore do not consume each other's cursor.
+Normal Terminal reads and output waits therefore do not consume each other's cursor. The GUI path is presentation only: normal Terminal sessions remain headless by default, and a designated read-only frontend keeps model mutation/resize authority until control is explicitly yielded to the human.
 
 ## State boundaries
 

@@ -154,18 +154,20 @@ The Code router resolves the nearest canonical Git root from `cwd`. Nested repos
 ### Durable session workflow
 
 ```text
-terminal_open   create a model-owned named tmux-backed PTY
+terminal_open   create a model-owned named tmux-backed PTY; optionally present it
 terminal_read   read unread output; use cursor/snapshot for recovery
 terminal_send   send text or a control/navigation key while model-owned
 terminal_resize resize the PTY while model-owned
 terminal_list   inspect live/dead sessions and human-control state
-terminal_yield  give a collaborative session back to its human client
+terminal_yield  reuse or ensure a collaborative human frontend, then hand it control
 terminal_close  explicitly destroy a session
 ```
 
 A broker restart or 1MCP restart does not own the PTY lifetime; tmux does. Terminal sessions live in the harness-owned private tmux namespace (production default `wsl-agent`), not the user's default tmux server.
 
-The human frontend contract is an interactive TTY. Kitty, Windows Terminal through WSL, WezTerm, an SSH terminal, and other tmux-compatible terminals are interchangeable; the Terminal subsystem does not install, detect, launch, or remotely control a specific emulator.
+The tmux/broker backend remains emulator-neutral. Operator-side `wsl-term` commands work from any interactive tmux-compatible TTY. The private personal presentation helper can additionally discover and launch Kitty under WSLg when `terminal_open(..., present:true)` or `terminal_yield` needs a visible collaborative frontend; Kitty is presentation only and never becomes the PTY lifetime authority.
+
+Normal `terminal_open` stays headless. Set `present:true` only when the human should watch the exact PTY from the start; background servers and other model-only durable work should not open a GUI merely because they use Terminal.
 
 ### Collaborative human-first terminals
 
@@ -193,17 +195,25 @@ bin/wsl-term take <session>
 
 For same-pane handoff, `Ctrl-b T` directly toggles the current tmux client between writable and read-only. A read-only watcher remains unable to type until this explicit takeover. The broker reconciles real tmux client flags before every model mutation: a unique writable client becomes the designated human owner; multiple writable human clients block model mutation and are never auto-resolved.
 
-ChatGPT can voluntarily return a model-owned collaborative session with `terminal_yield`. It only gives control to the currently designated human client; it never lets the model seize control from a human.
+ChatGPT can voluntarily return a model-owned collaborative session with `terminal_yield`. If a designated human frontend is already attached, it reuses that exact client and makes it writable. If none is attached, the personal provider attempts to launch Kitty on the exact tmux session, waits for the collaborative frontend, then yields to it. Frontend failure leaves the tmux session model-owned and reports the exact manual `bin/wsl-term attach <session>` fallback. It never lets the model seize control from a human.
 
 ### Observation, takeover, and recovery
 
-Watch an existing exact PTY without taking model control:
+Watch an existing exact PTY without becoming the collaborative handoff target:
 
 ```bash
 bin/wsl-term watch <session>
 ```
 
-A watcher starts as a tmux read-only, ignore-size client. It receives the live terminal display, cannot inject pane input, does not resize the PTY, and does not block model send/resize/ordinary close unless the human explicitly presses `Ctrl-b T` to take control.
+A watcher starts as an anonymous tmux read-only, ignore-size client. It receives the live terminal display, cannot inject pane input, does not resize the PTY, and does not block model send/resize/ordinary close unless the human explicitly presses `Ctrl-b T` to take control.
+
+Attach a persistent designated collaborative viewport while the model keeps control:
+
+```bash
+bin/wsl-term present <session>
+```
+
+`present` attaches read-only to the exact PTY, registers that client as the handoff target, and freezes the tmux window in manual-size mode before attachment so a smaller passive viewport does not resize the model-owned PTY. Model `terminal_resize` remains authoritative while the client is read-only. If the client later becomes writable through `terminal_yield` or `wsl-term take`, normal terminal resize events can resize the PTY; `wsl-term give` or `Ctrl-b T` returns the same visible client to read-only model-owned mode.
 
 Take writable control of an existing exact PTY or rejoin after the original human client disappeared:
 
@@ -213,7 +223,7 @@ bin/wsl-term attach <session>
 
 Writable attach uses the same lease/client reconciliation as collaborative `new`; while attached, model mutation is blocked and model reads remain available. Human input, including sudo/password entry, flows directly from the terminal client to tmux/PTY and is not copied into a separate broker input log.
 
-If no interactive TTY exists, `wsl-term new`, `watch`, and writable attach cannot provide a human frontend. Existing model-owned sessions created with `terminal_open` continue to work headlessly and can be joined later.
+Manual `wsl-term new`, `watch`, `present`, and writable `attach` require an interactive TTY. Model-owned sessions created with `terminal_open` continue to work headlessly; on the personal WSL profile, frontend-aware presentation/yield may launch Kitty when WSLg and an executable Kitty are available, otherwise the exact manual attach fallback remains available.
 
 ## Typical coding loop
 

@@ -42,7 +42,27 @@ Then start them if needed:
 systemctl --user start wsl-agent-tmux.service wsl-agent-terminal-broker.service
 ```
 
-Do not restart tmux merely to deploy broker/provider code. tmux owns the PTY lifetime.
+Do not restart tmux merely to deploy broker/provider or frontend-launch code. tmux owns the PTY lifetime.
+
+## Personal Terminal frontend
+
+The personal provider keeps Terminal sessions headless by default. When presentation is requested or a human handoff needs a visible client, it can launch Kitty attached to the exact tmux PTY through `bin/wsl-term present <session>`.
+
+Kitty discovery order is:
+
+1. `MCP_TERMINAL_KITTY_BIN` when it names an executable;
+2. `$HOME/.local/kitty.app/bin/kitty`;
+3. `kitty` found on `PATH`.
+
+The launcher inherits the explicit Terminal broker socket. If GUI variables are missing under WSL, it derives only the Kitty child environment from WSLg sockets: `/mnt/wslg/runtime-dir/wayland-0`, the WSLg X11 socket, and `/mnt/wslg/PulseServer`. It does not change the broker or tmux service environment.
+
+If automatic presentation fails, the tmux session remains alive. Use an interactive WSL terminal and attach directly:
+
+```bash
+bin/wsl-term attach <session>
+```
+
+Use `bin/wsl-term present <session>` when you want a designated read-only collaborative viewport while the model keeps control; use `watch` for anonymous observation and `attach` for immediate writable human control.
 
 ## User-systemd environment
 
