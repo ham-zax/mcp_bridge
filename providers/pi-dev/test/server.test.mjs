@@ -776,6 +776,35 @@ test('edit v2 rejects historical root path and edits arguments', async () => {
   });
 });
 
+
+
+test('edit v2 keeps all-target preflight failure zero-mutation at the MCP boundary', async () => {
+  const { workspaceRoot, env } = await fixture();
+  await fs.writeFile(path.join(workspaceRoot, 'a.txt'), 'alpha\n');
+  await fs.writeFile(path.join(workspaceRoot, 'b.txt'), 'beta\n');
+  await withClient(env, async client => {
+    const first = await client.callTool({
+      name: 'edit',
+      arguments: { targets: [{ path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }] }
+    });
+    assert.equal(first.isError, undefined);
+
+    const result = await client.callTool({
+      name: 'edit',
+      arguments: {
+        targets: [
+          { path: 'a.txt', edits: [{ oldText: 'ALPHA', newText: 'A' }] },
+          { path: 'b.txt', edits: [{ oldText: 'missing', newText: 'B' }] }
+        ]
+      }
+    });
+    assert.equal(result.isError, true);
+    // This is a preflight failure, so it must remain an ordinary zero-mutation error.
+    assert.doesNotMatch(textOf(result), /EDIT_PARTIAL/);
+    assert.equal(await fs.readFile(path.join(workspaceRoot, 'a.txt'), 'utf8'), 'ALPHA\n');
+  });
+});
+
 test('write returns a short acknowledgement', async () => {
   const { workspaceRoot, env } = await fixture();
   await withClient(env, async client => {

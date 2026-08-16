@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderBashText, renderEditText, renderPatchText, renderWriteText } from '../render.mjs';
+import { renderBashText, renderEditPartial, renderEditText, renderPatchText, renderWriteText } from '../render.mjs';
 
 function record(overrides = {}) {
   return {
@@ -55,6 +55,24 @@ test('edit renderer returns one path plus diff without Pi success prose', () => 
   const text = renderEditText('repo/src/foo.ts', '  old\n- value\n+ VALUE');
   assert.equal(text, 'repo/src/foo.ts\n  old\n- value\n+ VALUE');
   assert.doesNotMatch(text, /Successfully replaced|Done!/);
+});
+
+
+
+test('edit partial renderer distinguishes applied failed uncertain and unattempted targets', () => {
+  const text = renderEditPartial({
+    applied: ['a.txt'],
+    failed: [{ path: 'b.txt', message: 'file changed since preflight; reread and reconcile' }],
+    uncertain: [{ path: 'c.txt', message: 'write state unknown; reread target before retrying' }],
+    unattempted: ['d.txt'],
+  });
+  assert.equal(text, [
+    'EDIT_PARTIAL',
+    'applied: a.txt',
+    'failed: b.txt: file changed since preflight; reread and reconcile',
+    'uncertain: c.txt: write state unknown; reread target before retrying',
+    'unattempted: d.txt',
+  ].join('\n'));
 });
 
 test('write renderer is a short creation acknowledgement', () => {

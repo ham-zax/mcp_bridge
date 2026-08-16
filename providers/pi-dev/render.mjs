@@ -26,6 +26,17 @@ export function renderEditText(relativePath, diff) {
   return diff ? `${relativePath}\n${diff}` : `Updated ${relativePath}`;
 }
 
+
+export function renderEditPartial({ applied = [], failed = [], uncertain = [], unattempted = [], reason } = {}) {
+  const lines = ['EDIT_PARTIAL'];
+  if (applied.length) lines.push(`applied: ${applied.join(', ')}`);
+  if (reason) lines.push(`reason: ${reason}`);
+  for (const item of failed) lines.push(`failed: ${item.path}: ${item.message}`);
+  for (const item of uncertain) lines.push(`uncertain: ${item.path}: ${item.message}`);
+  if (unattempted.length) lines.push(`unattempted: ${unattempted.join(', ')}`);
+  return lines.join('\n');
+}
+
 export function renderWriteText(relativePath) {
   return `Created ${relativePath}`;
 }

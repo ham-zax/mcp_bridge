@@ -119,8 +119,97 @@ export async function runRead({ pathMode = 'workspace', defaultCwd, workspaceRoo
   }
 }
 
-export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoot, targets }, signal) {
+
+function throwIfAborted(signal) {
+  if (!signal?.aborted) return;
+  if (typeof signal.throwIfAborted === 'function') signal.throwIfAborted();
+  const error = new Error('Operation aborted');
+  error.name = 'AbortError';
+  throw error;
+}
+
+async function readHandleBytes(handle) {
+  const chunks = [];
+  let position = 0;
+  while (true) {
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+    if (bytesRead === 0) break;
+    chunks.push(buffer.subarray(0, bytesRead));
+    position += bytesRead;
+    if (bytesRead < buffer.length) break;
+  }
+  return Buffer.concat(chunks);
+}
+
+async function writeHandleBytes(handle, buffer) {
+  let offset = 0;
+  while (offset < buffer.length) {
+    const { bytesWritten } = await handle.write(buffer, offset, buffer.length - offset, offset);
+    if (!Number.isInteger(bytesWritten) || bytesWritten <= 0) {
+      throw new Error('edit write made no progress');
+    }
+    offset += bytesWritten;
+  }
+}
+
+function editPartialError(details) {
+  const error = new Error('EDIT_PARTIAL');
+  error.code = 'EDIT_PARTIAL';
+  error.editPartial = details;
+  return error;
+}
+
+async function mutatePlannedTarget(plan, signal, operations) {
+  await operations.beforeGuard?.(plan);
+  throwIfAborted(signal);
+  let handle;
+  let mutationStarted = false;
+  try {
+    handle = await operations.openFile(
+      plan.canonicalPath,
+      constants.O_RDWR | (constants.O_NOFOLLOW ?? 0)
+    );
+    const stat = await handle.stat();
+    if (stat.dev !== plan.identity.dev || stat.ino !== plan.identity.ino) {
+      const error = new Error('file identity changed since preflight; reread and reconcile');
+      error.mutationStarted = false;
+      throw error;
+    }
+    const current = await readHandleBytes(handle);
+    if (!current.equals(plan.snapshot)) {
+      const error = new Error('file changed since preflight; reread and reconcile');
+      error.mutationStarted = false;
+      throw error;
+    }
+    throwIfAborted(signal);
+    const proposed = Buffer.from(plan.proposed, 'utf8');
+    if (proposed.length === 0) {
+      mutationStarted = true;
+      await handle.truncate(0);
+    } else {
+      mutationStarted = true;
+      await writeHandleBytes(handle, proposed);
+      await handle.truncate(proposed.length);
+    }
+    return { state: 'APPLIED' };
+  } catch (error) {
+    if (error && typeof error === 'object' && !('mutationStarted' in error)) {
+      error.mutationStarted = mutationStarted;
+    }
+    throw error;
+  } finally {
+    if (handle) await handle.close();
+  }
+}
+
+export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoot, targets }, signal, operationOverrides = {}) {
   const policy = await resolveFilePolicy({ pathMode, workspaceRoot, defaultCwd });
+  const operations = {
+    openFile: (target, flags) => fs.open(target, flags),
+    beforeGuard: null,
+    ...operationOverrides
+  };
   const requestedTargets = Array.isArray(targets) ? targets : [];
   if (requestedTargets.length === 0) throw new Error('edit targets must contain at least one file');
 
@@ -169,12 +258,42 @@ export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoo
       plans.push({ ...target, identity: { dev: stat.dev, ino: stat.ino }, snapshot, proposed, diff: result.details?.diff ?? '' });
     }
 
-    for (const plan of plans) {
-      const current = await fs.readFile(plan.canonicalPath);
-      if (!current.equals(plan.snapshot)) {
-        throw new Error(`${plan.requestedPath} changed during edit; reread and reconcile`);
+    const applied = [];
+    for (let index = 0; index < plans.length; index += 1) {
+      const plan = plans[index];
+      if (applied.length > 0 && signal?.aborted) {
+        throw editPartialError({
+          applied,
+          failed: [],
+          uncertain: [],
+          unattempted: plans.slice(index).map(item => item.requestedPath),
+          reason: 'cancelled'
+        });
       }
-      await fs.writeFile(plan.canonicalPath, plan.proposed, 'utf8');
+      try {
+        await mutatePlannedTarget(plan, signal, operations);
+        applied.push(plan.requestedPath);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const unattempted = plans.slice(index + 1).map(item => item.requestedPath);
+        if (applied.length === 0 && !error?.mutationStarted) {
+          throw modelFacingPathError(error, plan.canonicalPath, plan.requestedPath);
+        }
+        if (error?.mutationStarted) {
+          throw editPartialError({
+            applied,
+            failed: [],
+            uncertain: [{ path: plan.requestedPath, message: `${message}; write state unknown; reread target before retrying` }],
+            unattempted
+          });
+        }
+        throw editPartialError({
+          applied,
+          failed: [{ path: plan.requestedPath, message }],
+          uncertain: [],
+          unattempted
+        });
+      }
     }
 
     const results = plans.map(plan => ({ path: plan.requestedPath, diff: plan.diff }));

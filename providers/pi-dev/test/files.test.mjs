@@ -198,6 +198,194 @@ test('edit operation detects a changed snapshot before write', async () => {
   assert.equal(await fs.readFile(file, 'utf8'), 'other\n');
 });
 
+
+
+test('edit v2 rejects pathname replacement before same-descriptor mutation', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-inode-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'alpha\n');
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [{ path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }]
+    }, undefined, {
+      beforeGuard: async () => {
+        await fs.rename(file, path.join(workspaceRoot, 'old.txt'));
+        await fs.writeFile(file, 'replacement\n');
+      }
+    }),
+    /changed|identity|inode/i
+  );
+  assert.equal(await fs.readFile(file, 'utf8'), 'replacement\n');
+  assert.equal(await fs.readFile(path.join(workspaceRoot, 'old.txt'), 'utf8'), 'alpha\n');
+});
+
+test('edit v2 rejects changed bytes before same-descriptor mutation', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-stale-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'alpha\n');
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [{ path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }]
+    }, undefined, {
+      beforeGuard: async () => fs.writeFile(file, 'external\n')
+    }),
+    /changed|snapshot/i
+  );
+  assert.equal(await fs.readFile(file, 'utf8'), 'external\n');
+});
+
+
+
+test('edit v2 reports uncertain state when the first mutating write fails', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-write-fail-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'alpha\n');
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [{ path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }]
+    }, undefined, {
+      openFile: async (target, flags) => {
+        const real = await fs.open(target, flags);
+        return {
+          stat: (...args) => real.stat(...args),
+          read: (...args) => real.read(...args),
+          write: async () => { throw new Error('injected write failure'); },
+          truncate: (...args) => real.truncate(...args),
+          close: () => real.close()
+        };
+      }
+    }),
+    (error) => error?.code === 'EDIT_PARTIAL' && error?.editPartial?.uncertain?.[0]?.path === 'a.txt'
+  );
+});
+
+test('edit v2 reports uncertain state when truncate fails after writing', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-truncate-fail-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'alphabet\n');
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [{ path: 'a.txt', edits: [{ oldText: 'alphabet', newText: 'A' }] }]
+    }, undefined, {
+      openFile: async (target, flags) => {
+        const real = await fs.open(target, flags);
+        return {
+          stat: (...args) => real.stat(...args),
+          read: (...args) => real.read(...args),
+          write: (...args) => real.write(...args),
+          truncate: async () => { throw new Error('injected truncate failure'); },
+          close: () => real.close()
+        };
+      }
+    }),
+    (error) => error?.code === 'EDIT_PARTIAL' && error?.editPartial?.uncertain?.[0]?.path === 'a.txt'
+  );
+});
+
+test('edit v2 rejects a zero-progress positional write as uncertain', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-zero-write-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'alpha\n');
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [{ path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }]
+    }, undefined, {
+      openFile: async (target, flags) => {
+        const real = await fs.open(target, flags);
+        return {
+          stat: (...args) => real.stat(...args),
+          read: (...args) => real.read(...args),
+          write: async () => ({ bytesWritten: 0 }),
+          truncate: (...args) => real.truncate(...args),
+          close: () => real.close()
+        };
+      }
+    }),
+    (error) => error?.code === 'EDIT_PARTIAL' && error?.editPartial?.uncertain?.[0]?.path === 'a.txt'
+  );
+});
+
+test('edit v2 reports applied failed and unattempted targets after a later stale guard', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-partial-');
+  for (const [name, text] of [['a.txt', 'alpha\n'], ['b.txt', 'beta\n'], ['c.txt', 'gamma\n']]) {
+    await fs.writeFile(path.join(workspaceRoot, name), text);
+  }
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [
+        { path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] },
+        { path: 'b.txt', edits: [{ oldText: 'beta', newText: 'BETA' }] },
+        { path: 'c.txt', edits: [{ oldText: 'gamma', newText: 'GAMMA' }] }
+      ]
+    }, undefined, {
+      beforeGuard: async (plan) => {
+        if (plan.requestedPath === 'b.txt') await fs.writeFile(plan.canonicalPath, 'external\n');
+      }
+    }),
+    (error) => {
+      assert.equal(error.code, 'EDIT_PARTIAL');
+      assert.deepEqual(error.editPartial.applied, ['a.txt']);
+      assert.equal(error.editPartial.failed[0].path, 'b.txt');
+      assert.deepEqual(error.editPartial.unattempted, ['c.txt']);
+      return true;
+    }
+  );
+  assert.equal(await fs.readFile(path.join(workspaceRoot, 'a.txt'), 'utf8'), 'ALPHA\n');
+  assert.equal(await fs.readFile(path.join(workspaceRoot, 'b.txt'), 'utf8'), 'external\n');
+  assert.equal(await fs.readFile(path.join(workspaceRoot, 'c.txt'), 'utf8'), 'gamma\n');
+});
+
+
+
+
+
+test('edit v2 writes longer output completely through the guarded descriptor', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-longer-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'a\n');
+  await runEdit({
+    workspaceRoot,
+    targets: [{ path: 'a.txt', edits: [{ oldText: 'a', newText: 'alpha-beta-gamma' }] }]
+  });
+  assert.equal(await fs.readFile(file, 'utf8'), 'alpha-beta-gamma\n');
+});
+
+test('edit v2 handles whole-file removal without stale tail bytes', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-empty-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'alpha\n');
+  await runEdit({
+    workspaceRoot,
+    targets: [{ path: 'a.txt', edits: [{ oldText: 'alpha\n', newText: '' }] }]
+  });
+  assert.deepEqual(await fs.readFile(file), Buffer.alloc(0));
+});
+
+test('edit v2 target disappearance before first mutation is a zero-mutation error', async () => {
+  const workspaceRoot = await tempDir('pi-edit-v2-disappear-');
+  const file = path.join(workspaceRoot, 'a.txt');
+  await fs.writeFile(file, 'alpha\n');
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [{ path: 'a.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }]
+    }, undefined, {
+      beforeGuard: async () => fs.unlink(file)
+    }),
+    (error) => {
+      assert.doesNotMatch(error.message, /EDIT_PARTIAL/);
+      return true;
+    }
+  );
+  await assert.rejects(() => fs.stat(file), (error) => error?.code === 'ENOENT');
+});
+
 test('write creates a new file and refuses an existing path', async () => {
   const workspaceRoot = await tempDir('pi-write-');
   await runWrite({ workspaceRoot, path: 'new.txt', content: 'first\n' });

@@ -6,7 +6,7 @@ import { canonicalDefaultCwd, canonicalWorkspaceRoot } from './boundary.mjs';
 import { runRead, runEdit, runWrite } from './files.mjs';
 import { runPatch } from './patch.mjs';
 import { runBash } from './shell.mjs';
-import { renderBashText, renderEditText, renderPatchText, renderWriteText } from './render.mjs';
+import { renderBashText, renderEditPartial, renderEditText, renderPatchText, renderWriteText } from './render.mjs';
 import { WaitEngine } from './wait-engine.mjs';
 import { LocalWaitSources } from './wait-local.mjs';
 import { waitInputSchema } from './wait-schema.mjs';
@@ -85,9 +85,12 @@ async function invoke(fn) {
   try {
     return await fn();
   } catch (error) {
+    const text = error?.code === 'EDIT_PARTIAL' && error?.editPartial
+      ? renderEditPartial(error.editPartial)
+      : (error instanceof Error ? error.message : String(error));
     return {
       isError: true,
-      content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }]
+      content: [{ type: 'text', text }]
     };
   }
 }
