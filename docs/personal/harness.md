@@ -68,11 +68,24 @@ Use for focused text/source reads. Relative paths resolve from the personal defa
 
 ### `edit`
 
-Use when one file needs exact guarded replacement. It rejects missing or ambiguous matches and returns a native diff.
+Use when the exact old text is already known, across one or more existing files. `edit` rejects missing, ambiguous, overlapping, stale, non-text, or duplicate-alias targets; all targets are planned before the first mutation, and partial post-mutation failures are reported explicitly. File count alone is not a reason to switch to `apply_patch`.
+
+
+The canonical request is always grouped, including one-file edits:
+
+```text
+edit({
+  targets: [
+    { path: "src/a.ts", edits: [{ oldText: "old", newText: "new" }] }
+  ]
+})
+```
+
+For multiple exact-known files, add more target records to the same request rather than switching tools only because the file count increased.
 
 ### `apply_patch`
 
-Use for multi-file changes, structural updates, add/delete/move operations, or multiple coordinated hunks. It preflights all targets before mutation but does not claim a kernel-level filesystem transaction; a later runtime conflict can report explicit partial application.
+Use for contextual or structural changes: insertions, refactors, add/delete/move operations, ambiguous anchors, or coordinated hunks where exact old substrings are not already known. It supports one or many files, preflights all targets before mutation, and can report explicit partial application; it is not selected merely because multiple files are involved.
 
 ### `write`
 

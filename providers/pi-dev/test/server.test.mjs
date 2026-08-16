@@ -60,6 +60,16 @@ function withClient(env, fn) {
   return withClientAt(server, env, fn);
 }
 
+function assertEditV2Schema(tool) {
+  assert.deepEqual(Object.keys(tool.inputSchema.properties), ['targets']);
+  assert.deepEqual(tool.inputSchema.required, ['targets']);
+  assert.equal(tool.inputSchema.properties.path, undefined);
+  assert.equal(tool.inputSchema.properties.edits, undefined);
+  const targetSchema = tool.inputSchema.properties.targets.items;
+  assert.deepEqual(targetSchema.required, ['path', 'edits']);
+  assert.deepEqual(targetSchema.properties.edits.items.required, ['oldText', 'newText']);
+}
+
 function textOf(result) {
   assert.equal(result.structuredContent, undefined);
   assert.ok(result.content.every(block => block.type === 'text'));
@@ -159,6 +169,9 @@ test('trusted-dev exposes four tools and minimal schemas', async () => {
     assert.deepEqual(Object.keys(bash.inputSchema.properties).sort(), ['command', 'cwd', 'timeout_seconds']);
     const read = listed.tools.find(x => x.name === 'read');
     assert.deepEqual(Object.keys(read.inputSchema.properties).sort(), ['limit', 'offset', 'path']);
+    const edit = listed.tools.find(x => x.name === 'edit');
+    assertEditV2Schema(edit);
+    assert.match(edit.inputSchema.properties.targets.items.properties.path.description, /workspace root/i);
     for (const tool of listed.tools) {
       assert.equal(JSON.stringify(tool.inputSchema).includes('max_output_bytes'), false);
       assert.equal(JSON.stringify(tool.inputSchema).includes('workspaceRoot'), false);
@@ -171,6 +184,9 @@ test('restricted omits unrestricted Pi bash', async () => {
   await withClient(env, async client => {
     const listed = await client.listTools();
     assert.deepEqual(listed.tools.map(x => x.name).sort(), ['edit', 'read', 'write']);
+    const edit = listed.tools.find(x => x.name === 'edit');
+    assertEditV2Schema(edit);
+    assert.match(edit.inputSchema.properties.targets.items.properties.path.description, /workspace root/i);
   });
 });
 
@@ -192,13 +208,7 @@ test('personal user mode exposes apply_patch alongside edit with user-path descr
     assert.match(bash.description, /large.*unfamiliar.*rg|rg.*large.*unfamiliar/i);
     assert.match(bash.inputSchema.properties.cwd.description, /relative.*default.*absolute/i);
     const edit = listed.tools.find(x => x.name === 'edit');
-    assert.deepEqual(Object.keys(edit.inputSchema.properties), ['targets']);
-    assert.deepEqual(edit.inputSchema.required, ['targets']);
-    assert.equal(edit.inputSchema.properties.path, undefined);
-    assert.equal(edit.inputSchema.properties.edits, undefined);
-    const targetSchema = edit.inputSchema.properties.targets.items;
-    assert.deepEqual(targetSchema.required, ['path', 'edits']);
-    assert.deepEqual(targetSchema.properties.edits.items.required, ['oldText', 'newText']);
+    assertEditV2Schema(edit);
     assert.match(edit.description, /exact.*one or more existing text files|one or more existing text files.*exact/i);
     assert.match(edit.description, /unique/i);
     assert.match(edit.description, /apply_patch/i);

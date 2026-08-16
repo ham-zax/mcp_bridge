@@ -28,7 +28,7 @@ Personal surface:
 read edit write wait apply_patch bash
 ```
 
-`edit` is for guarded exact single-file replacement. `apply_patch` is for multi-file and structural mutation. Native Bash remains the execution path.
+`edit` is for guarded exact known replacement across one or more existing text files. `apply_patch` is for contextual or structural mutation such as insertions, refactors, add/delete/move, or ambiguous anchors; file count alone is not the routing boundary. Native Bash remains the execution path.
 
 `wait` owns durable named wait state and generic local readiness checks. Terminal-specific waits use private broker transcript/session observations, but `wait` is not a Terminal MCP action.
 

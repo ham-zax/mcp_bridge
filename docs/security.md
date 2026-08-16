@@ -38,6 +38,11 @@ The personal Code tools are description-guided, not resource-enforced. A first C
 
 There is no repository-size preflight, threshold, cgroup, or approval database in this design. Because personal Bash intentionally has the WSL user's authority, description text cannot form a privilege boundary against deliberate raw CLI use; it is routing guidance intended to prevent accidental expensive work.
 
+
+## Edit mutation guarantees
+
+Edit V2 coordinates all requested canonical paths through the existing in-process mutation coordinator, plans every target before the first edit mutation, and revalidates file identity plus exact snapshot bytes through the same open file descriptor used for write/truncate. This reduces stale-path and cooperating-writer races but is not a cross-file transaction, rollback system, fsync durability guarantee, or compare-and-swap against arbitrary Bash/Python/editor processes. A post-mutation failure may therefore be reported as an explicit partial or uncertain state that requires rereading before retrying.
+
 ## Sudo
 
 Sudo is never an automated credential feature.
