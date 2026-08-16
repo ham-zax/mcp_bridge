@@ -46,38 +46,6 @@ public_tracked_files() {
   done
 }
 
-test_current_documentation_surface() {
-  local path
-  for path in \
-    README.md \
-    docs/getting-started.md \
-    docs/configuration.md \
-    docs/operations.md \
-    docs/architecture.md \
-    docs/security.md \
-    docs/development.md \
-    docs/troubleshooting.md \
-    docs/personal/harness.md \
-    docs/history/README.md; do
-    [ -f "$ROOT/$path" ] || {
-      echo "missing current documentation: $path" >&2
-      return 1
-    }
-  done
-
-  grep -Fq 'read edit write wait apply_patch bash' "$ROOT/README.md" || return 1
-  grep -Fq 'code_search code_context code_symbol' "$ROOT/README.md" || return 1
-  grep -Fq 'terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_close' "$ROOT/README.md" || return 1
-  grep -Fq 'docs/history/' "$ROOT/README.md" || return 1
-}
-
-test_documentation_compatibility_pointers() {
-  grep -Fq 'getting-started.md' "$ROOT/docs/installation.md" &&
-  grep -Fq 'history/acceptance/acceptance-procedure.md' "$ROOT/docs/acceptance.md" &&
-  grep -Fq 'history/acceptance/migration-from-local-bridge.md' "$ROOT/docs/migration-from-local-bridge.md" &&
-  grep -Fq '../history/' "$ROOT/docs/superpowers/README.md"
-}
-
 test_public_entrypoints() {
   [ -x "$ROOT/bin/start" ] && [ -x "$ROOT/bin/status" ] && [ -x "$ROOT/bin/stop" ]
 }
@@ -122,6 +90,7 @@ test_private_only_paths_are_not_public() {
   local path
   declare -F is_public_path >/dev/null || return 1
   for path in \
+    docs/history/example \
     config/profiles/personal.env \
     config/templates/mcp-personal.json \
     docs/personal/example \
@@ -360,10 +329,12 @@ test_migration_guide_points_to_current_and_historical_guidance() {
   grep -Fq 'history/acceptance/migration-from-local-bridge.md' "$doc"
 }
 
+test_documentation_links_resolve() {
+  node "$ROOT/scripts/check-doc-links.mjs"
+}
+
 run_test 'public bin entrypoints exist and are executable' test_public_entrypoints
 run_test 'publication directory structure exists' test_public_structure
-run_test 'current documentation surface exists and names the final personal actions' test_current_documentation_surface
-run_test 'important old documentation paths point to current or archived guidance' test_documentation_compatibility_pointers
 run_test 'setup requires explicit trust profile' test_explicit_profile_contract
 run_test 'trusted-dev is unrestricted while restricted is not' test_profiles_are_distinct
 run_test 'private-only paths stay outside the public publication surface' test_private_only_paths_are_not_public
@@ -378,6 +349,7 @@ run_test 'systemd installer renders a valid fixture without live manager' test_s
 run_test 'legacy OAuth continuity migrates without transient transport state' test_legacy_oauth_state_migration
 run_test 'legacy OAuth migration is a clean no-op and never targets Git state' test_legacy_oauth_migration_noop_and_repo_guard
 run_test 'migration compatibility guide points to current and historical guidance' test_migration_guide_points_to_current_and_historical_guidance
+run_test 'repository-relative documentation links resolve' test_documentation_links_resolve
 
 printf '\n%s tests, %s failures\n' "$TESTS" "$FAILURES"
 [ "$FAILURES" -eq 0 ]

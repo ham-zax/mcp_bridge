@@ -14,7 +14,7 @@ If a change affects trust profiles, generated configuration, lifecycle, OAuth co
 
 ## Verification
 
-Run the focused tests for what you changed, then the full gate before merging:
+For code/runtime changes, run the focused tests for what you changed, then the full gate before merging:
 
 ```bash
 bash tests/harness.sh
@@ -28,6 +28,8 @@ git diff --check
 ```
 
 See [Development](docs/development.md) for syntax checks and long-running test guidance.
+
+For documentation-only changes, keep the edit loop light: run `node scripts/check-doc-links.mjs`, scan for stale paths/claims, and use `git diff --check`. Run the full repository gate once before merge rather than after each prose edit.
 
 ## Documentation rules
 

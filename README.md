@@ -102,16 +102,11 @@ For Terminal lifetime and broker operations, recovery, logs, safe restarts, and 
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md)
-- [Configuration](docs/configuration.md)
-- [Operations](docs/operations.md)
-- [Architecture](docs/architecture.md)
-- [Security and trust profiles](docs/security.md)
-- [Development and verification](docs/development.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Personal WSL harness](docs/personal/harness.md)
-- [Personal CLI toolbox](docs/personal/toolbox.md)
-- [Engineering history](docs/history/README.md) — benchmarks, plans, specs, and acceptance evidence
+- [Documentation index](docs/README.md) — choose the right guide quickly
+- [Getting started](docs/getting-started.md) — install and connect
+- [Operations](docs/operations.md) — run, inspect, restart, and recover
+- [Personal WSL harness](docs/personal/harness.md) — use the private 15-action coding surface
+- [Engineering history](docs/history/README.md) — preserved benchmarks, plans, specs, and acceptance evidence
 
 ## Current status
 

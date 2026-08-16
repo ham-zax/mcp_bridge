@@ -37,6 +37,7 @@ bash tests/lifecycle.sh
 (cd providers/terminal && npm test)
 (cd providers/code-router && npm test)
 bash scripts/check-personal-toolbox.sh
+node scripts/check-doc-links.mjs
 bash -n bin/* lib/bridge/*.sh scripts/*.sh tests/*.sh
 node --check scripts/*.mjs providers/pi-dev/*.mjs providers/terminal/*.mjs providers/code-router/*.mjs
 git diff --check
@@ -58,6 +59,8 @@ If a single MCP Bash request risks exceeding the connector request window, run t
 Current docs describe current behavior. Put design chronology, benchmarks, plans, agent coordination, and superseded acceptance procedures under `docs/history/`.
 
 When moving an important old doc path, leave a small compatibility pointer rather than duplicated stale guidance.
+
+For documentation-only work, keep the edit loop lightweight: check local Markdown links, stale paths/wording, and `git diff --check` while writing. Run the full repository gate once before merge; do not create RED/GREEN tests for prose wording or rerun provider suites after every documentation edit.
 
 ## Release checklist
 
