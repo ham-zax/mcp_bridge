@@ -279,19 +279,19 @@ export async function runBash({
   const spoolTruncated = outputBytes > maxSpoolBytes;
   if (truncated) {
     renameSync(activeSpool, spool);
-    try {
-      await pruneBashSpools({
-        stateDir,
-        maxSpoolBytes,
-        ttlSeconds: spoolTtlSeconds,
-        maxTotalBytes: maxSpoolTotalBytes,
-        protectedPaths: [spool],
-      });
-    } catch (error) {
-      console.error(`Pi Dev Bash spool GC warning: ${error instanceof Error ? error.message : String(error)}`);
-    }
   } else {
     try { unlinkSync(activeSpool); } catch {}
+  }
+  try {
+    await pruneBashSpools({
+      stateDir,
+      maxSpoolBytes,
+      ttlSeconds: spoolTtlSeconds,
+      maxTotalBytes: maxSpoolTotalBytes,
+      protectedPaths: truncated ? [spool] : [],
+    });
+  } catch (error) {
+    console.error(`Pi Dev Bash spool GC warning: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   return {

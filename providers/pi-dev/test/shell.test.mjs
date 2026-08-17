@@ -237,6 +237,28 @@ test('active Bash spools stay outside GC until the command finalizes', async () 
   assert.equal((await fs.stat(result.full_output_path)).size, 2048);
 });
 
+test('ordinary Bash commands opportunistically prune expired finalized spools', async () => {
+  const workspaceRoot = await tempDir('pi-bash-gc-ordinary-root-');
+  const stateDir = await tempDir('pi-bash-gc-ordinary-state-');
+  const expired = path.join(stateDir, 'bash-expired.log');
+  await fs.writeFile(expired, Buffer.alloc(2048));
+  const old = new Date(Date.now() - 7200_000);
+  await fs.utimes(expired, old, old);
+
+  const result = await runBash({
+    workspaceRoot,
+    command: `printf 'small\n'`,
+    maxOutputBytes: 1024,
+    maxSpoolBytes: 2048,
+    spoolTtlSeconds: 3600,
+    maxSpoolTotalBytes: 4096,
+    stateDir,
+  });
+
+  assert.equal(result.truncated, false);
+  await assert.rejects(() => fs.stat(expired), { code: 'ENOENT' });
+});
+
 test('runBash enforces the aggregate finalized spool budget after each command', async () => {
   const workspaceRoot = await tempDir('pi-bash-budget-root-');
   const stateDir = await tempDir('pi-bash-budget-state-');
