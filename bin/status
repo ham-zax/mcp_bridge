@@ -16,10 +16,15 @@ else
   DESIRED="stopped"
 fi
 PUBLIC_URL="$(cat "$BRIDGE_TUNNEL_URL_FILE" 2>/dev/null || printf '%s' "${TUNNEL_URL:-}")"
+RENDERED_SOURCE_ROOT="${MCP_BRIDGE_ROOT:-$BRIDGE_ROOT}"
 
 echo "== MCP Development Bridge =="
 echo "desired state: $DESIRED"
 echo "public URL:    ${PUBLIC_URL:-unconfigured}"
+echo "rendered source root: $RENDERED_SOURCE_ROOT"
+if [ "$RENDERED_SOURCE_ROOT" != "$BRIDGE_ROOT" ]; then
+  echo "diagnostic checkout:   $BRIDGE_ROOT"
+fi
 
 echo
 echo "== 1MCP OAuth origin =="
@@ -67,7 +72,7 @@ fi
 CLOUDFLARED_UP=false
 WATCHDOG_UP=false
 bridge_pidfile_alive "$BRIDGE_CLOUDFLARED_PID_FILE" 'cloudflared tunnel run' && CLOUDFLARED_UP=true
-bridge_pidfile_alive "$BRIDGE_WATCHDOG_PID_FILE" "$BRIDGE_ROOT/lib/bridge/watchdog.sh" && WATCHDOG_UP=true
+bridge_pidfile_alive "$BRIDGE_WATCHDOG_PID_FILE" "$RENDERED_SOURCE_ROOT/lib/bridge/watchdog.sh" && WATCHDOG_UP=true
 
 echo
 echo "== Cloudflare transport + supervision =="

@@ -219,6 +219,50 @@ SH
 }
 
 run_test 'status reports bounded log and Bash spool storage' test_status_reports_bounded_diagnostic_storage
+test_status_matches_watchdog_against_rendered_live_source_root() {
+  local sandbox="$TMP/status-source-root"
+  local state="$sandbox/state"
+  local run="$sandbox/run"
+  local fakebin="$sandbox/fakebin"
+  local fakeproc="$sandbox/proc"
+  local live_root="$sandbox/live-root"
+  mkdir -p "$state/1mcp" "$state/logs" "$state/dev" "$run" "$fakebin" "$fakeproc/101" "$live_root/lib/bridge"
+  cat > "$state/bridge.env" <<EOF
+MCP_BRIDGE_PROFILE='trusted-dev'
+MCP_WORKSPACE_ROOT='$sandbox/workspace'
+MCP_PUBLIC_URL='https://example.test'
+MCP_TUNNEL_NAME=''
+MCP_BRIDGE_ROOT='$live_root'
+BRIDGE_STATE_DIR='$state'
+EOF
+  printf '{}\n' > "$state/1mcp/mcp.json"
+  cat > "$state/1mcp/config.toml" <<EOF
+[logging]
+file = "$state/logs/one-mcp.log"
+maxSize = 1048576
+maxFiles = 2
+EOF
+  : > "$run/cloudflare-oauth.enabled"
+  printf '101\n' > "$run/watchdog.pid"
+  printf '%s\0' bash "$live_root/lib/bridge/watchdog.sh" > "$fakeproc/101/cmdline"
+  cat > "$fakebin/curl" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  cat > "$fakebin/ss" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$fakebin/curl" "$fakebin/ss"
+
+  local output
+  output="$(BRIDGE_STATE_DIR="$state" BRIDGE_RUN_DIR="$run" BRIDGE_CONFIG_DIR="$state/1mcp" \
+    BRIDGE_PROC_ROOT="$fakeproc" PATH="$fakebin:$PATH" bash "$ROOT/bin/status" 2>&1 || true)"
+  grep -Fq 'watchdog:    running' <<<"$output" &&
+  grep -Fq "rendered source root: $live_root" <<<"$output"
+}
+
+run_test 'status matches watchdog ownership against the rendered live source root' test_status_matches_watchdog_against_rendered_live_source_root
 
 # ---------- Runtime/state selection ----------
 
