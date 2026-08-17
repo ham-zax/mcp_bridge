@@ -87,6 +87,8 @@ NODE2
   if [ "$rc" -eq 0 ]; then
     for profile in restricted trusted-dev personal; do
       log_cfg="$tmp/$profile/1mcp/config.toml"
+      grep -Fq '[auth]' "$log_cfg" || rc=1
+      grep -Fq 'sessionTtl = 43200' "$log_cfg" || rc=1
       grep -Fq '[logging]' "$log_cfg" || rc=1
       grep -Fq "file = \"$tmp/$profile/logs/one-mcp.log\"" "$log_cfg" || rc=1
       grep -Fq 'maxSize = 1048576' "$log_cfg" || rc=1

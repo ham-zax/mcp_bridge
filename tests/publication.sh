@@ -129,6 +129,8 @@ EOF
     state="$tmp/$profile"
     node "$ROOT/scripts/render-config.mjs" --profile "$profile" --env-file "$env_file" --state-dir "$state" --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
     grep -Fq "MCP_BRIDGE_PROFILE='$profile'" "$state/bridge.env" || { rm -rf "$tmp"; return 1; }
+    grep -Fq '[auth]' "$state/1mcp/config.toml" || { rm -rf "$tmp"; return 1; }
+    grep -Fq 'sessionTtl = 43200' "$state/1mcp/config.toml" || { rm -rf "$tmp"; return 1; }
     grep -Fq '[logging]' "$state/1mcp/config.toml" || { rm -rf "$tmp"; return 1; }
     grep -Fq "file = \"$state/logs/one-mcp.log\"" "$state/1mcp/config.toml" || { rm -rf "$tmp"; return 1; }
     grep -Fq 'maxSize = 10485760' "$state/1mcp/config.toml" || { rm -rf "$tmp"; return 1; }
@@ -173,6 +175,7 @@ test_pi_install_and_smoke_contract() {
   grep -Fq 'MCP_DEV_SPOOL_TTL_SECONDS' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'config.toml' "$ROOT/scripts/smoke-local.sh" || return 1
+  grep -Fq 'sessionTtl' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'MCP_DEV_SHELL_MODE' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'unexpected final provider set' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'filesystem provider must be absent after Pi cutover' "$ROOT/scripts/smoke-local.sh" || return 1

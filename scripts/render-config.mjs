@@ -210,6 +210,9 @@ export async function renderConfig(options) {
   await atomicWrite(configPath, `${JSON.stringify(rendered, null, 2)}\n`);
   const appConfigPath = path.join(oneMcpDir, 'config.toml');
   const appConfig = [
+    '[auth]',
+    'sessionTtl = 43200',
+    '',
     '[logging]',
     `file = ${JSON.stringify(oneMcpLogFile)}`,
     'level = "info"',
