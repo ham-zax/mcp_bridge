@@ -167,7 +167,7 @@ server.registerTool('write', {
 
 if (pathMode === 'user') {
   server.registerTool('wait', {
-    description: 'Create, resume, or cancel one durable named wait; prefer this over Bash polling/sleep loops. Supported conditions include Terminal output/exit, process exit, TCP listen, file exists/change, HTTP readiness, and user-systemd state. A condition arms the wait, a later name-only call resumes it, cancel=true cancels it, and hold_seconds bounds one invocation rather than the durable deadline. Terminal-output waits match only output produced after arming and do not consume the Terminal model cursor.',
+    description: 'Create, resume, or cancel one durable named condition/timer wait; prefer this over Bash polling/sleep loops. Arm with name+condition and resume later with name only. A pending result leaves the same wait durable, so other reasoning/tool work may happen before resuming it. timeout_seconds is the durable safety deadline (max 24h); hold_seconds only bounds this invocation (max 15s). Use timer.after_seconds or timezone-qualified timer.at for wakeups and keep the safety deadline later than the timer target. Event conditions cover Terminal output/exit, process exit, TCP listen, file exists/change, HTTP readiness, and user-systemd state. Terminal-output waits match only output produced after arming and do not consume the Terminal model cursor.',
     inputSchema: waitInputSchema,
   }, async (args, extra) => invokeWait(async () => {
     const result = await waitEngine.run(args, extra.signal);

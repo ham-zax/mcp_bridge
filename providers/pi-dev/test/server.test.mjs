@@ -216,9 +216,13 @@ test('personal user mode exposes apply_patch alongside edit with user-path descr
     assert.match(write.description, /create-only|create.*new/i);
     assert.match(write.description, /parent.*exist/i);
     const wait = listed.tools.find(x => x.name === 'wait');
-    assert.match(wait.description, /durable named wait/i);
-    assert.match(wait.description, /polling|sleep/i);
+    assert.match(wait.description, /durable named.*wait/i);
+    assert.match(wait.description, /timer/i);
+    assert.match(wait.description, /pending.*durable|durable.*pending/i);
+    assert.match(wait.description, /other.*work.*resum|resum.*other.*work/i);
+    assert.match(wait.description, /timeout_seconds.*durable.*deadline/i);
     assert.match(wait.description, /hold_seconds.*invocation/i);
+    assert.match(wait.description, /polling|sleep/i);
     const applyPatch = listed.tools.find(x => x.name === 'apply_patch');
     assert.deepEqual(Object.keys(applyPatch.inputSchema.properties).sort(), ['cwd', 'patch']);
     assert.match(applyPatch.description, /multi-file.*structural|structural.*multi-file/i);
