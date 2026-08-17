@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Clarify WSL/MCP observability semantics in the router skill and harden the Terminal broker and Pi Dev Bash output retention against two failures proven by live logs.
+**Goal:** Clarify WSL/MCP observability semantics and make the personal harness operationally bounded: contain Terminal peer resets, bound both per-command and aggregate Pi Dev spool state, rotate 1MCP logs natively, expose read-only retention diagnostics, and keep long-lived repository writer ownership explicit.
 
-**Architecture:** Keep the public 16-tool catalog unchanged. The router documents one authoritative WSL evidence path; the Terminal broker contains peer socket failure at the accepted-connection boundary; Pi Dev bounds retained spool storage while preserving total-byte accounting and the existing model-facing bounded tail.
+**Architecture:** Keep the public tool catalog unchanged. The router documents one authoritative WSL evidence path; the Terminal broker contains peer socket failure at the accepted-connection boundary; Pi Dev uses per-file + TTL + aggregate retention with crash-safe active names; generated 1MCP application config uses native size/file-count rotation; status exposes storage/source/broker facts without mutating state; `persistent-agent-loop` owns repository single-writer coordination.
 
 **Tech Stack:** Node.js >=22.19, MCP SDK 1.30.0, Node `net`/`fs`, `node:test`, Markdown skills/docs.
 
@@ -168,7 +168,57 @@ If the previously observed unrelated positive-hold timing test flakes again, rer
 
 ---
 
-### Task 4: Final integrated verification and documentation sync
+### Task 4: Complete aggregate Bash spool lifecycle
+
+**Files:** `providers/pi-dev/shell.mjs`, `providers/pi-dev/server.mjs`, renderer/templates, Pi Dev tests, configuration docs.
+
+- [x] Wire `MCP_DEV_MAX_SPOOL_BYTES` through normal rendering and smoke/publication validation.
+- [x] Add `MCP_DEV_SPOOL_TTL_SECONDS` (7-day default) and `MCP_DEV_SPOOL_MAX_TOTAL_BYTES` (512 MiB default) as deployment-only policy, absent from MCP schemas.
+- [x] Use `.log.active` during command execution; preserve live owners, reclaim dead/reused stale owners, cap historical oversized finalized files, expire old finalized files, and evict oldest files to the aggregate budget.
+- [x] Run GC at provider startup and opportunistically after every Bash command; GC failure remains diagnostic-only.
+- [x] Cover sequential/concurrent commands, returned-path protection, startup migration, and invalid configuration.
+
+---
+
+### Task 5: Replace unbounded 1MCP console logging with native rotation
+
+**Files:** `scripts/render-config.mjs`, `lib/bridge/common.sh`, `scripts/install-bridge-runtime.sh`, `scripts/smoke-local.sh`, configuration/lifecycle/publication tests and docs.
+
+- [x] Render `1mcp/config.toml` with native `[logging]` policy under private state. Default to 10 MiB x 5 files; validate bounded deployment overrides.
+- [x] Verify the pinned 1MCP runtime still resolves `maxSize`/`maxFiles` and passes them to Winston before installation succeeds.
+- [x] Stop shell-appending console output to `BRIDGE_RUN_DIR/one-mcp.log`; suppress the duplicate console stream and tail the native log on startup failure.
+- [x] Remove the legacy runtime append log on the next fresh 1MCP launch.
+- [x] Verify generated TOML with the installed 1MCP parser and exercise actual Winston size rotation.
+
+---
+
+### Task 6: Harden operator and agent ownership semantics
+
+**Files:** `bin/status`, `skills/mcp-harness-router/**`, `skills/persistent-agent-loop/**`, `skills/README.md`, Skill snapshot manifest, publication tests, operations docs.
+
+- [x] Make router observability explicitly four-layer: presentation -> MCP transport -> WSL process/filesystem -> repository state; generic proxy prose cannot override a concrete harness result.
+- [x] Add one-writer-per-worktree rules to the persistent loop; keep parallel read-only review allowed and separate PTY ownership from Git writer ownership.
+- [x] Use canonical `agent-work-planner` naming.
+- [x] Add read-only retained-log/spool metrics, legacy-log detection, Terminal broker socket plus conditional user-systemd restart state.
+- [x] Match live watchdog ownership against the rendered source root, not whichever checkout runs `bin/status`.
+- [x] Enforce Skill snapshot checksums in publication tests.
+
+---
+
+### Task 7: Controlled live cleanup and rollout
+
+This is an operator-authorized deployment step, not an automatic part of branch verification.
+
+- [ ] Re-render/bootstrap the intended live profile from the final canonical source so `mcp.json`, `config.toml`, provider policy, user units, and source-root metadata converge.
+- [ ] Restart only the required live units/processes. Preserve the tmux lifetime service unless its own code/config changed.
+- [ ] Confirm startup GC removes/caps historical Bash spools and a fresh 1MCP launch removes the legacy runtime append log.
+- [ ] Run `bin/status`, local/public health, a bounded Bash call, native timer wait, and Terminal open/read/close smoke.
+- [ ] Verify rotated-log and spool footprints remain within policy after real traffic.
+- [ ] Roll back by restoring the previous known-good source commit, re-rendering from that source, and restarting the same scoped units if health/tool smoke regresses. Preserve OAuth/session state; do not delete state roots as rollback.
+
+---
+
+### Task 8: Final integrated verification and documentation sync
 
 **Files:**
 - Modify only documentation directly affected by changed runtime configuration if necessary.
