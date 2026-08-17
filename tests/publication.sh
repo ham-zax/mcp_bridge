@@ -182,6 +182,19 @@ test_skill_snapshot_checksums() {
   (cd "$ROOT" && sha256sum -c skills/SNAPSHOT_SHA256.txt >/dev/null)
 }
 
+
+test_harness_skill_operational_contracts() {
+  local router="$ROOT/skills/mcp-harness-router/SKILL.md"
+  local loop="$ROOT/skills/persistent-agent-loop/SKILL.md"
+  local protocol="$ROOT/skills/persistent-agent-loop/references/protocol.md"
+  grep -Fq 'presentation layer' "$router" &&
+  grep -Fq 'generic proxy' "$router" &&
+  grep -Fq 'one writable autonomous process per Git worktree' "$loop" &&
+  grep -Fq 'Terminal ownership is not Git writer ownership' "$protocol" &&
+  grep -Fq 'agent-work-planner' "$loop" &&
+  ! grep -R -Fq 'agent-workflow-planner' "$ROOT/skills/persistent-agent-loop" "$ROOT/skills/README.md"
+}
+
 test_env_is_ignored() {
   git -C "$ROOT" check-ignore -q .env
 }
@@ -360,6 +373,7 @@ run_test 'private-only paths stay outside the public publication surface' test_p
 run_test 'renderer generates valid external state for both profiles' test_renderer_generates_both_profiles
 run_test 'setup and smoke preserve pinned Pi deployment contract' test_pi_install_and_smoke_contract
 run_test 'Skill snapshot checksums match tracked Skill bytes' test_skill_snapshot_checksums
+run_test 'harness Skills preserve authority and single-writer contracts' test_harness_skill_operational_contracts
 run_test '.env remains ignored' test_env_is_ignored
 run_test 'runtime and 1MCP state default outside the repository' test_state_defaults_are_external
 run_test 'lifecycle selects an actually rendered external deployment' test_rendered_deployment_is_selected_by_lifecycle
