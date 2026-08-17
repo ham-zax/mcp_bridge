@@ -151,17 +151,28 @@ Keep persistent Terminal work headless by default. When live developer visibilit
 
 Do not force presentation for every long mission. Headless execution is the normal default; live visibility is an optional developer-experience feature.
 
+## Latency and external-usage discipline
+
+Preserve mission continuity without making user steering wait behind unnecessary work.
+
+- For status/progress/checkpoint requests, report immediately from the latest verified state. At most perform one small authoritative probe when the status cannot be stated safely without it; do not run a broad suite, independent review, or unrelated cleanup before answering.
+- If substantial mission work remains, emit the status/checkpoint response first, then resume the mission in the same active turn. Do not yield or end the turn merely because a status response was requested; only the normal mission stop/replacement/impossible-or-unsafe conditions may terminate execution.
+- Reserve broad verification for meaningful transition boundaries: actual completion, merge/integration decisions, risky handoffs, or evidence that invalidates previous verification.
+- Treat usage-metered or separately billed external agents/models/CLIs, including Codex, as explicit opt-in resources. A generic workflow instruction to "request review" or "dispatch a reviewer" does not authorize substituting Codex or another metered tool when a native reviewer is unavailable.
+- If delegated review is required by another workflow but no native or explicitly authorized reviewer exists, do not launch a metered substitute. Perform bounded in-session review when permitted by the user's constraints, report the unavailable delegation, or ask for authorization at the decision boundary.
+- Do not infer continuing authorization from a previous task. External-agent authorization is scoped to the task or mission the user actually approved.
+
 ## User steering
 
 Inbound user steering outranks the previously planned next action. Classify it before acting:
 
-1. **Checkpoint/request for status** — report current state, then continue the mission.
+1. **Checkpoint/request for status** — report current verified state promptly; do not trigger a broad verification/review cycle solely for the update. After reporting, continue the active mission in the same turn unless another mission-ending condition applies.
 2. **Additive work** — do the requested side task if compatible, record material effects, then continue.
 3. **Reprioritization** — update next action/phase, preserve completion criteria unless changed.
 4. **Mission replacement** — checkpoint old mission if useful, cancel obsolete waits/processes only when safe, then adopt the new mission.
 5. **Stop** — write requested final evidence/checkpoint, cancel obsolete waits, verify state, then end.
 
-Do not treat every user message as implicit cancellation of the active mission. In particular, a status/progress request, request to show live Terminal activity, compatible side task, or priority adjustment should be handled inside the active loop and followed by continued execution. A response to steering is not a reason to end the turn when the mission is still incomplete.
+Do not treat every user message as implicit cancellation of the active mission. A status/progress request, request to show live Terminal activity, compatible side task, added context, or priority adjustment remains an in-mission event. Respond promptly when appropriate, then continue the active loop in the same turn; the steering message itself is neither a stop condition nor a reason to yield.
 
 After handling non-terminal steering, re-evaluate the mission's next action and resume the relevant named wait or work phase. Preserve still-valid waits; do not cancel/re-arm them merely because a message arrived. If steering changes a timer/stop target or invalidates a wait condition, cancel the superseded named wait and arm a new one with a new semantic identity. Do not mutate the meaning of an existing wait name.
 

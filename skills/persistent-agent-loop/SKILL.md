@@ -26,7 +26,14 @@ reason -> act -> checkpoint if meaningful -> wait -> reassess -> continue
 - User steering has priority over the previous next action. Decide whether it supplements, reprioritizes, replaces, or stops the mission; preserve the original mission unless steering changes it.
 - For persistent commands, servers, builds, or interactive work, keep process lifetime in Terminal and use `wait` for output/readiness/exit observation.
 - Keep Terminal work headless by default. If live human visibility is useful from the start, use `terminal_open(..., present:true)` so the exact private tmux PTY is visible in Kitty while tmux/broker remain the lifetime and ownership authority. For an already-running headless session, passive viewing can be offered through the human-side `wsl-term present <session>` frontend; use `terminal_yield` only when human input/control is actually useful.
-- Treat ordinary steering, status requests, progress questions, and compatible side tasks as in-mission events, not implicit termination. Answer or perform them, update/checkpoint material state when needed, then continue the mission unless completion is verified or the user explicitly stops/replaces it.
+- Treat ordinary steering, status requests, progress questions, added context, and compatible side tasks as in-mission events, not implicit termination. For status/progress steering, emit a prompt bounded checkpoint from already-verified state and do not launch broad tests, independent review, or auxiliary verification merely to produce that update. Then continue the active mission in the same turn unless the user explicitly stops/replaces it or continuation becomes impossible/unsafe; steering itself is not a yield or completion condition.
+
+## Keep latency and external usage bounded
+
+- Respond to explicit user steering early within the active turn, then resume the mission. Do not turn a status/checkpoint request into another long implementation or verification cycle before acknowledging it, and do not end/yield the turn merely to improve responsiveness.
+- Run broad verification at meaningful transition boundaries such as a real merge/completion decision or when changed evidence requires it, not merely because a progress message arrived.
+- Treat usage-metered or separately billed external agents/models/CLIs, including Codex, as **explicit opt-in only**. Do not invoke or substitute them for a missing reviewer/subagent unless the user explicitly authorizes that external agent for the current task.
+- If another workflow asks for delegated review but no native or already-authorized reviewer exists, do not silently fall back to Codex or another metered agent. Use bounded in-session review when appropriate, report that delegated review was unavailable, or ask the user at the actual decision boundary.
 
 ## Keep repository writer ownership explicit
 
