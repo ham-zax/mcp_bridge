@@ -95,7 +95,7 @@ export async function renderConfig(options) {
   const deployment = {
     ...(await readEnvFile(envFile, { optional: true })),
     ...Object.fromEntries(
-      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_PERSONAL_DEFAULT_CWD'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
+      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_DEV_MAX_SPOOL_BYTES', 'MCP_PERSONAL_DEFAULT_CWD'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
     ),
   };
   const profileValues = await readEnvFile(path.join(repoRoot, 'config', 'profiles', `${profile}.env`));
@@ -125,6 +125,11 @@ export async function renderConfig(options) {
   if (!Number.isInteger(devMaxOutputBytes) || devMaxOutputBytes <= 0 || devMaxOutputBytes > 16 * 1024 * 1024) {
     throw new Error('MCP_DEV_MAX_OUTPUT_BYTES must be an integer from 1 to 16777216');
   }
+  const devMaxSpoolBytesRaw = deployment.MCP_DEV_MAX_SPOOL_BYTES ?? String(64 * 1024 * 1024);
+  const devMaxSpoolBytes = Number(devMaxSpoolBytesRaw);
+  if (!Number.isInteger(devMaxSpoolBytes) || devMaxSpoolBytes <= 0 || devMaxSpoolBytes > 256 * 1024 * 1024) {
+    throw new Error('MCP_DEV_MAX_SPOOL_BYTES must be an integer from 1 to 268435456');
+  }
 
   const workspaceRoot = isPersonal ? personalDefaultCwd : deployment.MCP_WORKSPACE_ROOT;
   const publicUrl = deployment.MCP_PUBLIC_URL;
@@ -151,6 +156,7 @@ export async function renderConfig(options) {
     __SHELL_MODE__: shellMode,
     __DEV_STATE_DIR__: path.join(stateDir, 'dev'),
     __DEV_MAX_OUTPUT_BYTES__: String(devMaxOutputBytes),
+    __DEV_MAX_SPOOL_BYTES__: String(devMaxSpoolBytes),
     __TERMINAL_SOCKET__: runtimeDir ? path.join(runtimeDir, 'wsl-agent-terminal.sock') : '',
   });
 

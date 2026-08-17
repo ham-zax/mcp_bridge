@@ -142,6 +142,7 @@ for (const cfg of [restricted, trusted]) {
   const env = cfg.mcpServers.dev.env;
   if (env.MCP_DEV_WORKSPACE_ROOT !== '/tmp/example-workspace') process.exit(1);
   if (env.MCP_DEV_MAX_OUTPUT_BYTES !== '1048576') process.exit(1);
+  if (env.MCP_DEV_MAX_SPOOL_BYTES !== '67108864') process.exit(1);
   if (!env.MCP_DEV_STATE_DIR.endsWith('/dev')) process.exit(1);
   if (cfg.mcpServers.filesystem) process.exit(1);
 }
@@ -162,6 +163,7 @@ test_pi_install_and_smoke_contract() {
   grep -Fq 'MCP_DEV_WORKSPACE_ROOT' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'MCP_DEV_STATE_DIR' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'MCP_DEV_MAX_OUTPUT_BYTES' "$ROOT/scripts/smoke-local.sh" || return 1
+  grep -Fq 'MCP_DEV_MAX_SPOOL_BYTES' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'MCP_DEV_SHELL_MODE' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'unexpected final provider set' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'filesystem provider must be absent after Pi cutover' "$ROOT/scripts/smoke-local.sh" || return 1

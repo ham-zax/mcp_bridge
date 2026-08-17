@@ -60,6 +60,7 @@ if (dev) {
   const env = dev.env ?? {};
   if (!path.isAbsolute(env.MCP_DEV_STATE_DIR ?? '')) throw new Error('MCP_DEV_STATE_DIR must be absolute');
   if (!/^[1-9][0-9]*$/.test(env.MCP_DEV_MAX_OUTPUT_BYTES ?? '')) throw new Error('MCP_DEV_MAX_OUTPUT_BYTES must be a positive integer');
+  if (!/^[1-9][0-9]*$/.test(env.MCP_DEV_MAX_SPOOL_BYTES ?? '')) throw new Error('MCP_DEV_MAX_SPOOL_BYTES must be a positive integer');
   if (!['allowlist', 'unrestricted'].includes(env.MCP_DEV_SHELL_MODE)) throw new Error('MCP_DEV_SHELL_MODE must be allowlist or unrestricted');
   if (profile === 'personal') {
     if (env.MCP_DEV_PATH_MODE !== 'user') throw new Error('personal MCP_DEV_PATH_MODE must be user');

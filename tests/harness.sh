@@ -25,6 +25,7 @@ test_final_rendered_composition() {
 MCP_WORKSPACE_ROOT=/tmp/example-workspace
 MCP_PUBLIC_URL=https://mcp.example.test
 MCP_TUNNEL_NAME=
+MCP_DEV_MAX_SPOOL_BYTES=2048
 ENV
   mkdir -p "$tmp/runtime" "$tmp/home"
   for profile in restricted trusted-dev personal; do
@@ -51,6 +52,9 @@ if (restricted.mcpServers?.codedb || trusted.mcpServers?.codedb || personal.mcpS
 if (restricted.mcpServers?.filesystem || trusted.mcpServers?.filesystem || personal.mcpServers?.filesystem) process.exit(1);
 if (restricted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'allowlist') process.exit(1);
 if (trusted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'unrestricted') process.exit(1);
+if (restricted.mcpServers.dev.env.MCP_DEV_MAX_SPOOL_BYTES !== '2048') process.exit(1);
+if (trusted.mcpServers.dev.env.MCP_DEV_MAX_SPOOL_BYTES !== '2048') process.exit(1);
+if (personal.mcpServers.dev.env.MCP_DEV_MAX_SPOOL_BYTES !== '2048') process.exit(1);
 if (restricted.mcpServers.dev.env.MCP_DEV_PATH_MODE !== 'workspace') process.exit(1);
 if (trusted.mcpServers.dev.env.MCP_DEV_PATH_MODE !== 'workspace') process.exit(1);
 if (restricted.mcpServers.dev.env.MCP_DEV_TERMINAL_SOCKET !== undefined) process.exit(1);
@@ -72,6 +76,31 @@ NODE2
   local rc=$?
   rm -rf "$tmp"
   return "$rc"
+}
+
+test_dev_spool_limit_validation() {
+  local tmp value output rc
+  tmp="$(mktemp -d)" || return 1
+  mkdir -p "$tmp/workspace" "$tmp/runtime" "$tmp/home"
+  for value in 0 -1 nope 268435457; do
+    cat > "$tmp/deployment.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TUNNEL_NAME=
+MCP_DEV_MAX_SPOOL_BYTES=$value
+EOF
+    output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+      --profile trusted-dev \
+      --env-file "$tmp/deployment.env" \
+      --state-dir "$tmp/state-$value" \
+      --repo-root "$ROOT" 2>&1)"
+    rc=$?
+    if [ "$rc" -eq 0 ] || ! grep -Fq 'MCP_DEV_MAX_SPOOL_BYTES must be an integer from 1 to 268435456' <<<"$output"; then
+      rm -rf "$tmp"
+      return 1
+    fi
+  done
+  rm -rf "$tmp"
 }
 
 test_personal_default_cwd_override() {
@@ -184,6 +213,7 @@ test_legacy_filesystem_dependency_removed() {
 
 run_test 'raw CodeDB surface stays removed from public composition' test_raw_codedb_surface_removed
 run_test 'final rendered composition adds Code and Terminal only to personal mode' test_final_rendered_composition
+run_test 'Dev spool deployment override rejects invalid values' test_dev_spool_limit_validation
 run_test 'personal default cwd supports an absolute deployment override' test_personal_default_cwd_override
 run_test 'personal runtime files carry no machine-specific home path' test_personal_runtime_files_have_no_machine_home
 run_test 'personal smoke validation accepts the private provider contract' test_personal_smoke_validation
