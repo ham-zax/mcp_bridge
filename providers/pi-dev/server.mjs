@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { canonicalDefaultCwd, canonicalWorkspaceRoot } from './boundary.mjs';
 import { runRead, runEdit, runWrite } from './files.mjs';
 import { runPatch } from './patch.mjs';
-import { runBash } from './shell.mjs';
+import { pruneBashSpools, runBash } from './shell.mjs';
 import { renderBashText, renderEditPartial, renderEditText, renderPatchText, renderWriteText } from './render.mjs';
 import { WaitEngine } from './wait-engine.mjs';
 import { LocalWaitSources } from './wait-local.mjs';
@@ -51,6 +51,36 @@ const maxSpoolBytes = Number(process.env.MCP_DEV_MAX_SPOOL_BYTES ?? String(64 * 
 if (!Number.isInteger(maxSpoolBytes) || maxSpoolBytes <= 0 || maxSpoolBytes > 256 * 1024 * 1024) {
   console.error('MCP_DEV_MAX_SPOOL_BYTES must be a positive integer up to 268435456');
   process.exit(2);
+}
+
+const spoolTtlSeconds = Number(process.env.MCP_DEV_SPOOL_TTL_SECONDS ?? String(7 * 24 * 60 * 60));
+if (!Number.isInteger(spoolTtlSeconds) || spoolTtlSeconds <= 0 || spoolTtlSeconds > 365 * 24 * 60 * 60) {
+  console.error('MCP_DEV_SPOOL_TTL_SECONDS must be a positive integer up to 31536000');
+  process.exit(2);
+}
+
+const maxSpoolTotalBytes = Number(process.env.MCP_DEV_SPOOL_MAX_TOTAL_BYTES ?? String(512 * 1024 * 1024));
+if (!Number.isInteger(maxSpoolTotalBytes) || maxSpoolTotalBytes <= 0 || maxSpoolTotalBytes > 8 * 1024 * 1024 * 1024) {
+  console.error('MCP_DEV_SPOOL_MAX_TOTAL_BYTES must be a positive integer up to 8589934592');
+  process.exit(2);
+}
+if (maxSpoolTotalBytes < maxSpoolBytes) {
+  console.error('MCP_DEV_SPOOL_MAX_TOTAL_BYTES must be >= MCP_DEV_MAX_SPOOL_BYTES');
+  process.exit(2);
+}
+
+try {
+  const gc = await pruneBashSpools({
+    stateDir,
+    maxSpoolBytes,
+    ttlSeconds: spoolTtlSeconds,
+    maxTotalBytes: maxSpoolTotalBytes,
+  });
+  if (gc.deletedFiles > 0 || gc.deletedActiveFiles > 0 || gc.truncatedFiles > 0) {
+    console.error(`Pi Dev Bash spool GC: deleted_files=${gc.deletedFiles} deleted_bytes=${gc.deletedBytes} deleted_active_files=${gc.deletedActiveFiles} deleted_active_bytes=${gc.deletedActiveBytes} truncated_files=${gc.truncatedFiles} truncated_bytes=${gc.truncatedBytes} retained_files=${gc.retainedFiles} retained_bytes=${gc.retainedBytes}`);
+  }
+} catch (error) {
+  console.error(`Pi Dev Bash spool GC warning: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 let waitEngine = null;
@@ -214,6 +244,8 @@ if (mode === 'unrestricted') {
       ...args,
       maxOutputBytes,
       maxSpoolBytes,
+      spoolTtlSeconds,
+      maxSpoolTotalBytes,
       stateDir
     }, extra.signal);
     return { content: [{ type: 'text', text: renderBashText(result) }] };

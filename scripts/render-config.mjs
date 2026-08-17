@@ -95,7 +95,7 @@ export async function renderConfig(options) {
   const deployment = {
     ...(await readEnvFile(envFile, { optional: true })),
     ...Object.fromEntries(
-      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_DEV_MAX_SPOOL_BYTES', 'MCP_PERSONAL_DEFAULT_CWD'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
+      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_DEV_MAX_SPOOL_BYTES', 'MCP_DEV_SPOOL_TTL_SECONDS', 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES', 'MCP_PERSONAL_DEFAULT_CWD'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
     ),
   };
   const profileValues = await readEnvFile(path.join(repoRoot, 'config', 'profiles', `${profile}.env`));
@@ -130,6 +130,19 @@ export async function renderConfig(options) {
   if (!Number.isInteger(devMaxSpoolBytes) || devMaxSpoolBytes <= 0 || devMaxSpoolBytes > 256 * 1024 * 1024) {
     throw new Error('MCP_DEV_MAX_SPOOL_BYTES must be an integer from 1 to 268435456');
   }
+  const devSpoolTtlSecondsRaw = deployment.MCP_DEV_SPOOL_TTL_SECONDS ?? String(7 * 24 * 60 * 60);
+  const devSpoolTtlSeconds = Number(devSpoolTtlSecondsRaw);
+  if (!Number.isInteger(devSpoolTtlSeconds) || devSpoolTtlSeconds <= 0 || devSpoolTtlSeconds > 365 * 24 * 60 * 60) {
+    throw new Error('MCP_DEV_SPOOL_TTL_SECONDS must be an integer from 1 to 31536000');
+  }
+  const devSpoolMaxTotalBytesRaw = deployment.MCP_DEV_SPOOL_MAX_TOTAL_BYTES ?? String(512 * 1024 * 1024);
+  const devSpoolMaxTotalBytes = Number(devSpoolMaxTotalBytesRaw);
+  if (!Number.isInteger(devSpoolMaxTotalBytes) || devSpoolMaxTotalBytes <= 0 || devSpoolMaxTotalBytes > 8 * 1024 * 1024 * 1024) {
+    throw new Error('MCP_DEV_SPOOL_MAX_TOTAL_BYTES must be an integer from 1 to 8589934592');
+  }
+  if (devSpoolMaxTotalBytes < devMaxSpoolBytes) {
+    throw new Error('MCP_DEV_SPOOL_MAX_TOTAL_BYTES must be >= MCP_DEV_MAX_SPOOL_BYTES');
+  }
 
   const workspaceRoot = isPersonal ? personalDefaultCwd : deployment.MCP_WORKSPACE_ROOT;
   const publicUrl = deployment.MCP_PUBLIC_URL;
@@ -157,6 +170,8 @@ export async function renderConfig(options) {
     __DEV_STATE_DIR__: path.join(stateDir, 'dev'),
     __DEV_MAX_OUTPUT_BYTES__: String(devMaxOutputBytes),
     __DEV_MAX_SPOOL_BYTES__: String(devMaxSpoolBytes),
+    __DEV_SPOOL_TTL_SECONDS__: String(devSpoolTtlSeconds),
+    __DEV_SPOOL_MAX_TOTAL_BYTES__: String(devSpoolMaxTotalBytes),
     __TERMINAL_SOCKET__: runtimeDir ? path.join(runtimeDir, 'wsl-agent-terminal.sock') : '',
   });
 

@@ -26,6 +26,8 @@ MCP_WORKSPACE_ROOT=/tmp/example-workspace
 MCP_PUBLIC_URL=https://mcp.example.test
 MCP_TUNNEL_NAME=
 MCP_DEV_MAX_SPOOL_BYTES=2048
+MCP_DEV_SPOOL_TTL_SECONDS=3600
+MCP_DEV_SPOOL_MAX_TOTAL_BYTES=8192
 ENV
   mkdir -p "$tmp/runtime" "$tmp/home"
   for profile in restricted trusted-dev personal; do
@@ -55,6 +57,12 @@ if (trusted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'unrestricted') process.ex
 if (restricted.mcpServers.dev.env.MCP_DEV_MAX_SPOOL_BYTES !== '2048') process.exit(1);
 if (trusted.mcpServers.dev.env.MCP_DEV_MAX_SPOOL_BYTES !== '2048') process.exit(1);
 if (personal.mcpServers.dev.env.MCP_DEV_MAX_SPOOL_BYTES !== '2048') process.exit(1);
+if (restricted.mcpServers.dev.env.MCP_DEV_SPOOL_TTL_SECONDS !== '3600') process.exit(1);
+if (trusted.mcpServers.dev.env.MCP_DEV_SPOOL_TTL_SECONDS !== '3600') process.exit(1);
+if (personal.mcpServers.dev.env.MCP_DEV_SPOOL_TTL_SECONDS !== '3600') process.exit(1);
+if (restricted.mcpServers.dev.env.MCP_DEV_SPOOL_MAX_TOTAL_BYTES !== '8192') process.exit(1);
+if (trusted.mcpServers.dev.env.MCP_DEV_SPOOL_MAX_TOTAL_BYTES !== '8192') process.exit(1);
+if (personal.mcpServers.dev.env.MCP_DEV_SPOOL_MAX_TOTAL_BYTES !== '8192') process.exit(1);
 if (restricted.mcpServers.dev.env.MCP_DEV_PATH_MODE !== 'workspace') process.exit(1);
 if (trusted.mcpServers.dev.env.MCP_DEV_PATH_MODE !== 'workspace') process.exit(1);
 if (restricted.mcpServers.dev.env.MCP_DEV_TERMINAL_SOCKET !== undefined) process.exit(1);
@@ -100,6 +108,42 @@ EOF
       return 1
     fi
   done
+
+  cat > "$tmp/deployment.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TUNNEL_NAME=
+MCP_DEV_SPOOL_TTL_SECONDS=0
+EOF
+  output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    --profile trusted-dev \
+    --env-file "$tmp/deployment.env" \
+    --state-dir "$tmp/state-invalid-ttl" \
+    --repo-root "$ROOT" 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 0 ] || ! grep -Fq 'MCP_DEV_SPOOL_TTL_SECONDS must be an integer from 1 to 31536000' <<<"$output"; then
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  cat > "$tmp/deployment.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TUNNEL_NAME=
+MCP_DEV_MAX_SPOOL_BYTES=2048
+MCP_DEV_SPOOL_MAX_TOTAL_BYTES=1024
+EOF
+  output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    --profile trusted-dev \
+    --env-file "$tmp/deployment.env" \
+    --state-dir "$tmp/state-invalid-budget" \
+    --repo-root "$ROOT" 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 0 ] || ! grep -Fq 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES must be >= MCP_DEV_MAX_SPOOL_BYTES' <<<"$output"; then
+    rm -rf "$tmp"
+    return 1
+  fi
+
   rm -rf "$tmp"
 }
 

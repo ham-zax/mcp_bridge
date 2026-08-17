@@ -17,6 +17,8 @@ MCP_PUBLIC_URL=https://mcp.example.com
 MCP_TUNNEL_NAME=
 MCP_DEV_MAX_OUTPUT_BYTES=1048576
 MCP_DEV_MAX_SPOOL_BYTES=67108864
+MCP_DEV_SPOOL_TTL_SECONDS=604800
+MCP_DEV_SPOOL_MAX_TOTAL_BYTES=536870912
 MCP_PERSONAL_DEFAULT_CWD=
 ```
 
@@ -97,4 +99,4 @@ Generated provider commands contain the repository root used during rendering. I
 
 `MCP_DEV_MAX_OUTPUT_BYTES` is deployment policy, not a model-facing tool argument. Increase it only when the operator deliberately wants a larger model-visible Bash result budget.
 
-Pi Dev also bounds retained Bash diagnostics independently of the model-visible tail. `MCP_DEV_MAX_SPOOL_BYTES` is an internal deployment/provider limit with a 64 MiB default and a 256 MiB maximum; the renderer propagates it into the Dev provider environment but it never appears as a model-facing MCP tool argument. When command output exceeds that cap, `output_bytes` still counts the full observed stream, the model still receives the configured bounded tail, and any retained-output file is explicitly labeled as capped rather than complete.
+Pi Dev also bounds retained Bash diagnostics independently of the model-visible tail. `MCP_DEV_MAX_SPOOL_BYTES` is an internal deployment/provider limit with a 64 MiB default and a 256 MiB maximum; the renderer propagates it into the Dev provider environment but it never appears as a model-facing MCP tool argument. `MCP_DEV_SPOOL_TTL_SECONDS` defaults to 604800 seconds (7 days), and `MCP_DEV_SPOOL_MAX_TOTAL_BYTES` defaults to 536870912 bytes (512 MiB) and must be at least the per-spool cap. Finalized spools are pruned on provider startup and after truncated Bash commands: expired files are removed, legacy oversized files are capped, and the oldest finalized files are evicted until the aggregate budget is satisfied. Active `.log.active` spools are excluded from GC. When command output exceeds the per-spool cap, `output_bytes` still counts the full observed stream, the model still receives the configured bounded tail, and any retained-output file is explicitly labeled as capped rather than complete.

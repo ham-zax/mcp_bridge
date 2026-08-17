@@ -168,6 +168,25 @@ test('path mode startup validation requires the matching authority root', async 
   });
   assert.equal(invalidSpoolLimit.code, 2);
   assert.match(invalidSpoolLimit.stderr, /MCP_DEV_MAX_SPOOL_BYTES.*positive integer/i);
+
+  const invalidSpoolTtl = await runServerProcess({
+    ...base,
+    MCP_DEV_PATH_MODE: 'workspace',
+    MCP_DEV_WORKSPACE_ROOT: workspaceRoot,
+    MCP_DEV_SPOOL_TTL_SECONDS: '0'
+  });
+  assert.equal(invalidSpoolTtl.code, 2);
+  assert.match(invalidSpoolTtl.stderr, /MCP_DEV_SPOOL_TTL_SECONDS.*positive integer/i);
+
+  const invalidSpoolBudget = await runServerProcess({
+    ...base,
+    MCP_DEV_PATH_MODE: 'workspace',
+    MCP_DEV_WORKSPACE_ROOT: workspaceRoot,
+    MCP_DEV_MAX_SPOOL_BYTES: '2048',
+    MCP_DEV_SPOOL_MAX_TOTAL_BYTES: '1024'
+  });
+  assert.equal(invalidSpoolBudget.code, 2);
+  assert.match(invalidSpoolBudget.stderr, /MCP_DEV_SPOOL_MAX_TOTAL_BYTES.*MCP_DEV_MAX_SPOOL_BYTES/i);
 });
 
 test('trusted-dev exposes four tools and minimal schemas', async () => {
@@ -940,6 +959,42 @@ test('deployment output limit is applied without appearing in schema', async () 
     assert.match(text, /\[truncated · full: .*\]/);
     assert.ok(Buffer.byteLength(text) < 1300);
   });
+});
+
+test('server startup prunes legacy Bash spools under the configured retention policy', async () => {
+  const { stateDir, env } = await fixture('unrestricted', '1024');
+  env.MCP_DEV_MAX_SPOOL_BYTES = '2048';
+  env.MCP_DEV_SPOOL_TTL_SECONDS = '3600';
+  env.MCP_DEV_SPOOL_MAX_TOTAL_BYTES = '4096';
+  const now = Date.now();
+  const expired = path.join(stateDir, 'bash-expired.log');
+  const legacyOversized = path.join(stateDir, 'bash-legacy-oversized.log');
+  const newerA = path.join(stateDir, 'bash-newer-a.log');
+  const newerB = path.join(stateDir, 'bash-newer-b.log');
+  const active = path.join(stateDir, `bash-${now}-${process.pid}-live.log.active`);
+  const abandonedActive = path.join(stateDir, `bash-${now}-999999999-abandoned.log.active`);
+  await fs.writeFile(expired, Buffer.alloc(1000));
+  await fs.writeFile(legacyOversized, Buffer.alloc(3000));
+  await fs.writeFile(newerA, Buffer.alloc(2000));
+  await fs.writeFile(newerB, Buffer.alloc(2000));
+  await fs.writeFile(active, Buffer.alloc(5000));
+  await fs.writeFile(abandonedActive, Buffer.alloc(5000));
+  await fs.utimes(expired, new Date(now - 7200_000), new Date(now - 7200_000));
+  await fs.utimes(legacyOversized, new Date(now - 3000), new Date(now - 3000));
+  await fs.utimes(newerA, new Date(now - 2000), new Date(now - 2000));
+  await fs.utimes(newerB, new Date(now - 1000), new Date(now - 1000));
+
+  await withClient(env, async client => {
+    const listed = await client.listTools();
+    assert.ok(listed.tools.some(tool => tool.name === 'bash'));
+  });
+
+  await assert.rejects(() => fs.stat(expired), { code: 'ENOENT' });
+  await assert.rejects(() => fs.stat(legacyOversized), { code: 'ENOENT' });
+  await assert.rejects(() => fs.stat(abandonedActive), { code: 'ENOENT' });
+  assert.equal((await fs.stat(newerA)).size, 2000);
+  assert.equal((await fs.stat(newerB)).size, 2000);
+  assert.equal((await fs.stat(active)).size, 5000);
 });
 
 test('deployment spool limit caps retained Bash output without appearing in schema', async () => {
