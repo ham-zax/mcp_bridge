@@ -68,6 +68,7 @@ if (pathMode === 'user') {
       file_changed: localSource,
       http_ready: localSource,
       systemd_user: localSource,
+      timer: localSource,
     },
   });
 }

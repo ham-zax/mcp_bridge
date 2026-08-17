@@ -239,6 +239,8 @@ test('wait schema enforces create, resume, and cancel modes plus exact first-pha
     { kind: 'file_changed', path: 'watched.txt' },
     { kind: 'http_ready', url: 'http://127.0.0.1:8080/health' },
     { kind: 'systemd_user', unit: 'demo.service' },
+    { kind: 'timer', after_seconds: 120 },
+    { kind: 'timer', at: '2026-08-17T00:02:00Z' },
   ];
   for (const condition of validKinds) {
     assert.equal(waitInputSchema.safeParse({ name: `wait-${condition.kind}`, condition }).success, true, condition.kind);
@@ -256,6 +258,17 @@ test('wait schema enforces create, resume, and cancel modes plus exact first-pha
   assert.equal(waitInputSchema.safeParse({
     name: 'large', condition: { kind: 'terminal_output', session: 'term', literal: 'x'.repeat(1025) },
   }).success, false);
+  for (const condition of [
+    { kind: 'timer' },
+    { kind: 'timer', after_seconds: 0 },
+    { kind: 'timer', after_seconds: 1.5 },
+    { kind: 'timer', after_seconds: 86400 },
+    { kind: 'timer', at: 'not-a-time' },
+    { kind: 'timer', at: '2026-08-17T00:00:00' },
+    { kind: 'timer', after_seconds: 5, at: '2026-08-17T00:00:05Z' },
+  ]) {
+    assert.equal(waitInputSchema.safeParse({ name: 'bad-timer', condition }).success, false, JSON.stringify(condition));
+  }
 });
 
 test('personal wait reports WAIT_NOT_FOUND for resume of an unknown name', async () => {
@@ -264,6 +277,22 @@ test('personal wait reports WAIT_NOT_FOUND for resume of an unknown name', async
     const result = await client.callTool({ name: 'wait', arguments: { name: 'missing', hold_seconds: 0 } });
     assert.equal(result.isError, true);
     assert.match(textOf(result), /WAIT_NOT_FOUND/);
+  });
+});
+
+test('personal timer wait matches an already-due absolute target through MCP', async () => {
+  const { env } = await userFixture();
+  await withClient(env, async client => {
+    const result = await client.callTool({
+      name: 'wait',
+      arguments: {
+        name: 'due-timer',
+        condition: { kind: 'timer', at: '2000-01-01T00:00:00Z' },
+        hold_seconds: 0,
+      },
+    });
+    assert.equal(result.isError, undefined);
+    assert.equal(textOf(result), 'matched due-timer timer=2000-01-01T00:00:00.000Z reached');
   });
 });
 

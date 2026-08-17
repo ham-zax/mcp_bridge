@@ -13,10 +13,13 @@ const LOCAL_KINDS = new Set([
   'file_changed',
   'http_ready',
   'systemd_user',
+  'timer',
 ]);
 const SYSTEMD_UNIT_RE = /^[A-Za-z0-9@_.:-]{1,256}$/;
 const SYSTEMD_STATES = new Set(['active', 'inactive', 'failed']);
 const SYSTEMD_PROBE_TIMEOUT_MS = 2000;
+const MAX_TIMER_AFTER_SECONDS = 86399;
+const TIMER_ZONE_RE = /(?:Z|[+-]\d{2}:\d{2})$/i;
 
 function waitError(code, message, details) {
   const error = new Error(message);
@@ -73,6 +76,17 @@ async function fingerprint(file) {
 
 function sameFingerprint(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function parseTimerAt(value) {
+  if (typeof value !== 'string' || !TIMER_ZONE_RE.test(value)) {
+    throw waitError('INVALID_WAIT_CONDITION', 'timer at must include a timezone');
+  }
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    throw waitError('INVALID_WAIT_CONDITION', 'timer at must be a valid RFC3339/ISO-8601 instant');
+  }
+  return parsed;
 }
 
 function systemdUserEnvironment(baseEnv) {
@@ -173,6 +187,23 @@ function validateCondition(condition) {
       throw waitError('INVALID_WAIT_CONDITION', 'systemd_user state must be active, inactive, or failed');
     }
   }
+  if (condition.kind === 'timer') {
+    const hasAfter = condition.after_seconds !== undefined;
+    const hasAt = condition.at !== undefined;
+    if (hasAfter === hasAt) {
+      throw waitError('INVALID_WAIT_CONDITION', 'timer requires exactly one of after_seconds or at');
+    }
+    if (hasAfter
+        && (!Number.isSafeInteger(condition.after_seconds)
+          || condition.after_seconds < 1
+          || condition.after_seconds > MAX_TIMER_AFTER_SECONDS)) {
+      throw waitError(
+        'INVALID_WAIT_CONDITION',
+        `timer after_seconds must be an integer from 1 to ${MAX_TIMER_AFTER_SECONDS}`,
+      );
+    }
+    if (hasAt) parseTimerAt(condition.at);
+  }
   return condition;
 }
 
@@ -229,6 +260,19 @@ export class LocalWaitSources {
         status: 'pending',
         baseline: { unit: validated.unit, state: validated.state ?? 'active' },
       };
+    }
+    if (validated.kind === 'timer') {
+      const nowMs = this.now();
+      const targetAtMs = validated.after_seconds !== undefined
+        ? nowMs + validated.after_seconds * 1000
+        : parseTimerAt(validated.at);
+      const baseline = {
+        targetAtMs,
+        targetIso: new Date(targetAtMs).toISOString(),
+      };
+      return nowMs >= targetAtMs
+        ? { status: 'matched', baseline, evidence: `timer=${baseline.targetIso} reached` }
+        : { status: 'pending', baseline };
     }
     const resolved = await resolveUserPath(this.defaultCwd, validated.path, { mustExist: false });
     throwIfAborted(signal);
@@ -335,6 +379,20 @@ export class LocalWaitSources {
           { message: error?.message ?? String(error) },
         );
       }
+    }
+
+    if (condition.kind === 'timer') {
+      if (!Number.isSafeInteger(baseline.targetAtMs)
+          || typeof baseline.targetIso !== 'string'
+          || baseline.targetIso !== new Date(baseline.targetAtMs).toISOString()) {
+        throw waitError('WAIT_STATE_CORRUPT', 'timer wait baseline is invalid');
+      }
+      if (condition.at !== undefined && baseline.targetAtMs !== parseTimerAt(condition.at)) {
+        throw waitError('WAIT_STATE_CORRUPT', 'timer wait baseline does not match the absolute target');
+      }
+      return this.now() >= baseline.targetAtMs
+        ? { status: 'matched', baseline, evidence: `timer=${baseline.targetIso} reached` }
+        : { status: 'pending', baseline };
     }
 
     if (typeof baseline.path !== 'string') throw waitError('WAIT_STATE_CORRUPT', 'file wait baseline is invalid');

@@ -48,6 +48,28 @@ const systemdUser = z.object({
   state: z.enum(['active', 'inactive', 'failed']).optional(),
 }).strict();
 
+const timerAt = z.string().min(1).refine((value) => {
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(value)) return false;
+  return Number.isFinite(Date.parse(value));
+}, {
+  message: 'at must be a timezone-qualified RFC3339/ISO-8601 instant',
+});
+
+const timer = z.object({
+  kind: z.literal('timer'),
+  after_seconds: z.number().int().min(1).max(86399).optional(),
+  at: timerAt.optional(),
+}).strict().superRefine((value, ctx) => {
+  const fields = [value.after_seconds !== undefined, value.at !== undefined].filter(Boolean).length;
+  if (fields !== 1) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['after_seconds'],
+      message: 'timer requires exactly one of after_seconds or at',
+    });
+  }
+});
+
 export const waitConditionSchema = z.discriminatedUnion('kind', [
   terminalOutput,
   terminalExit,
@@ -57,6 +79,7 @@ export const waitConditionSchema = z.discriminatedUnion('kind', [
   fileChanged,
   httpReady,
   systemdUser,
+  timer,
 ]);
 
 export const waitInputSchema = z.object({

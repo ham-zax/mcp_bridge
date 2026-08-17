@@ -124,6 +124,54 @@ test('file_changed records an absent baseline and matches creation', async (t) =
   assert.equal(result.status, 'matched');
 });
 
+test('timer after_seconds persists one target and matches only after it is reached', async () => {
+  let now = Date.parse('2026-08-17T00:00:00Z');
+  const source = new LocalWaitSources({ defaultCwd: process.cwd(), now: () => now });
+  const condition = { kind: 'timer', after_seconds: 120 };
+  const armed = await source.arm(condition);
+  assert.equal(armed.status, 'pending');
+  assert.equal(armed.baseline.targetAtMs, Date.parse('2026-08-17T00:02:00Z'));
+  assert.equal(armed.baseline.targetIso, '2026-08-17T00:02:00.000Z');
+  assert.equal((await source.check(record(condition, armed.baseline))).status, 'pending');
+
+  now = Date.parse('2026-08-17T00:02:00Z');
+  const matched = await source.check(record(condition, armed.baseline));
+  assert.equal(matched.status, 'matched');
+  assert.equal(matched.evidence, 'timer=2026-08-17T00:02:00.000Z reached');
+});
+
+test('timer at is absolute and an already-due target matches during arm', async () => {
+  const now = Date.parse('2026-08-17T00:02:00Z');
+  const source = new LocalWaitSources({ defaultCwd: process.cwd(), now: () => now });
+  const condition = { kind: 'timer', at: '2026-08-17T05:31:59+05:30' };
+  const armed = await source.arm(condition);
+  assert.equal(armed.status, 'matched');
+  assert.equal(armed.baseline.targetAtMs, Date.parse(condition.at));
+  assert.equal(armed.baseline.targetIso, '2026-08-17T00:01:59.000Z');
+  assert.equal(armed.evidence, 'timer=2026-08-17T00:01:59.000Z reached');
+});
+
+test('timer local source rejects invalid relative and absolute definitions', async () => {
+  const source = new LocalWaitSources({ defaultCwd: process.cwd() });
+  const invalid = [
+    { kind: 'timer' },
+    { kind: 'timer', after_seconds: 0 },
+    { kind: 'timer', after_seconds: -1 },
+    { kind: 'timer', after_seconds: 1.5 },
+    { kind: 'timer', after_seconds: 86400 },
+    { kind: 'timer', at: 'not-a-time' },
+    { kind: 'timer', at: '2026-08-17T00:00:00' },
+    { kind: 'timer', after_seconds: 5, at: '2026-08-17T00:00:05Z' },
+  ];
+  for (const condition of invalid) {
+    await assert.rejects(
+      () => source.arm(condition),
+      (error) => error?.code === 'INVALID_WAIT_CONDITION',
+      JSON.stringify(condition),
+    );
+  }
+});
+
 async function listenHttp(t, handler) {
   const server = http.createServer(handler);
   await new Promise((resolve, reject) => {
