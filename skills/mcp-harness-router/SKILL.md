@@ -23,6 +23,14 @@ When Superpowers Web Adapter also applies, let Superpowers control engineering w
 - Human visibility or input in a durable PTY, including sudo/password/MFA or manual TUI interaction -> Terminal collaborative presentation/handoff. If the human should watch from the start, use `terminal_open(..., present:true)`. When human input is needed later, use `terminal_yield`: it reuses an attached designated frontend or launches Kitty on the exact tmux PTY, then gives the human control. If frontend launch fails, give the installed `wsl-term attach <session>` fallback; never ask the user to send a secret through chat.
 - Readiness, output, process exit, file/HTTP/systemd condition -> `wait`; do not implement polling/sleep loops in Bash.
 
+## Durable wait and RPC boundary
+
+- `wait` is a durable named **condition wait**, not cron and not a general scheduler. Arm it with `name + condition`; later resume the same wait with `name` only. Use `cancel=true` only for explicit cancellation.
+- The durable deadline is independent of any one MCP/RPC call: `timeout_seconds` defaults to 300 seconds and supports 1..86400 seconds. Resuming the same name preserves the original absolute deadline and source baseline; it does not restart the timer.
+- `hold_seconds` bounds only one `wait` invocation. The current Pi Dev policy is default 10 seconds, maximum 15 seconds. Hold expiry after a durable arm returns control while the wait remains pending; it is not cancellation and does not change the durable deadline.
+- The 15-second hold cap is local harness policy, not an MCP or 1MCP protocol limit. Separately, the ChatGPT connector/RPC path has shown an external request-duration ceiling around a minute, so do not rely on one long-lived MCP call for multi-minute work.
+- For long-running commands/processes, keep the process durable in Terminal and use `wait` to observe readiness/output/exit across short RPCs. For a deliberate elapsed-time diagnostic, a wait timeout may be used as the clock only when this is stated explicitly; do not misrepresent that as a native timer condition.
+
 ## Preserve the boundaries
 
 - File count alone never decides `edit` versus `apply_patch`.

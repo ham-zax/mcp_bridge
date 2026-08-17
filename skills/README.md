@@ -28,7 +28,7 @@ This directory tracks the Skills that were exposed or invoked in the ChatGPT ses
 ## Provenance
 
 - The 14 Superpowers skills come from the locally installed `superpowers` 6.2.0 bundle whose `brainstorming`, `using-superpowers`, and `writing-skills` entrypoints were checked against the versions exposed in this session. The complete local skill directories were copied so helper/reference files omitted by the ChatGPT Web resource view are preserved along with executable permissions.
-- `mcp-harness-router` is the repository-owned router skill, completed with the icon/UI metadata exposed by the session resource and maintained alongside harness behavior such as the installed `wsl-term` handoff path.
+- `mcp-harness-router` is the repository-owned router skill, completed with the icon/UI metadata exposed by the session resource and maintained alongside harness behavior such as the installed `wsl-term` handoff path and the durable wait/RPC boundary.
 - `superpowers-web-adapter`, `context-audit`, `moyu`, and `reflexion` were materialized from the session-exposed resources. Their resource reader exposes the instruction body without YAML frontmatter, so valid `name`/`description` frontmatter was added without changing the body.
 - `skill-creator` uses the locally installed official OpenAI system Skill Creator bundle. The session resource view is useful for reading instructions but is not byte-preserving for executable source because escaped newlines inside scripts are rendered as literal line breaks; the local canonical bundle is therefore safer and executable.
 - `agents/openai.yaml` files for the Superpowers bundles are local ChatGPT UI metadata added for installability; their upstream `SKILL.md` and helper files are otherwise copied unchanged.
