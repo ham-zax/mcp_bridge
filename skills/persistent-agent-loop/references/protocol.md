@@ -1,0 +1,247 @@
+# Persistent Agent Loop Protocol
+
+Use this reference for long-lived, steerable missions that may span many wait/resume cycles, process observations, or 24-hour wait leases.
+
+## Mission state
+
+Maintain enough durable state to resume safely after interruption. Prefer an existing project progress file; for repository work with no established location, a locally ignored `.superpowers/agent-loops/<mission-id>/state.md` is a suitable default.
+
+Record only what materially changes future action:
+
+```text
+mission_id
+mission_goal
+completion_criteria
+current_status
+verified_progress
+current_phase
+next_action
+active_wait_names
+active_terminal_sessions_or_processes
+important_artifacts
+steering_decisions
+blockers
+last_verification
+last_checkpoint_time
+```
+
+Never put passwords, tokens, MFA codes, private keys, or other secrets in mission state.
+
+Checkpoint after a meaningful transition, before a risky handoff/restart, after steering changes priorities, or before renewing a long wait lease. Do not rewrite a checkpoint merely to prove liveness.
+
+## Cooperative scheduling model
+
+The local wait is durable; one MCP call is not.
+
+```text
+reason
+  -> act if useful
+  -> checkpoint if state changed materially
+  -> arm/resume wait
+  -> pending/matched/timeout/failed
+  -> reason again
+```
+
+A `pending` result is a scheduling point. It means the named wait remains alive. The model may process user steering, inspect state, run another useful tool call, or simply resume the same wait.
+
+Do not confuse these lifetimes:
+
+```text
+mission lifetime        potentially hours/days
+wait safety deadline    <= 86400 seconds
+one wait RPC hold       <= 15 seconds
+Terminal process        independent durable PTY/process lifetime
+```
+
+The 15-second hold cap is a harness policy that keeps one connector request comfortably below the separately observed connector/RPC duration ceiling. Do not raise it as a shortcut for long missions without a dedicated transport-duration experiment.
+
+## Timer semantics
+
+Use native timer waits for elapsed or absolute wakeups.
+
+Relative:
+
+```text
+condition={kind:"timer", after_seconds:1800}
+```
+
+Absolute:
+
+```text
+condition={kind:"timer", at:"2026-08-17T09:00:00+05:30"}
+```
+
+Rules:
+
+- `after_seconds` is 1..86399.
+- `at` must include a timezone (`Z` or a numeric offset).
+- `timeout_seconds` is the outer safety deadline and must be strictly later than the timer target.
+- Leave practical margin for tool/reasoning overhead; for a 30-minute timer, `timeout_seconds=1860` is a reasonable example.
+- A timer already due when armed matches immediately.
+- A timer match is a reason to reassess the mission, not an automatic mission-success signal.
+- Do not emulate timers with Bash `sleep`, repeated shell polling, or deliberately impossible file/process conditions.
+
+For an absolute target farther away than one wait can safely cover, checkpoint and use shorter leases/wakeups rather than weakening the 24-hour safety ceiling.
+
+## Event waits
+
+Prefer event conditions when the next useful action depends on external state:
+
+```text
+terminal_output   wait for a literal produced after arming
+terminal_exit     wait for Terminal pane/process exit
+process_exit      wait for a PID identity to exit
+tcp_listen        wait for a TCP listener
+file_exists       wait for a file to appear
+file_changed      wait for a file fingerprint change
+http_ready        wait for HTTP readiness/status
+systemd_user      wait for a user service state
+timer             wait for relative/absolute time
+```
+
+Arm output-sensitive waits before triggering the action that may emit the output.
+
+## Persistent process ownership
+
+Do not keep a long build/server/watch alive inside a long Bash RPC. Start persistent or interactive work in Terminal. Terminal/tmux/broker owns process lifetime; `wait` observes it.
+
+Typical flow:
+
+```text
+terminal_open
+wait(terminal_output READY, hold_seconds=0)
+terminal_send(start command)
+wait(name=READY, hold_seconds<=15)
+... process steering or other work ...
+wait(name=READY, hold_seconds<=15)
+```
+
+For noninteractive commands that reliably finish within the bounded Bash window, normal Dev Bash remains appropriate.
+
+## User steering
+
+Inbound user steering outranks the previously planned next action. Classify it before acting:
+
+1. **Checkpoint/request for status** — report current state, then continue the mission.
+2. **Additive work** — do the requested side task if compatible, record material effects, then continue.
+3. **Reprioritization** — update next action/phase, preserve completion criteria unless changed.
+4. **Mission replacement** — checkpoint old mission if useful, cancel obsolete waits/processes only when safe, then adopt the new mission.
+5. **Stop** — write requested final evidence/checkpoint, cancel obsolete waits, verify state, then end.
+
+Do not treat every user message as implicit cancellation of the active mission.
+
+If steering changes a timer/stop target, cancel the superseded named timer wait and arm a new one. Do not mutate the semantic meaning of an existing wait name.
+
+## Heartbeats
+
+A heartbeat is pull-based in the current harness:
+
+```text
+wait -> pending -> reasoning resumes -> wait again
+```
+
+No independent server push injects a heartbeat into ChatGPT. Therefore:
+
+- keep heartbeat work minimal when nothing changed;
+- do not create edits/log entries on every pending result unless evidence collection is itself the mission;
+- use meaningful event waits instead of timer heartbeats when external state can wake the loop;
+- expect many bounded wait RPCs during a long continuously active turn.
+
+A `pending` result is evidence that the current call ended while durable wait state remained pending; it is not proof that the ChatGPT product guarantees indefinite active-turn execution.
+
+## 24-hour leases and multi-day missions
+
+The local wait safety deadline is at most 86400 seconds. Treat long waits as renewable leases.
+
+Before a lease expires:
+
+1. checkpoint mission state;
+2. verify durable processes/session identifiers still exist;
+3. reassess whether the same condition is still the right thing to wait for;
+4. allow the old lease to match/timeout or cancel it if obsolete;
+5. arm a new named wait with a fresh <=24-hour safety deadline;
+6. continue the mission.
+
+For two-day or longer missions, mission continuity comes from checkpoints plus renewed waits, not from claiming a single uninterruptible model invocation.
+
+## Hard-cutoff recovery
+
+If the active ChatGPT turn disappears unexpectedly, a successor should:
+
+1. read the mission checkpoint;
+2. inspect Git/worktree status and durable artifacts rather than trusting conversational memory;
+3. inspect known Terminal sessions/processes and named wait state if available;
+4. determine which previously reported actions were actually committed/verified;
+5. cancel only waits that are clearly obsolete;
+6. resume from the recorded `next_action` after revalidating assumptions.
+
+Never infer that a command completed merely because a previous turn intended to run it.
+
+## Completion contract
+
+Temporary idleness is not completion. A subtask finishing is not completion. A timer firing is not completion. A wait timing out is not completion unless the mission explicitly defines that timeout as its terminal condition.
+
+Before ending:
+
+1. re-read the stated mission goal and completion criteria;
+2. run fresh verification appropriate to the task;
+3. confirm no required work remains merely waiting on another known condition;
+4. record final durable evidence when the mission has used checkpoints;
+5. cancel obsolete waits and leave persistent processes running only if the mission requires them;
+6. report the actual continuity and evidence observed, not theoretical maximums.
+
+## Practical patterns
+
+### Work until an implementation is genuinely done
+
+```text
+implement/test
+-> if long process: Terminal + event wait
+-> inspect result
+-> fix/retest
+-> checkpoint meaningful progress
+-> continue until acceptance criteria verified
+-> end
+```
+
+### Reassess after 30 minutes
+
+```text
+arm timer(after_seconds=1800, timeout_seconds=1860)
+-> repeated bounded wait calls
+-> steering/other useful work may occur between pending results
+-> timer matched
+-> reassess mission
+```
+
+### Wait for either external progress or a periodic review
+
+The wait API does not currently provide a first-class OR-combinator. Use separate named waits only when the reasoning loop can safely choose which one to resume/check, and clean up the obsolete one after a decisive condition. Do not create unbounded families of orphaned waits.
+
+### Resident steerable mission
+
+```text
+mission checkpoint
+-> event/timer wait
+-> pending
+-> user steering arrives
+-> classify steering
+-> perform requested compatible work
+-> update checkpoint if material
+-> resume mission wait
+```
+
+## Anti-patterns
+
+Avoid:
+
+- Bash `sleep` for model scheduling;
+- one giant long-lived Bash/MCP request;
+- raising `hold_seconds` to simulate mission durability;
+- fake `file_exists` timers;
+- meaningless heartbeat mutations;
+- ending because one wait returned `timeout` without checking mission semantics;
+- cancelling a durable process merely because its observer wait ended;
+- claiming one-day/two-day active-turn guarantees that have not been measured;
+- storing secrets in checkpoints;
+- silently discarding user steering that changes mission priority or stop conditions.

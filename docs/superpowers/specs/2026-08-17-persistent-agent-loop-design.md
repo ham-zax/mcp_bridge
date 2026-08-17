@@ -430,7 +430,7 @@ A future agent following this design should use this compact loop:
 Once further long-duration testing is complete, the model-facing tool and Skill guidance should teach the following concepts explicitly:
 
 ```text
-wait creates durable named condition state.
+wait creates durable named condition/timer state.
 
 The durable deadline can span many MCP calls. `hold_seconds` controls only one invocation; `pending` does not cancel or reset the wait.
 
@@ -443,7 +443,7 @@ Mission completion is separate from wait completion. A timeout, heartbeat, or le
 For missions longer than one wait lease, checkpoint and renew the lease while preserving mission identity.
 ```
 
-A future native absolute-time or heartbeat condition would improve precision scheduling, but it is not required for the persistent-agent model itself.
+The harness now provides a native durable `timer` condition for relative and timezone-qualified absolute wakeups. Heartbeats remain cooperative/pull-based rather than server-pushed; timer matches improve scheduling semantics without changing that active-turn model.
 
 ## Success criteria for the design
 

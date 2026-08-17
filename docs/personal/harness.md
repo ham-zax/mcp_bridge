@@ -103,6 +103,7 @@ file_exists
 file_changed
 http_ready
 systemd_user
+timer
 ```
 
 Typical flow:
@@ -115,11 +116,13 @@ Typical flow:
 
 Important semantics:
 
-- timeout is an absolute durable deadline;
+- timeout is an absolute durable safety deadline;
+- `timer` supports relative `{kind:"timer", after_seconds:N}` wakeups and absolute `{kind:"timer", at:"<timezone-qualified instant>"}` wakeups;
+- `timer.after_seconds` is 1..86399 seconds, while `timeout_seconds` remains at most 86400 seconds and must be strictly later than the timer target because the safety deadline wins ties;
 - `hold_seconds=0` allows one bounded arm/check and does not poll-hold the call;
 - positive hold limits one invocation, not the underlying resource;
 - if positive hold expires before the first durable baseline commits, `WAIT_HOLD_EXPIRED` is returned and no wait exists;
-- after durable state exists, a hold expiry returns `pending` and preserves the same baseline/deadline;
+- after durable state exists, a hold expiry returns `pending` and preserves the same baseline/deadline; other reasoning/tool work may happen before resuming the same wait name;
 - Terminal output waits observe only new transcript output after arming;
 - the wait cursor is independent from normal `terminal_read` unread state;
 - explicit Terminal destruction and same-name replacement remain explicit (`WAIT_SOURCE_ENDED`, `WAIT_SOURCE_REPLACED`).

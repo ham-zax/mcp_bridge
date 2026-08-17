@@ -11,24 +11,26 @@ This directory tracks the Skills that were exposed or invoked in the ChatGPT ses
 5. `finishing-a-development-branch`
 6. `mcp-harness-router`
 7. `moyu`
-8. `receiving-code-review`
-9. `reflexion`
-10. `requesting-code-review`
-11. `skill-creator`
-12. `subagent-driven-development`
-13. `superpowers-web-adapter`
-14. `systematic-debugging`
-15. `test-driven-development`
-16. `using-git-worktrees`
-17. `using-superpowers`
-18. `verification-before-completion`
-19. `writing-plans`
-20. `writing-skills`
+8. `persistent-agent-loop`
+9. `receiving-code-review`
+10. `reflexion`
+11. `requesting-code-review`
+12. `skill-creator`
+13. `subagent-driven-development`
+14. `superpowers-web-adapter`
+15. `systematic-debugging`
+16. `test-driven-development`
+17. `using-git-worktrees`
+18. `using-superpowers`
+19. `verification-before-completion`
+20. `writing-plans`
+21. `writing-skills`
 
 ## Provenance
 
 - The 14 Superpowers skills come from the locally installed `superpowers` 6.2.0 bundle whose `brainstorming`, `using-superpowers`, and `writing-skills` entrypoints were checked against the versions exposed in this session. The complete local skill directories were copied so helper/reference files omitted by the ChatGPT Web resource view are preserved along with executable permissions.
 - `mcp-harness-router` is the repository-owned router skill, completed with the icon/UI metadata exposed by the session resource and maintained alongside harness behavior such as the installed `wsl-term` handoff path and the durable wait/RPC boundary.
+- `persistent-agent-loop` is repository-owned operational guidance for long-lived, steerable missions. Its compact `SKILL.md` directly references `references/protocol.md` so ChatGPT can load the detailed mission/checkpoint/recovery protocol only when needed.
 - `superpowers-web-adapter`, `context-audit`, `moyu`, and `reflexion` were materialized from the session-exposed resources. Their resource reader exposes the instruction body without YAML frontmatter, so valid `name`/`description` frontmatter was added without changing the body.
 - `skill-creator` uses the locally installed official OpenAI system Skill Creator bundle. The session resource view is useful for reading instructions but is not byte-preserving for executable source because escaped newlines inside scripts are rendered as literal line breaks; the local canonical bundle is therefore safer and executable.
 - `agents/openai.yaml` files for the Superpowers bundles are local ChatGPT UI metadata added for installability; their upstream `SKILL.md` and helper files are otherwise copied unchanged.
@@ -59,4 +61,4 @@ The WSL bootstrap does not and cannot silently install these Skills into a new C
 
 For a new ChatGPT environment, install the desired bundles from this directory through ChatGPT's Skills UI (`Plugins` -> `Skills` -> `Create` -> upload from your computer). Package/upload one skill directory at a time so its `SKILL.md`, `agents/openai.yaml`, and supporting resources remain together. Validate the directory first with the command above.
 
-At minimum, install `mcp-harness-router` when you want the local Dev/Code/Terminal routing policy from this repository. The other tracked Skills are reusable workflow/process bundles and may be installed as desired. ChatGPT-side Skill installation is separate from connecting the MCP endpoint and completing OAuth.
+At minimum, install `mcp-harness-router` when you want the local Dev/Code/Terminal routing policy from this repository. Also install `persistent-agent-loop` when conversations should run long-lived, steerable missions across durable waits, timers, checkpoints, and repeated tool work. Supporting files such as `persistent-agent-loop/references/protocol.md` must stay in the same uploaded Skill directory so ChatGPT can load them progressively when referenced. The other tracked Skills are reusable workflow/process bundles and may be installed as desired. ChatGPT-side Skill installation is separate from connecting the MCP endpoint and completing OAuth.
