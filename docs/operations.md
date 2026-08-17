@@ -8,7 +8,7 @@ bin/status
 bin/stop
 ```
 
-Healthy status should report one config-scoped 1MCP process, local health ready, cloudflared running, watchdog running, public health OK, and `issues: 0`.
+Healthy status should report one config-scoped 1MCP process, local health ready, cloudflared running, watchdog running, public health OK, bounded retained-diagnostic storage, and `issues: 0`. It prints both the rendered live source root and, when different, the checkout from which diagnostics are being run; live watchdog ownership is matched against the rendered root so inspecting from a candidate worktree does not create a false "watchdog stopped" result. In personal mode it also reports the Terminal broker socket and, when the user-systemd bus is directly reachable, `ActiveState` plus `NRestarts` for the broker unit. A missing user bus is reported separately from the broker socket so user-systemd observability ambiguity is not mistaken for broker failure.
 
 ## Personal installed lifecycle
 
@@ -108,16 +108,22 @@ Default Terminal state:
 ${XDG_STATE_HOME:-$HOME/.local/state}/wsl-agent-terminal
 ```
 
-Use `bin/status`, `systemctl --user status ...`, and `journalctl --user -u <unit>` before changing state manually.
+`bin/status` reports current/rotated 1MCP log bytes against the rendered native-rotation policy, finalized Bash spool bytes against the configured aggregate budget, active Bash spool bytes separately, and oldest retained ages. It also flags the obsolete runtime `one-mcp.log` append file if one remains from a pre-hardening launch. These diagnostics are read-only; Pi Dev performs actual spool cleanup at startup and opportunistically after every Bash command.
+
+1MCP's current log lives under `mcp-dev-bridge/logs/` and is rotated by the pinned 1MCP/Winston runtime according to `1mcp/config.toml`. Do not recreate shell `>> one-mcp.log` capture. After upgrading from a deployment that predates `config.toml`, rerun the renderer/bootstrap before restart; `scripts/smoke-local.sh` deliberately rejects stale generated state.
+
+Use `bin/status`, `systemctl --user status ...`, and `journalctl --user -u <unit>` before changing state manually. When a non-login shell lacks the user bus, the broker socket remains the direct runtime signal; derive the bus environment as shown above before interpreting `systemctl --user` failures.
 
 ## Safe restart order
 
-For ordinary bridge reconciliation:
+For ordinary bridge reconciliation after the rendered state is current:
 
 ```bash
 bin/stop
 bin/start
 ```
+
+If the source update changed generated provider/application policy (including the bounded 1MCP `config.toml`), rerun `scripts/render-config.mjs` or the appropriate bootstrap first. A fresh hardened 1MCP launch removes the legacy runtime append log and begins native rotated logging.
 
 For a personal broker-code update:
 
@@ -154,6 +160,7 @@ The superseded migration procedure is preserved under [engineering history](hist
 This project intentionally:
 
 - supervises the real 1MCP Node entrypoint instead of relying on `serve --background`;
+- verifies that the pinned runtime supports structured native `logging.maxSize` / `logging.maxFiles` rotation before relying on it;
 - verifies/applies the narrow OAuth consent CSP adjustment needed for the HTTPS ChatGPT callback.
 
 These are pinned-version compatibility behaviors. Requalify them when upgrading 1MCP.

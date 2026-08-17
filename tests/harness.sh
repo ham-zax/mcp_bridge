@@ -25,6 +25,11 @@ test_final_rendered_composition() {
 MCP_WORKSPACE_ROOT=/tmp/example-workspace
 MCP_PUBLIC_URL=https://mcp.example.test
 MCP_TUNNEL_NAME=
+MCP_DEV_MAX_SPOOL_BYTES=2048
+MCP_DEV_SPOOL_TTL_SECONDS=3600
+MCP_DEV_SPOOL_MAX_TOTAL_BYTES=8192
+MCP_ONE_MCP_LOG_MAX_SIZE_BYTES=1048576
+MCP_ONE_MCP_LOG_MAX_FILES=3
 ENV
   mkdir -p "$tmp/runtime" "$tmp/home"
   for profile in restricted trusted-dev personal; do
@@ -51,6 +56,15 @@ if (restricted.mcpServers?.codedb || trusted.mcpServers?.codedb || personal.mcpS
 if (restricted.mcpServers?.filesystem || trusted.mcpServers?.filesystem || personal.mcpServers?.filesystem) process.exit(1);
 if (restricted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'allowlist') process.exit(1);
 if (trusted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'unrestricted') process.exit(1);
+if (restricted.mcpServers.dev.env.MCP_DEV_MAX_SPOOL_BYTES !== '2048') process.exit(1);
+if (trusted.mcpServers.dev.env.MCP_DEV_MAX_SPOOL_BYTES !== '2048') process.exit(1);
+if (personal.mcpServers.dev.env.MCP_DEV_MAX_SPOOL_BYTES !== '2048') process.exit(1);
+if (restricted.mcpServers.dev.env.MCP_DEV_SPOOL_TTL_SECONDS !== '3600') process.exit(1);
+if (trusted.mcpServers.dev.env.MCP_DEV_SPOOL_TTL_SECONDS !== '3600') process.exit(1);
+if (personal.mcpServers.dev.env.MCP_DEV_SPOOL_TTL_SECONDS !== '3600') process.exit(1);
+if (restricted.mcpServers.dev.env.MCP_DEV_SPOOL_MAX_TOTAL_BYTES !== '8192') process.exit(1);
+if (trusted.mcpServers.dev.env.MCP_DEV_SPOOL_MAX_TOTAL_BYTES !== '8192') process.exit(1);
+if (personal.mcpServers.dev.env.MCP_DEV_SPOOL_MAX_TOTAL_BYTES !== '8192') process.exit(1);
 if (restricted.mcpServers.dev.env.MCP_DEV_PATH_MODE !== 'workspace') process.exit(1);
 if (trusted.mcpServers.dev.env.MCP_DEV_PATH_MODE !== 'workspace') process.exit(1);
 if (restricted.mcpServers.dev.env.MCP_DEV_TERMINAL_SOCKET !== undefined) process.exit(1);
@@ -70,8 +84,113 @@ if (personal.mcpServers.terminal.env.MCP_TERMINAL_READ_MAX_BYTES !== '65536') pr
 if (!personalEnv.includes("MCP_BRIDGE_PROFILE='personal'")) process.exit(1);
 NODE2
   local rc=$?
+  if [ "$rc" -eq 0 ]; then
+    for profile in restricted trusted-dev personal; do
+      log_cfg="$tmp/$profile/1mcp/config.toml"
+      grep -Fq '[logging]' "$log_cfg" || rc=1
+      grep -Fq "file = \"$tmp/$profile/logs/one-mcp.log\"" "$log_cfg" || rc=1
+      grep -Fq 'maxSize = 1048576' "$log_cfg" || rc=1
+      grep -Fq 'maxFiles = 3' "$log_cfg" || rc=1
+    done
+  fi
   rm -rf "$tmp"
   return "$rc"
+}
+
+test_dev_spool_limit_validation() {
+  local tmp value output rc
+  tmp="$(mktemp -d)" || return 1
+  mkdir -p "$tmp/workspace" "$tmp/runtime" "$tmp/home"
+  for value in 0 -1 nope 268435457; do
+    cat > "$tmp/deployment.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TUNNEL_NAME=
+MCP_DEV_MAX_SPOOL_BYTES=$value
+EOF
+    output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+      --profile trusted-dev \
+      --env-file "$tmp/deployment.env" \
+      --state-dir "$tmp/state-$value" \
+      --repo-root "$ROOT" 2>&1)"
+    rc=$?
+    if [ "$rc" -eq 0 ] || ! grep -Fq 'MCP_DEV_MAX_SPOOL_BYTES must be an integer from 1 to 268435456' <<<"$output"; then
+      rm -rf "$tmp"
+      return 1
+    fi
+  done
+
+  cat > "$tmp/deployment.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TUNNEL_NAME=
+MCP_DEV_SPOOL_TTL_SECONDS=0
+EOF
+  output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    --profile trusted-dev \
+    --env-file "$tmp/deployment.env" \
+    --state-dir "$tmp/state-invalid-ttl" \
+    --repo-root "$ROOT" 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 0 ] || ! grep -Fq 'MCP_DEV_SPOOL_TTL_SECONDS must be an integer from 1 to 31536000' <<<"$output"; then
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  cat > "$tmp/deployment.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TUNNEL_NAME=
+MCP_DEV_MAX_SPOOL_BYTES=2048
+MCP_DEV_SPOOL_MAX_TOTAL_BYTES=1024
+EOF
+  output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    --profile trusted-dev \
+    --env-file "$tmp/deployment.env" \
+    --state-dir "$tmp/state-invalid-budget" \
+    --repo-root "$ROOT" 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 0 ] || ! grep -Fq 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES must be >= MCP_DEV_MAX_SPOOL_BYTES' <<<"$output"; then
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  rm -rf "$tmp"
+}
+
+test_one_mcp_log_policy_validation() {
+  local tmp value output rc
+  tmp="$(mktemp -d)" || return 1
+  mkdir -p "$tmp/workspace" "$tmp/runtime" "$tmp/home"
+  for value in 0 1048575 nope 67108865; do
+    cat > "$tmp/deployment.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_ONE_MCP_LOG_MAX_SIZE_BYTES=$value
+EOF
+    output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+      --profile trusted-dev --env-file "$tmp/deployment.env" --state-dir "$tmp/log-size-$value" --repo-root "$ROOT" 2>&1)"
+    rc=$?
+    if [ "$rc" -eq 0 ] || ! grep -Fq 'MCP_ONE_MCP_LOG_MAX_SIZE_BYTES must be an integer from 1048576 to 67108864' <<<"$output"; then
+      rm -rf "$tmp"
+      return 1
+    fi
+  done
+  for value in 0 nope 11; do
+    cat > "$tmp/deployment.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_ONE_MCP_LOG_MAX_FILES=$value
+EOF
+    output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+      --profile trusted-dev --env-file "$tmp/deployment.env" --state-dir "$tmp/log-files-$value" --repo-root "$ROOT" 2>&1)"
+    rc=$?
+    if [ "$rc" -eq 0 ] || ! grep -Fq 'MCP_ONE_MCP_LOG_MAX_FILES must be an integer from 1 to 10' <<<"$output"; then
+      rm -rf "$tmp"
+      return 1
+    fi
+  done
+  rm -rf "$tmp"
 }
 
 test_personal_default_cwd_override() {
@@ -184,6 +303,8 @@ test_legacy_filesystem_dependency_removed() {
 
 run_test 'raw CodeDB surface stays removed from public composition' test_raw_codedb_surface_removed
 run_test 'final rendered composition adds Code and Terminal only to personal mode' test_final_rendered_composition
+run_test 'Dev spool deployment override rejects invalid values' test_dev_spool_limit_validation
+run_test '1MCP rotating log deployment policy rejects invalid values' test_one_mcp_log_policy_validation
 run_test 'personal default cwd supports an absolute deployment override' test_personal_default_cwd_override
 run_test 'personal runtime files carry no machine-specific home path' test_personal_runtime_files_have_no_machine_home
 run_test 'personal smoke validation accepts the private provider contract' test_personal_smoke_validation

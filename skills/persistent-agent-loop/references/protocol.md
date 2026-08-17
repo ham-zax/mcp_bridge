@@ -107,6 +107,22 @@ timer             wait for relative/absolute time
 
 Arm output-sensitive waits before triggering the action that may emit the output.
 
+## Repository writer ownership
+
+Terminal ownership is not Git writer ownership. The broker controls who may mutate one PTY; repository coordination controls who may mutate one worktree. Maintain these as separate invariants.
+
+For repository missions:
+
+- allow at most one writable autonomous process in a Git worktree at a time;
+- allow concurrent read-only investigation/review against a stable worktree;
+- before adopting an existing worktree, inspect `git status`, branch/HEAD, and known Terminal/agent processes so an inherited writer is not mistaken for idle state;
+- when a previous writer finishes, verify its Git effects and process exit/control state before another writer takes ownership;
+- if parallel writers materially improve throughput, create separate worktrees/branches from the same verified base commit, give them disjoint ownership, and integrate their verified changes from one central writer;
+- do not let delegated writers merge, rebase, reset, switch a shared branch, amend another writer's commits, or otherwise mutate integration history unless explicitly assigned;
+- do not infer Git ownership from `terminal_list`, tmux attachment, or model/human PTY ownership alone.
+
+At checkpoints and handoffs, record the active writer/worktree/branch when that fact affects safe resumption. After a hard cutoff, repository reality wins over the checkpoint: inspect Git/worktree and process state before resuming mutation.
+
 ## Persistent process ownership
 
 Do not keep a long build/server/watch alive inside a long Bash RPC. Start persistent or interactive work in Terminal. Terminal/tmux/broker owns process lifetime; `wait` observes it.

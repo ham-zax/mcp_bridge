@@ -17,7 +17,7 @@ The user reports having had normal ChatGPT runs lasting 30-40 minutes or longer.
 
 ## Evidence from the completed run
 
-Source log: `/home/hamza/repo/satori_bridge/timer-ping-test.log`
+Source log: [`timer-ping-test.log`](../../timer-ping-test.log)
 
 Observed numbered writes:
 

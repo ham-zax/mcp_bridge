@@ -28,6 +28,16 @@ reason -> act -> checkpoint if meaningful -> wait -> reassess -> continue
 - Keep Terminal work headless by default. If live human visibility is useful from the start, use `terminal_open(..., present:true)` so the exact private tmux PTY is visible in Kitty while tmux/broker remain the lifetime and ownership authority. For an already-running headless session, passive viewing can be offered through the human-side `wsl-term present <session>` frontend; use `terminal_yield` only when human input/control is actually useful.
 - Treat ordinary steering, status requests, progress questions, and compatible side tasks as in-mission events, not implicit termination. Answer or perform them, update/checkpoint material state when needed, then continue the mission unless completion is verified or the user explicitly stops/replaces it.
 
+## Keep repository writer ownership explicit
+
+For repository missions, process ownership and Git writer ownership are separate contracts. Keep **one writable autonomous process per Git worktree**. Read-only agents/reviewers may run concurrently against a stable tree, but two writers must never share one worktree merely because their intended files differ.
+
+- Before taking over a repository with an existing Terminal/Codex/agent process, inspect Git/worktree state and establish whether that process is still a writer. Do not silently become a second writer.
+- If concurrent writable delegation is genuinely useful, give each writer a separate worktree/branch from a known verified base, keep ownership disjoint, verify each result independently, then integrate centrally. Otherwise serialize writers.
+- Delegated writers must not merge, rebase, reset, switch shared branches, or rewrite another writer's branch unless that mutation is explicitly part of their assignment.
+- Terminal model/human ownership protects PTY input; it does not establish repository writer ownership. Track both independently.
+- Before saying `clean`, `green`, `committed`, or equivalent, obtain fresh repository evidence from the authoritative WSL worktree.
+
 ## Compose with agent-work-planner
 
 If `agent-work-planner` is available and the mission still needs explicit decomposition, dependency ordering, execution phases, or substantial replanning, use that Skill for the planning layer and keep this Skill responsible for execution lifetime.

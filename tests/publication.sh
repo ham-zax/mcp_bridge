@@ -129,6 +129,10 @@ EOF
     state="$tmp/$profile"
     node "$ROOT/scripts/render-config.mjs" --profile "$profile" --env-file "$env_file" --state-dir "$state" --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
     grep -Fq "MCP_BRIDGE_PROFILE='$profile'" "$state/bridge.env" || { rm -rf "$tmp"; return 1; }
+    grep -Fq '[logging]' "$state/1mcp/config.toml" || { rm -rf "$tmp"; return 1; }
+    grep -Fq "file = \"$state/logs/one-mcp.log\"" "$state/1mcp/config.toml" || { rm -rf "$tmp"; return 1; }
+    grep -Fq 'maxSize = 10485760' "$state/1mcp/config.toml" || { rm -rf "$tmp"; return 1; }
+    grep -Fq 'maxFiles = 5' "$state/1mcp/config.toml" || { rm -rf "$tmp"; return 1; }
   done
   node - "$tmp/restricted/1mcp/mcp.json" "$tmp/trusted-dev/1mcp/mcp.json" "$ROOT" <<'NODE2'
 const fs = require('fs');
@@ -142,6 +146,9 @@ for (const cfg of [restricted, trusted]) {
   const env = cfg.mcpServers.dev.env;
   if (env.MCP_DEV_WORKSPACE_ROOT !== '/tmp/example-workspace') process.exit(1);
   if (env.MCP_DEV_MAX_OUTPUT_BYTES !== '1048576') process.exit(1);
+  if (env.MCP_DEV_MAX_SPOOL_BYTES !== '67108864') process.exit(1);
+  if (env.MCP_DEV_SPOOL_TTL_SECONDS !== '604800') process.exit(1);
+  if (env.MCP_DEV_SPOOL_MAX_TOTAL_BYTES !== '536870912') process.exit(1);
   if (!env.MCP_DEV_STATE_DIR.endsWith('/dev')) process.exit(1);
   if (cfg.mcpServers.filesystem) process.exit(1);
 }
@@ -162,9 +169,30 @@ test_pi_install_and_smoke_contract() {
   grep -Fq 'MCP_DEV_WORKSPACE_ROOT' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'MCP_DEV_STATE_DIR' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'MCP_DEV_MAX_OUTPUT_BYTES' "$ROOT/scripts/smoke-local.sh" || return 1
+  grep -Fq 'MCP_DEV_MAX_SPOOL_BYTES' "$ROOT/scripts/smoke-local.sh" || return 1
+  grep -Fq 'MCP_DEV_SPOOL_TTL_SECONDS' "$ROOT/scripts/smoke-local.sh" || return 1
+  grep -Fq 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES' "$ROOT/scripts/smoke-local.sh" || return 1
+  grep -Fq 'config.toml' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'MCP_DEV_SHELL_MODE' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'unexpected final provider set' "$ROOT/scripts/smoke-local.sh" || return 1
   grep -Fq 'filesystem provider must be absent after Pi cutover' "$ROOT/scripts/smoke-local.sh" || return 1
+}
+
+test_skill_snapshot_checksums() {
+  (cd "$ROOT" && sha256sum -c skills/SNAPSHOT_SHA256.txt >/dev/null)
+}
+
+
+test_harness_skill_operational_contracts() {
+  local router="$ROOT/skills/mcp-harness-router/SKILL.md"
+  local loop="$ROOT/skills/persistent-agent-loop/SKILL.md"
+  local protocol="$ROOT/skills/persistent-agent-loop/references/protocol.md"
+  grep -Fq 'presentation layer' "$router" &&
+  grep -Fq 'generic proxy' "$router" &&
+  grep -Fq 'one writable autonomous process per Git worktree' "$loop" &&
+  grep -Fq 'Terminal ownership is not Git writer ownership' "$protocol" &&
+  grep -Fq 'agent-work-planner' "$loop" &&
+  ! grep -R -Fq 'agent-workflow-planner' "$ROOT/skills/persistent-agent-loop" "$ROOT/skills/README.md"
 }
 
 test_env_is_ignored() {
@@ -344,6 +372,8 @@ run_test 'trusted-dev is unrestricted while restricted is not' test_profiles_are
 run_test 'private-only paths stay outside the public publication surface' test_private_only_paths_are_not_public
 run_test 'renderer generates valid external state for both profiles' test_renderer_generates_both_profiles
 run_test 'setup and smoke preserve pinned Pi deployment contract' test_pi_install_and_smoke_contract
+run_test 'Skill snapshot checksums match tracked Skill bytes' test_skill_snapshot_checksums
+run_test 'harness Skills preserve authority and single-writer contracts' test_harness_skill_operational_contracts
 run_test '.env remains ignored' test_env_is_ignored
 run_test 'runtime and 1MCP state default outside the repository' test_state_defaults_are_external
 run_test 'lifecycle selects an actually rendered external deployment' test_rendered_deployment_is_selected_by_lifecycle

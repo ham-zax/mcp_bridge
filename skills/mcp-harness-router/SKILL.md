@@ -23,6 +23,22 @@ When Superpowers Web Adapter also applies, let Superpowers control engineering w
 - Human visibility or input in a durable PTY, including sudo/password/MFA or manual TUI interaction -> Terminal collaborative presentation/handoff. If the human should watch from the start, use `terminal_open(..., present:true)`. When human input is needed later, use `terminal_yield`: it reuses an attached designated frontend or launches Kitty on the exact tmux PTY, then gives the human control. If frontend launch fails, give the installed `wsl-term attach <session>` fallback; never ask the user to send a secret through chat.
 - Readiness, output, process exit, file/HTTP/systemd condition, or elapsed/absolute wakeup -> `wait`; use its native `timer` condition for time-based wakeups and do not implement polling/sleep loops in Bash.
 
+## Authority and observability
+
+- For connected-WSL repository, Git, process, timestamp, or filesystem facts, `mcp-harness-local` is authoritative. ChatGPT container/Python, Files, and public web are different environments and are not diagnostic substitutes for the WSL machine.
+- Diagnose with an explicit four-layer model: **presentation layer -> MCP proxy/harness transport -> WSL process/filesystem -> repository state**. Evidence at one layer does not silently determine the next layer. A generic proxy/status message does not override a successful concrete harness invocation; likewise, an MCP transport response does not by itself prove the underlying shell command exited successfully.
+- Distinguish three model-visible states: **observable success**, **observable tool/provider error**, and **UNOBSERVABLE presentation**. A hidden, redacted, skipped, or otherwise opaque UI result is not evidence that the underlying command succeeded and is not evidence that it failed.
+- When WSL observability becomes uncertain, perform at most one bounded `bash` health probe against the intended repository. Prefer a compact summary such as `pwd`, `git rev-parse --show-toplevel`, short `HEAD`, current branch, dirty-file count, and an explicit success marker. Do not invent image/file/base64/HTTP/alternate-filesystem visibility probes.
+- Discover/load concrete MCP tool schemas through the installed tool catalog once per session/profile and reuse them. Never search the public web for internal MCP function names.
+- Do not claim `verified`, `green`, `committed`, or equivalent repository state from inferred or hidden output. Obtain a small observable WSL result first.
+
+## Terminal observation discipline
+
+- Use `terminal_list` when session identity/ownership is initially unknown, at an explicit ownership handoff, or after an unexpected lifecycle event. Do not repeatedly relist stable sessions before every interaction.
+- Normal `terminal_read(name)` omits `cursor` and consumes only unread transcript output from the broker-owned model cursor.
+- `terminal_read(name, snapshot:true)` inspects the current tmux screen/TUI without advancing transcript state.
+- An explicit Terminal `cursor` is a recovery/replay/resynchronization control only; do not use explicit cursors for ordinary progress checks.
+
 ## Durable wait and RPC boundary
 
 - `wait` is a durable named **condition/timer wait**, not cron. Arm it with `name + condition`; later resume the same wait with `name` only. Use `cancel=true` only for explicit cancellation.
@@ -40,4 +56,5 @@ When Superpowers Web Adapter also applies, let Superpowers control engineering w
 - Keep background-only Terminal work headless. Use `terminal_open(..., present:true)` only when the human should watch the exact PTY from the start; do not launch a GUI merely because a durable session exists.
 - Reuse an already attached designated human frontend instead of opening duplicates. `terminal_yield` is the normal model-to-human handoff: reuse the designated frontend when present, otherwise launch Kitty and attach it to the exact tmux PTY before yielding.
 - Prefer bounded evidence over dumping large search or process output into model context.
+- A hard stop requires authoritative evidence such as a concrete MCP/provider failure that remains after one bounded recovery attempt, required WSL permission/access failure, human ownership blocking a required mutation, unrecoverable repository state, or a protected decision that needs the user. Awkward or opaque presentation alone is recoverable tooling uncertainty, not a hard stop.
 - If a preferred primitive is not exposed in the active profile, choose among the tools that actually exist; never invent a missing tool.

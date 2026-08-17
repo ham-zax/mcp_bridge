@@ -38,6 +38,15 @@ test_dependencies_are_pinned() {
   contains "$ROOT/config/templates/mcp.json" 'mcp-shell-server==1\.1\.8'
 }
 
+test_native_1mcp_rotation_capability_is_guarded() {
+  local helper="$ROOT/scripts/install-bridge-runtime.sh"
+  contains "$helper" 'logger/loggingConfig\.js' &&
+  contains "$helper" 'logger/logger\.js' &&
+  contains "$helper" 'maxSize' &&
+  contains "$helper" 'maxFiles' &&
+  contains "$helper" 'native log rotation'
+}
+
 test_oauth_csp_patch_is_preserved() {
   contains "$ROOT/scripts/install-bridge-runtime.sh" "form-action 'self' https:" && \
   contains "$ROOT/scripts/install-bridge-runtime.sh" "form-action 'self'" && \
@@ -71,6 +80,12 @@ test_no_internal_1mcp_background_supervisor() {
   ! grep -R -nE 'serve --background' "$ROOT/bin" "$ROOT/lib/bridge" "$ROOT/scripts" >/dev/null
 }
 
+test_1mcp_runtime_does_not_append_an_unbounded_console_log() {
+  local common="$ROOT/lib/bridge/common.sh"
+  ! grep -Eq '>>[^[:space:]]*one-mcp\.log|one-mcp\.log[^[:space:]]*2>&1' "$common" &&
+  grep -Fq 'rm -f "$BRIDGE_RUN_DIR/one-mcp.log"' "$common"
+}
+
 test_start_orders_origin_before_watchdog() {
   local origin_line watchdog_line
   origin_line="$(grep -n 'bridge_reconcile_1mcp' "$ROOT/bin/start" | head -n1 | cut -d: -f1)"
@@ -96,7 +111,10 @@ test_compatibility_wrappers_are_thin() {
 test_status_has_core_diagnostics() {
   contains "$ROOT/bin/status" 'MCP Development Bridge' && \
   contains "$ROOT/bin/status" 'duplicate 1MCP' && \
-  contains "$ROOT/bin/status" 'PID/listener mismatch'
+  contains "$ROOT/bin/status" 'PID/listener mismatch' && \
+  contains "$ROOT/bin/status" 'retained diagnostics' && \
+  contains "$ROOT/bin/status" 'Terminal broker' && \
+  contains "$ROOT/bin/status" 'NRestarts'
 }
 
 test_systemd_user_autostart_contract() {
@@ -135,11 +153,13 @@ test_lifecycle_lock_is_used_everywhere() {
 run_test 'lifecycle entrypoint scripts remain executable' test_scripts_are_executable
 run_test 'no global pkill/pgrep lifecycle management' test_no_global_process_matching
 run_test 'privileged MCP dependencies are pinned' test_dependencies_are_pinned
+run_test 'pinned 1MCP native rotation capability is guarded' test_native_1mcp_rotation_capability_is_guarded
 run_test '1MCP OAuth consent CSP compatibility patch is preserved' test_oauth_csp_patch_is_preserved
 run_test 'public and personal setup share the pinned bridge runtime installer' test_shared_bridge_runtime_installer_is_used
 run_test 'Cloudflare OAuth Bridge is the only canonical stack' test_cloudflare_oauth_is_canonical
 run_test 'start.sh is the canonical Cloudflare OAuth entrypoint' test_start_is_canonical_entrypoint
 run_test 'direct 1MCP startup is used without serve --background' test_no_internal_1mcp_background_supervisor
+run_test '1MCP runtime avoids an unbounded console append log' test_1mcp_runtime_does_not_append_an_unbounded_console_log
 run_test '1MCP origin is reconciled before watchdog startup' test_start_orders_origin_before_watchdog
 run_test 'watchdog starts only after public health succeeds' test_watchdog_starts_only_after_public_health
 run_test 'legacy tunnel scripts are thin start/stop aliases' test_compatibility_wrappers_are_thin
@@ -148,6 +168,101 @@ run_test 'systemd user unit autostarts the canonical bridge' test_systemd_user_a
 run_test 'systemd installer derives user home when HOME is missing' test_systemd_installer_handles_missing_home
 run_test 'personal bootstrap keeps startup behind explicit consent' test_personal_bootstrap_startup_consent_contract
 run_test 'manual lifecycle and watchdog share an exclusive lock' test_lifecycle_lock_is_used_everywhere
+
+test_status_reports_bounded_diagnostic_storage() {
+  local sandbox="$TMP/status-storage"
+  local state="$sandbox/state"
+  local run="$sandbox/run"
+  local fakebin="$sandbox/fakebin"
+  local fakeproc="$sandbox/proc"
+  mkdir -p "$state/1mcp" "$state/logs" "$state/dev" "$run" "$fakebin" "$fakeproc"
+  cat > "$state/bridge.env" <<EOF
+MCP_BRIDGE_PROFILE='personal'
+MCP_WORKSPACE_ROOT='$sandbox/workspace'
+MCP_PUBLIC_URL=''
+MCP_TUNNEL_NAME=''
+MCP_BRIDGE_ROOT='$ROOT'
+BRIDGE_STATE_DIR='$state'
+EOF
+  cat > "$state/1mcp/mcp.json" <<'JSON'
+{"mcpServers":{"dev":{"env":{"MCP_DEV_SPOOL_MAX_TOTAL_BYTES":"4096"}}}}
+JSON
+  cat > "$state/1mcp/config.toml" <<EOF
+[logging]
+file = "$state/logs/one-mcp.log"
+level = "info"
+maxSize = 1024
+maxFiles = 3
+EOF
+  printf '%01024d' 0 > "$state/logs/one-mcp.log"
+  printf '%01024d' 0 > "$state/logs/one-mcp1.log"
+  printf '%02048d' 0 > "$state/dev/bash-old.log"
+  printf '%01024d' 0 > "$state/dev/bash-new.log"
+  printf '%00512d' 0 > "$state/dev/bash-live.log.active"
+  cat > "$fakebin/curl" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  cat > "$fakebin/ss" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$fakebin/curl" "$fakebin/ss"
+
+  local output
+  output="$(BRIDGE_STATE_DIR="$state" BRIDGE_RUN_DIR="$run" BRIDGE_CONFIG_DIR="$state/1mcp" \
+    BRIDGE_PROC_ROOT="$fakeproc" PATH="$fakebin:$PATH" bash "$ROOT/bin/status" 2>&1 || true)"
+  grep -Fq '== retained diagnostics ==' <<<"$output" &&
+  grep -Fq '1MCP rotated logs: files=2 bytes=2048 policy_bytes=3072' <<<"$output" &&
+  grep -Fq 'Bash finalized spools: files=2 bytes=3072 budget_bytes=4096' <<<"$output" &&
+  grep -Fq 'Bash active spools: files=1 bytes=512' <<<"$output"
+}
+
+run_test 'status reports bounded log and Bash spool storage' test_status_reports_bounded_diagnostic_storage
+test_status_matches_watchdog_against_rendered_live_source_root() {
+  local sandbox="$TMP/status-source-root"
+  local state="$sandbox/state"
+  local run="$sandbox/run"
+  local fakebin="$sandbox/fakebin"
+  local fakeproc="$sandbox/proc"
+  local live_root="$sandbox/live-root"
+  mkdir -p "$state/1mcp" "$state/logs" "$state/dev" "$run" "$fakebin" "$fakeproc/101" "$live_root/lib/bridge"
+  cat > "$state/bridge.env" <<EOF
+MCP_BRIDGE_PROFILE='trusted-dev'
+MCP_WORKSPACE_ROOT='$sandbox/workspace'
+MCP_PUBLIC_URL='https://example.test'
+MCP_TUNNEL_NAME=''
+MCP_BRIDGE_ROOT='$live_root'
+BRIDGE_STATE_DIR='$state'
+EOF
+  printf '{}\n' > "$state/1mcp/mcp.json"
+  cat > "$state/1mcp/config.toml" <<EOF
+[logging]
+file = "$state/logs/one-mcp.log"
+maxSize = 1048576
+maxFiles = 2
+EOF
+  : > "$run/cloudflare-oauth.enabled"
+  printf '101\n' > "$run/watchdog.pid"
+  printf '%s\0' bash "$live_root/lib/bridge/watchdog.sh" > "$fakeproc/101/cmdline"
+  cat > "$fakebin/curl" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  cat > "$fakebin/ss" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$fakebin/curl" "$fakebin/ss"
+
+  local output
+  output="$(BRIDGE_STATE_DIR="$state" BRIDGE_RUN_DIR="$run" BRIDGE_CONFIG_DIR="$state/1mcp" \
+    BRIDGE_PROC_ROOT="$fakeproc" PATH="$fakebin:$PATH" bash "$ROOT/bin/status" 2>&1 || true)"
+  grep -Fq 'watchdog:    running' <<<"$output" &&
+  grep -Fq "rendered source root: $live_root" <<<"$output"
+}
+
+run_test 'status matches watchdog ownership against the rendered live source root' test_status_matches_watchdog_against_rendered_live_source_root
 
 # ---------- Runtime/state selection ----------
 

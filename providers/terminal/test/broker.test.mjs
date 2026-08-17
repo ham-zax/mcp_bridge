@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { EventEmitter, once } from 'node:events';
+import { createConnection, createServer } from 'node:net';
 import test from 'node:test';
 
 import { loadConfig } from '../broker.mjs';
@@ -33,6 +35,68 @@ test('broker config defaults cwd to the current user home', () => {
     if (previousDefaultCwd === undefined) delete process.env.MCP_TERMINAL_DEFAULT_CWD;
     else process.env.MCP_TERMINAL_DEFAULT_CWD = previousDefaultCwd;
   }
+});
+
+test('accepted client socket errors are contained to that connection', async () => {
+  const { attachBrokerConnection } = await import('../broker.mjs');
+  assert.equal(typeof attachBrokerConnection, 'function');
+
+  class FakeSocket extends EventEmitter {
+    destroyed = false;
+    setEncoding() {}
+    destroy() { this.destroyed = true; }
+  }
+
+  const socket = new FakeSocket();
+  attachBrokerConnection(socket, async () => ({ sessions: [] }));
+
+  assert.doesNotThrow(() => {
+    socket.emit('error', Object.assign(new Error('peer reset'), { code: 'ECONNRESET' }));
+  });
+  assert.equal(socket.destroyed, true);
+});
+
+test('real peer TCP reset is contained and a later request still succeeds', async (t) => {
+  const { attachBrokerConnection } = await import('../broker.mjs');
+  let accepted = 0;
+  let resolveFirstClose;
+  const firstClosed = new Promise((resolve) => { resolveFirstClose = resolve; });
+  const server = createServer((socket) => {
+    accepted += 1;
+    if (accepted === 1) socket.once('close', resolveFirstClose);
+    attachBrokerConnection(socket, async () => ({ sessions: [] }));
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.equal(typeof address, 'object');
+
+  const resetter = createConnection({ host: '127.0.0.1', port: address.port });
+  await once(resetter, 'connect');
+  resetter.write('{"id":"partial"');
+  resetter.resetAndDestroy();
+  await firstClosed;
+
+  const healthy = createConnection({ host: '127.0.0.1', port: address.port });
+  await once(healthy, 'connect');
+  healthy.setEncoding('utf8');
+  const responseLine = new Promise((resolve, reject) => {
+    let buffered = '';
+    healthy.on('data', (chunk) => {
+      buffered += chunk;
+      const newline = buffered.indexOf('\n');
+      if (newline !== -1) resolve(buffered.slice(0, newline));
+    });
+    healthy.once('error', reject);
+  });
+  healthy.write('{"id":"after-reset","op":"session.list","params":{}}\n');
+  const response = JSON.parse(await responseLine);
+  assert.deepEqual(response, { id: 'after-reset', ok: true, result: { sessions: [] } });
+  assert.equal(server.listening, true);
+  healthy.end();
+  await once(healthy, 'close');
 });
 
 test('broker restart preserves tmux server, PTY process, transcript capture, and recovered session', async (t) => {
