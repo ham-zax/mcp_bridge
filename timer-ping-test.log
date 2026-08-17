@@ -1,0 +1,14 @@
+Timer/RPC liveness test
+Canonical timezone: Asia/Kolkata (+05:30)
+Timestamp command: TZ=Asia/Kolkata date '+%Y-%m-%d %H:%M:%S.%3N %z'
+Experiment target: six real repo tool-call pings, 2 minutes apart
+Timing mechanism: durable Dev wait timeout; no automations and no Bash sleep loop
+Per-RPC wait hold: max 15 seconds (current repo policy, not the 2-minute durable deadline)
+Status: completed; six notes written in one active assistant turn
+
+Note 1 | 2026-08-17 05:21:12.568 +0530 | tool=mcp-harness-local.dev_1mcp_bash
+Note 2 | 2026-08-17 05:23:23.935 +0530 | tool=mcp-harness-local.dev_1mcp_bash
+Note 3 | 2026-08-17 05:25:39.964 +0530 | tool=mcp-harness-local.dev_1mcp_bash
+Note 4 | 2026-08-17 05:27:56.554 +0530 | tool=mcp-harness-local.dev_1mcp_bash
+Note 5 | 2026-08-17 05:30:13.163 +0530 | tool=mcp-harness-local.dev_1mcp_bash
+Note 6 | 2026-08-17 05:32:27.568 +0530 | tool=mcp-harness-local.dev_1mcp_bash
