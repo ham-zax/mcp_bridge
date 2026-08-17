@@ -176,6 +176,25 @@ test('large output is bounded and full output is retained', async () => {
   assert.equal(result.output_bytes, 5000);
 });
 
+test('retained Bash spool is capped while total output accounting remains exact', async () => {
+  const workspaceRoot = await tempDir('pi-bash-spool-root-');
+  const stateDir = await tempDir('pi-bash-spool-state-');
+  const result = await runBash({
+    workspaceRoot,
+    command: `node -e "process.stdout.write('x'.repeat(5000))"`,
+    maxOutputBytes: 1024,
+    maxSpoolBytes: 2048,
+    stateDir
+  });
+  assert.equal(result.exit_code, 0);
+  assert.equal(result.output_bytes, 5000);
+  assert.equal(result.truncated, true);
+  assert.equal(result.spool_truncated, true);
+  assert.ok(Buffer.byteLength(result.output) <= 1024);
+  assert.ok(result.full_output_path);
+  assert.equal((await fs.stat(result.full_output_path)).size, 2048);
+});
+
 test('timeout policy rejects values above 300 seconds', async () => {
   const workspaceRoot = await tempDir('pi-bash-limit-');
   const stateDir = await tempDir('pi-bash-limit-state-');

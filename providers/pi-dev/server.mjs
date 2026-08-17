@@ -47,6 +47,12 @@ if (!Number.isInteger(maxOutputBytes) || maxOutputBytes <= 0 || maxOutputBytes >
   process.exit(2);
 }
 
+const maxSpoolBytes = Number(process.env.MCP_DEV_MAX_SPOOL_BYTES ?? String(64 * 1024 * 1024));
+if (!Number.isInteger(maxSpoolBytes) || maxSpoolBytes <= 0 || maxSpoolBytes > 256 * 1024 * 1024) {
+  console.error('MCP_DEV_MAX_SPOOL_BYTES must be a positive integer up to 268435456');
+  process.exit(2);
+}
+
 let waitEngine = null;
 if (pathMode === 'user') {
   const terminalSocketPath = process.env.MCP_DEV_TERMINAL_SOCKET;
@@ -195,8 +201,8 @@ if (pathMode === 'user') {
 if (mode === 'unrestricted') {
   server.registerTool('bash', {
     description: pathMode === 'user'
-      ? 'Run one bounded, noninteractive native Bash command as the WSL user; prefer for short commands, Git, builds, tests, rg, repository inspection, and ordinary execution. Default timeout is 30 seconds, maximum 300 seconds, and large output may be truncated with a full-output path. Use Terminal for processes that must persist or need a PTY/interactive workflow. For a large or unfamiliar repository, Bash with rg plus focused read is the lower-cost discovery path before potentially heavyweight CodeDB-backed Code tools. Do not use raw tmux or wsl-term through Bash to bypass human Terminal ownership. cwd defaults to the configured default cwd and may be relative to it or absolute'
-      : 'Run one bounded, noninteractive native Bash command; prefer for short commands, Git, builds, tests, and ordinary execution. Default timeout is 30 seconds, maximum 300 seconds, and large output may be truncated with a full-output path; cwd is optional and workspace-relative',
+      ? 'Run one bounded, noninteractive native Bash command as the WSL user; prefer for short commands, Git, builds, tests, rg, repository inspection, and ordinary execution. Default timeout is 30 seconds, maximum 300 seconds, and large output may be truncated with a bounded retained-output path. Use Terminal for processes that must persist or need a PTY/interactive workflow. For a large or unfamiliar repository, Bash with rg plus focused read is the lower-cost discovery path before potentially heavyweight CodeDB-backed Code tools. Do not use raw tmux or wsl-term through Bash to bypass human Terminal ownership. cwd defaults to the configured default cwd and may be relative to it or absolute'
+      : 'Run one bounded, noninteractive native Bash command; prefer for short commands, Git, builds, tests, and ordinary execution. Default timeout is 30 seconds, maximum 300 seconds, and large output may be truncated with a bounded retained-output path; cwd is optional and workspace-relative',
     inputSchema: {
       command: z.string().min(1),
       cwd: cwdPath.optional(),
@@ -207,6 +213,7 @@ if (mode === 'unrestricted') {
       ...pathPolicy,
       ...args,
       maxOutputBytes,
+      maxSpoolBytes,
       stateDir
     }, extra.signal);
     return { content: [{ type: 'text', text: renderBashText(result) }] };

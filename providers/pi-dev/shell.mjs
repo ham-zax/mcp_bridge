@@ -13,6 +13,8 @@ import { resolveUserCwd, resolveWorkspaceCwd } from './boundary.mjs';
 const DEFAULT_TIMEOUT_SECONDS = 30;
 const MAX_TIMEOUT_SECONDS = 300;
 const MAX_POLICY_BYTES = 16 * 1024 * 1024;
+const DEFAULT_MAX_SPOOL_BYTES = 64 * 1024 * 1024;
+const MAX_SPOOL_BYTES = 256 * 1024 * 1024;
 
 function positiveNumber(name, value, max) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > max) {
@@ -48,6 +50,7 @@ export async function runBash({
   cwd,
   timeout_seconds = DEFAULT_TIMEOUT_SECONDS,
   maxOutputBytes,
+  maxSpoolBytes = DEFAULT_MAX_SPOOL_BYTES,
   stateDir
 }, signal) {
   if (typeof command !== 'string' || command.length === 0) {
@@ -55,6 +58,7 @@ export async function runBash({
   }
   positiveNumber('timeout_seconds', timeout_seconds, MAX_TIMEOUT_SECONDS);
   positiveNumber('MCP_DEV_MAX_OUTPUT_BYTES', maxOutputBytes, MAX_POLICY_BYTES);
+  positiveNumber('MCP_DEV_MAX_SPOOL_BYTES', maxSpoolBytes, MAX_SPOOL_BYTES);
   if (typeof stateDir !== 'string' || !path.isAbsolute(stateDir)) {
     throw new Error('MCP_DEV_STATE_DIR must be an absolute path');
   }
@@ -71,6 +75,7 @@ export async function runBash({
   const started = process.hrtime.bigint();
   let tail = Buffer.alloc(0);
   let outputBytes = 0;
+  let spoolBytes = 0;
   let exitCode = null;
   let timedOut = false;
   let cancelled = false;
@@ -78,7 +83,14 @@ export async function runBash({
 
   const onData = data => {
     const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
-    writeSync(fd, chunk);
+    const remainingSpoolBytes = Math.max(0, maxSpoolBytes - spoolBytes);
+    if (remainingSpoolBytes > 0) {
+      const retained = chunk.length <= remainingSpoolBytes
+        ? chunk
+        : chunk.subarray(0, remainingSpoolBytes);
+      writeSync(fd, retained);
+      spoolBytes += retained.length;
+    }
     outputBytes += chunk.length;
     tail = boundedTail(tail, chunk, maxOutputBytes);
   };
@@ -105,6 +117,7 @@ export async function runBash({
 
   const durationMs = Number(process.hrtime.bigint() - started) / 1_000_000;
   const truncated = outputBytes > maxOutputBytes;
+  const spoolTruncated = outputBytes > maxSpoolBytes;
   if (!truncated) {
     try { unlinkSync(spool); } catch {}
   }
@@ -118,6 +131,7 @@ export async function runBash({
     timed_out: timedOut,
     cancelled,
     truncated,
+    spool_truncated: spoolTruncated,
     full_output_path: truncated ? spool : null,
     timeout_seconds
   };

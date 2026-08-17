@@ -12,6 +12,7 @@ function record(overrides = {}) {
     timed_out: false,
     cancelled: false,
     truncated: false,
+    spool_truncated: false,
     full_output_path: null,
     timeout_seconds: 30,
     ...overrides
@@ -41,6 +42,18 @@ test('truncation points to the full output handle', () => {
       full_output_path: '/state/dev/bash-a82f.log'
     })),
     'tail\n[truncated · full: /state/dev/bash-a82f.log]'
+  );
+});
+
+test('capped retained output is labeled as partial rather than full', () => {
+  assert.equal(
+    renderBashText(record({
+      output: 'tail\n',
+      truncated: true,
+      spool_truncated: true,
+      full_output_path: '/state/dev/bash-capped.log'
+    })),
+    'tail\n[truncated · retained output capped · file: /state/dev/bash-capped.log]'
   );
 });
 

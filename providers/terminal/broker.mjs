@@ -110,6 +110,45 @@ function requireString(value, field) {
   return value;
 }
 
+export function attachBrokerConnection(socket, dispatch) {
+  socket.setEncoding('utf8');
+  let buffered = '';
+  let chain = Promise.resolve();
+
+  socket.on('error', () => {
+    socket.destroy();
+  });
+
+  socket.on('data', (chunk) => {
+    buffered += chunk;
+    if (Buffer.byteLength(buffered, 'utf8') > MAX_PROTOCOL_LINE_BYTES) {
+      socket.end(encodeResponse(errorResponse(null, new TerminalError(
+        'REQUEST_TOO_LARGE',
+        `request line exceeds ${MAX_PROTOCOL_LINE_BYTES} bytes`,
+      ))));
+      return;
+    }
+    while (true) {
+      const newline = buffered.indexOf('\n');
+      if (newline === -1) break;
+      const line = buffered.slice(0, newline);
+      buffered = buffered.slice(newline + 1);
+      if (line.length === 0) continue;
+      chain = chain.then(async () => {
+        let id = null;
+        try {
+          const request = decodeRequest(line);
+          id = request.id;
+          const result = await dispatch(request);
+          socket.write(encodeResponse({ id, ok: true, result }));
+        } catch (error) {
+          socket.write(encodeResponse(errorResponse(id, error)));
+        }
+      });
+    }
+  });
+}
+
 export async function createBroker(config = loadConfig()) {
   process.umask(0o077);
   await mkdir(config.stateRoot, { recursive: true, mode: 0o700 });
@@ -523,39 +562,7 @@ export async function createBroker(config = loadConfig()) {
   }
 
   await prepareSocket(config.socketPath);
-  const server = net.createServer((socket) => {
-    socket.setEncoding('utf8');
-    let buffered = '';
-    let chain = Promise.resolve();
-    socket.on('data', (chunk) => {
-      buffered += chunk;
-      if (Buffer.byteLength(buffered, 'utf8') > MAX_PROTOCOL_LINE_BYTES) {
-        socket.end(encodeResponse(errorResponse(null, new TerminalError(
-          'REQUEST_TOO_LARGE',
-          `request line exceeds ${MAX_PROTOCOL_LINE_BYTES} bytes`,
-        ))));
-        return;
-      }
-      while (true) {
-        const newline = buffered.indexOf('\n');
-        if (newline === -1) break;
-        const line = buffered.slice(0, newline);
-        buffered = buffered.slice(newline + 1);
-        if (line.length === 0) continue;
-        chain = chain.then(async () => {
-          let id = null;
-          try {
-            const request = decodeRequest(line);
-            id = request.id;
-            const result = await dispatch(request);
-            socket.write(encodeResponse({ id, ok: true, result }));
-          } catch (error) {
-            socket.write(encodeResponse(errorResponse(id, error)));
-          }
-        });
-      }
-    });
-  });
+  const server = net.createServer((socket) => attachBrokerConnection(socket, dispatch));
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);

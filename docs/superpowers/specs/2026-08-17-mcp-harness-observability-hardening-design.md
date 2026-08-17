@@ -66,7 +66,7 @@ Fix at the connection boundary:
 - preserve normal request ordering and protocol responses for healthy clients;
 - do not introduce global retry behavior in the broker.
 
-Acceptance: a real client connection that is reset/aborted must not terminate the broker, and a subsequent `session.list` request must still succeed.
+Acceptance: an accepted client socket `error` event such as `ECONNRESET` is contained to that connection rather than becoming an unhandled process error; the existing broker integration suite must continue serving normal requests.
 
 ## Pi Dev Bash Spool Bounding
 

@@ -8,7 +8,9 @@ function appendLines(output, annotations) {
 export function renderBashText(result) {
   const annotations = [];
   if (result.truncated && result.full_output_path) {
-    annotations.push(`[truncated · full: ${result.full_output_path}]`);
+    annotations.push(result.spool_truncated
+      ? `[truncated · retained output capped · file: ${result.full_output_path}]`
+      : `[truncated · full: ${result.full_output_path}]`);
   }
   if (result.timed_out) {
     annotations.push(`[timed out after ${result.timeout_seconds}s]`);

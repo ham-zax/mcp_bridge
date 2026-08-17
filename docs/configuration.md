@@ -95,3 +95,5 @@ Generated provider commands contain the repository root used during rendering. I
 ## Output policy
 
 `MCP_DEV_MAX_OUTPUT_BYTES` is deployment policy, not a model-facing tool argument. Increase it only when the operator deliberately wants a larger model-visible Bash result budget.
+
+Pi Dev also bounds retained Bash diagnostics independently of the model-visible tail. `MCP_DEV_MAX_SPOOL_BYTES` is an internal provider limit with a 64 MiB default and a 256 MiB maximum. When command output exceeds that cap, `output_bytes` still counts the full observed stream, the model still receives the configured bounded tail, and any retained-output file is explicitly labeled as capped rather than complete.

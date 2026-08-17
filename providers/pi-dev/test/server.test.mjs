@@ -158,6 +158,16 @@ test('path mode startup validation requires the matching authority root', async 
   });
   assert.equal(missingDefault.code, 2);
   assert.match(missingDefault.stderr, /MCP_DEV_DEFAULT_CWD.*absolute path/i);
+
+  const workspaceRoot = await tempDir('pi-dev-validation-workspace-');
+  const invalidSpoolLimit = await runServerProcess({
+    ...base,
+    MCP_DEV_PATH_MODE: 'workspace',
+    MCP_DEV_WORKSPACE_ROOT: workspaceRoot,
+    MCP_DEV_MAX_SPOOL_BYTES: '0'
+  });
+  assert.equal(invalidSpoolLimit.code, 2);
+  assert.match(invalidSpoolLimit.stderr, /MCP_DEV_MAX_SPOOL_BYTES.*positive integer/i);
 });
 
 test('trusted-dev exposes four tools and minimal schemas', async () => {
@@ -166,6 +176,7 @@ test('trusted-dev exposes four tools and minimal schemas', async () => {
     const listed = await client.listTools();
     assert.deepEqual(listed.tools.map(x => x.name).sort(), ['bash', 'edit', 'read', 'write']);
     const bash = listed.tools.find(x => x.name === 'bash');
+    assert.match(bash.description, /bounded retained-output path/i);
     assert.deepEqual(Object.keys(bash.inputSchema.properties).sort(), ['command', 'cwd', 'timeout_seconds']);
     const read = listed.tools.find(x => x.name === 'read');
     assert.deepEqual(Object.keys(read.inputSchema.properties).sort(), ['limit', 'offset', 'path']);
@@ -929,6 +940,27 @@ test('deployment output limit is applied without appearing in schema', async () 
     assert.match(text, /\[truncated · full: .*\]/);
     assert.ok(Buffer.byteLength(text) < 1300);
   });
+});
+
+test('deployment spool limit caps retained Bash output without appearing in schema', async () => {
+  const { stateDir, env } = await fixture('unrestricted', '1024');
+  env.MCP_DEV_MAX_SPOOL_BYTES = '2048';
+  await withClient(env, async client => {
+    const listed = await client.listTools();
+    const bash = listed.tools.find(tool => tool.name === 'bash');
+    assert.equal(JSON.stringify(bash.inputSchema).includes('spool'), false);
+
+    const result = await client.callTool({
+      name: 'bash',
+      arguments: { command: `node -e "process.stdout.write('x'.repeat(5000))"` }
+    });
+    assert.match(textOf(result), /retained output capped/);
+  });
+
+  const entries = await fs.readdir(stateDir);
+  const spool = entries.find(name => name.startsWith('bash-') && name.endsWith('.log'));
+  assert.ok(spool);
+  assert.equal((await fs.stat(path.join(stateDir, spool))).size, 2048);
 });
 
 test('edit diagnostics keep model-facing paths workspace-relative', async () => {

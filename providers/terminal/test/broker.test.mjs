@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import { loadConfig } from '../broker.mjs';
@@ -33,6 +34,25 @@ test('broker config defaults cwd to the current user home', () => {
     if (previousDefaultCwd === undefined) delete process.env.MCP_TERMINAL_DEFAULT_CWD;
     else process.env.MCP_TERMINAL_DEFAULT_CWD = previousDefaultCwd;
   }
+});
+
+test('accepted client socket errors are contained to that connection', async () => {
+  const { attachBrokerConnection } = await import('../broker.mjs');
+  assert.equal(typeof attachBrokerConnection, 'function');
+
+  class FakeSocket extends EventEmitter {
+    destroyed = false;
+    setEncoding() {}
+    destroy() { this.destroyed = true; }
+  }
+
+  const socket = new FakeSocket();
+  attachBrokerConnection(socket, async () => ({ sessions: [] }));
+
+  assert.doesNotThrow(() => {
+    socket.emit('error', Object.assign(new Error('peer reset'), { code: 'ECONNRESET' }));
+  });
+  assert.equal(socket.destroyed, true);
 });
 
 test('broker restart preserves tmux server, PTY process, transcript capture, and recovered session', async (t) => {

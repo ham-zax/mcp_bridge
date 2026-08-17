@@ -64,7 +64,7 @@ Expected: all required concepts appear and documentation links pass.
 
 - [ ] **Step 1: Write the failing broker regression**
 
-Add a test that starts the real broker, opens a raw Unix-domain socket client, forces/induces an abrupt client-side close/reset while the connection is active, then asserts the broker child remains alive and a later `session.list` request succeeds.
+Add a focused connection-boundary regression that feeds a socket-like EventEmitter into the accepted-connection handler, emits an `ECONNRESET`-style `error`, and proves the handler consumes the error and destroys only that connection. The full broker suite remains the integration check for normal subsequent service behavior.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
