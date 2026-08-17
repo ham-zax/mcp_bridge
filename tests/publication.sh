@@ -169,6 +169,10 @@ test_pi_install_and_smoke_contract() {
   grep -Fq 'filesystem provider must be absent after Pi cutover' "$ROOT/scripts/smoke-local.sh" || return 1
 }
 
+test_skill_snapshot_checksums() {
+  (cd "$ROOT" && sha256sum -c skills/SNAPSHOT_SHA256.txt >/dev/null)
+}
+
 test_env_is_ignored() {
   git -C "$ROOT" check-ignore -q .env
 }
@@ -346,6 +350,7 @@ run_test 'trusted-dev is unrestricted while restricted is not' test_profiles_are
 run_test 'private-only paths stay outside the public publication surface' test_private_only_paths_are_not_public
 run_test 'renderer generates valid external state for both profiles' test_renderer_generates_both_profiles
 run_test 'setup and smoke preserve pinned Pi deployment contract' test_pi_install_and_smoke_contract
+run_test 'Skill snapshot checksums match tracked Skill bytes' test_skill_snapshot_checksums
 run_test '.env remains ignored' test_env_is_ignored
 run_test 'runtime and 1MCP state default outside the repository' test_state_defaults_are_external
 run_test 'lifecycle selects an actually rendered external deployment' test_rendered_deployment_is_selected_by_lifecycle
