@@ -7,6 +7,25 @@ SHELL_MCP_VERSION="1.1.8"
 echo "== installing pinned 1MCP aggregator =="
 npm install -g "@1mcp/agent@$ONE_MCP_VERSION"
 
+echo "== verifying pinned 1MCP native log rotation =="
+LOGGING_CONFIG="$(npm root -g)/@1mcp/agent/build/logger/loggingConfig.js"
+LOGGER_IMPL="$(npm root -g)/@1mcp/agent/build/logger/logger.js"
+node --input-type=module - "$LOGGING_CONFIG" "$LOGGER_IMPL" <<'NODE'
+import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
+const [loggingConfigPath, loggerPath] = process.argv.slice(2);
+const { resolveLoggingConfig } = await import(pathToFileURL(loggingConfigPath).href);
+const { resolved } = resolveLoggingConfig({ structured: { file: '/tmp/one-mcp.log', maxSize: '10m', maxFiles: 5 } });
+if (resolved.maxSize !== 10 * 1024 * 1024 || resolved.maxFiles !== 5) {
+  throw new Error('pinned 1MCP did not resolve structured maxSize/maxFiles as expected');
+}
+const loggerSource = fs.readFileSync(loggerPath, 'utf8');
+if (!loggerSource.includes('maxsize: options.maxSize') || !loggerSource.includes('maxFiles: options.maxFiles')) {
+  throw new Error('pinned 1MCP logger does not expose native size/file-count rotation');
+}
+NODE
+echo "  verified native log rotation (structured maxSize/maxFiles)"
+
 echo "== applying verified upstream 1MCP patch =="
 SDK_PROVIDER="$(npm root -g)/@1mcp/agent/build/auth/sdkOAuthServerProvider.js"
 if [ ! -f "$SDK_PROVIDER" ]; then

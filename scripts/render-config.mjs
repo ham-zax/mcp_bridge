@@ -95,7 +95,7 @@ export async function renderConfig(options) {
   const deployment = {
     ...(await readEnvFile(envFile, { optional: true })),
     ...Object.fromEntries(
-      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_DEV_MAX_SPOOL_BYTES', 'MCP_DEV_SPOOL_TTL_SECONDS', 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES', 'MCP_PERSONAL_DEFAULT_CWD'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
+      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_DEV_MAX_SPOOL_BYTES', 'MCP_DEV_SPOOL_TTL_SECONDS', 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES', 'MCP_ONE_MCP_LOG_MAX_SIZE_BYTES', 'MCP_ONE_MCP_LOG_MAX_FILES', 'MCP_PERSONAL_DEFAULT_CWD'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
     ),
   };
   const profileValues = await readEnvFile(path.join(repoRoot, 'config', 'profiles', `${profile}.env`));
@@ -144,6 +144,17 @@ export async function renderConfig(options) {
     throw new Error('MCP_DEV_SPOOL_MAX_TOTAL_BYTES must be >= MCP_DEV_MAX_SPOOL_BYTES');
   }
 
+  const oneMcpLogMaxSizeRaw = deployment.MCP_ONE_MCP_LOG_MAX_SIZE_BYTES ?? String(10 * 1024 * 1024);
+  const oneMcpLogMaxSize = Number(oneMcpLogMaxSizeRaw);
+  if (!Number.isInteger(oneMcpLogMaxSize) || oneMcpLogMaxSize < 1024 * 1024 || oneMcpLogMaxSize > 64 * 1024 * 1024) {
+    throw new Error('MCP_ONE_MCP_LOG_MAX_SIZE_BYTES must be an integer from 1048576 to 67108864');
+  }
+  const oneMcpLogMaxFilesRaw = deployment.MCP_ONE_MCP_LOG_MAX_FILES ?? '5';
+  const oneMcpLogMaxFiles = Number(oneMcpLogMaxFilesRaw);
+  if (!Number.isInteger(oneMcpLogMaxFiles) || oneMcpLogMaxFiles < 1 || oneMcpLogMaxFiles > 10) {
+    throw new Error('MCP_ONE_MCP_LOG_MAX_FILES must be an integer from 1 to 10');
+  }
+
   const workspaceRoot = isPersonal ? personalDefaultCwd : deployment.MCP_WORKSPACE_ROOT;
   const publicUrl = deployment.MCP_PUBLIC_URL;
   const tunnelName = deployment.MCP_TUNNEL_NAME ?? '';
@@ -186,13 +197,27 @@ export async function renderConfig(options) {
   }
 
   const oneMcpDir = path.join(stateDir, '1mcp');
+  const logDir = path.join(stateDir, 'logs');
+  const oneMcpLogFile = path.join(logDir, 'one-mcp.log');
   await fs.mkdir(stateDir, { recursive: true, mode: 0o700 });
   await fs.chmod(stateDir, 0o700);
   await fs.mkdir(oneMcpDir, { recursive: true, mode: 0o700 });
   await fs.chmod(oneMcpDir, 0o700);
+  await fs.mkdir(logDir, { recursive: true, mode: 0o700 });
+  await fs.chmod(logDir, 0o700);
 
   const configPath = path.join(oneMcpDir, 'mcp.json');
   await atomicWrite(configPath, `${JSON.stringify(rendered, null, 2)}\n`);
+  const appConfigPath = path.join(oneMcpDir, 'config.toml');
+  const appConfig = [
+    '[logging]',
+    `file = ${JSON.stringify(oneMcpLogFile)}`,
+    'level = "info"',
+    `maxSize = ${oneMcpLogMaxSize}`,
+    `maxFiles = ${oneMcpLogMaxFiles}`,
+    '',
+  ].join('\n');
+  await atomicWrite(appConfigPath, appConfig);
 
   const bridgeEnv = [
     `MCP_BRIDGE_PROFILE=${shellSingleQuote(profile)}`,
@@ -206,7 +231,7 @@ export async function renderConfig(options) {
   const bridgeEnvPath = path.join(stateDir, 'bridge.env');
   await atomicWrite(bridgeEnvPath, bridgeEnv);
 
-  return { profile, repoRoot, stateDir, oneMcpDir, configPath, bridgeEnvPath };
+  return { profile, repoRoot, stateDir, oneMcpDir, configPath, appConfigPath, oneMcpLogFile, bridgeEnvPath };
 }
 
 async function main() {

@@ -81,6 +81,23 @@ if (dev) {
 NODE
 fi
 
+APP_CONFIG="$BRIDGE_CONFIG_DIR/config.toml"
+if [ ! -f "$APP_CONFIG" ]; then
+  echo "missing 1MCP app config: $APP_CONFIG (re-render the deployment before starting the bridge)" >&2
+  exit 1
+fi
+node - "$APP_CONFIG" "$BRIDGE_ONE_MCP_LOG_FILE" <<'NODE'
+const fs = require('fs');
+const [configFile, expectedLogFile] = process.argv.slice(2);
+const text = fs.readFileSync(configFile, 'utf8');
+if (!text.includes('[logging]')) throw new Error('1MCP config.toml must contain [logging]');
+if (!text.includes(`file = ${JSON.stringify(expectedLogFile)}`)) throw new Error('1MCP logging.file must target the bridge state log path');
+const size = Number(text.match(/^maxSize\s*=\s*(\d+)$/m)?.[1]);
+const files = Number(text.match(/^maxFiles\s*=\s*(\d+)$/m)?.[1]);
+if (!Number.isInteger(size) || size < 1048576 || size > 67108864) throw new Error('1MCP logging.maxSize is outside bridge policy');
+if (!Number.isInteger(files) || files < 1 || files > 10) throw new Error('1MCP logging.maxFiles is outside bridge policy');
+NODE
+
 URL="${1:-http://127.0.0.1:3050/mcp}"
 echo "== MCP initialize against $URL =="
 curl -sf -m 5 -X POST "$URL" \

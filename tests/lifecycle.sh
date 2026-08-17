@@ -38,6 +38,15 @@ test_dependencies_are_pinned() {
   contains "$ROOT/config/templates/mcp.json" 'mcp-shell-server==1\.1\.8'
 }
 
+test_native_1mcp_rotation_capability_is_guarded() {
+  local helper="$ROOT/scripts/install-bridge-runtime.sh"
+  contains "$helper" 'logger/loggingConfig\.js' &&
+  contains "$helper" 'logger/logger\.js' &&
+  contains "$helper" 'maxSize' &&
+  contains "$helper" 'maxFiles' &&
+  contains "$helper" 'native log rotation'
+}
+
 test_oauth_csp_patch_is_preserved() {
   contains "$ROOT/scripts/install-bridge-runtime.sh" "form-action 'self' https:" && \
   contains "$ROOT/scripts/install-bridge-runtime.sh" "form-action 'self'" && \
@@ -69,6 +78,12 @@ test_start_is_canonical_entrypoint() {
 
 test_no_internal_1mcp_background_supervisor() {
   ! grep -R -nE 'serve --background' "$ROOT/bin" "$ROOT/lib/bridge" "$ROOT/scripts" >/dev/null
+}
+
+test_1mcp_runtime_does_not_append_an_unbounded_console_log() {
+  local common="$ROOT/lib/bridge/common.sh"
+  ! grep -Eq '>>[^[:space:]]*one-mcp\.log|one-mcp\.log[^[:space:]]*2>&1' "$common" &&
+  grep -Fq 'rm -f "$BRIDGE_RUN_DIR/one-mcp.log"' "$common"
 }
 
 test_start_orders_origin_before_watchdog() {
@@ -135,11 +150,13 @@ test_lifecycle_lock_is_used_everywhere() {
 run_test 'lifecycle entrypoint scripts remain executable' test_scripts_are_executable
 run_test 'no global pkill/pgrep lifecycle management' test_no_global_process_matching
 run_test 'privileged MCP dependencies are pinned' test_dependencies_are_pinned
+run_test 'pinned 1MCP native rotation capability is guarded' test_native_1mcp_rotation_capability_is_guarded
 run_test '1MCP OAuth consent CSP compatibility patch is preserved' test_oauth_csp_patch_is_preserved
 run_test 'public and personal setup share the pinned bridge runtime installer' test_shared_bridge_runtime_installer_is_used
 run_test 'Cloudflare OAuth Bridge is the only canonical stack' test_cloudflare_oauth_is_canonical
 run_test 'start.sh is the canonical Cloudflare OAuth entrypoint' test_start_is_canonical_entrypoint
 run_test 'direct 1MCP startup is used without serve --background' test_no_internal_1mcp_background_supervisor
+run_test '1MCP runtime avoids an unbounded console append log' test_1mcp_runtime_does_not_append_an_unbounded_console_log
 run_test '1MCP origin is reconciled before watchdog startup' test_start_orders_origin_before_watchdog
 run_test 'watchdog starts only after public health succeeds' test_watchdog_starts_only_after_public_health
 run_test 'legacy tunnel scripts are thin start/stop aliases' test_compatibility_wrappers_are_thin
