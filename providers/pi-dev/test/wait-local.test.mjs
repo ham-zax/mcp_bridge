@@ -160,6 +160,7 @@ test('timer local source rejects invalid relative and absolute definitions', asy
     { kind: 'timer', after_seconds: 1.5 },
     { kind: 'timer', after_seconds: 86400 },
     { kind: 'timer', at: 'not-a-time' },
+    { kind: 'timer', at: '2026-08-17Z' },
     { kind: 'timer', at: '2026-08-17T00:00:00' },
     { kind: 'timer', after_seconds: 5, at: '2026-08-17T00:00:05Z' },
   ];

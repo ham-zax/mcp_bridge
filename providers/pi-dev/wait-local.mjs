@@ -19,7 +19,7 @@ const SYSTEMD_UNIT_RE = /^[A-Za-z0-9@_.:-]{1,256}$/;
 const SYSTEMD_STATES = new Set(['active', 'inactive', 'failed']);
 const SYSTEMD_PROBE_TIMEOUT_MS = 2000;
 const MAX_TIMER_AFTER_SECONDS = 86399;
-const TIMER_ZONE_RE = /(?:Z|[+-]\d{2}:\d{2})$/i;
+const TIMER_ZONE_RE = /T.*(?:Z|[+-]\d{2}:\d{2})$/i;
 
 function waitError(code, message, details) {
   const error = new Error(message);
