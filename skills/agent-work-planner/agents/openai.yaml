@@ -1,0 +1,13 @@
+interface:
+  display_name: Agent Work Planner
+  short_description: Split engineering work into bounded missions with proportional
+    verification
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
