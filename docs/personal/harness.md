@@ -53,6 +53,10 @@ The WSL side is persistent after the explicit startup install, but a new ChatGPT
 
 See [`skills/README.md`](../../skills/README.md) for the tracked Skill inventory and validation/install notes. These are one-time ChatGPT/workspace actions, not recurring WSL service-start commands.
 
+### AI clients without native MCP support
+
+For other AI environments that can execute Python and make outbound HTTPS requests but do not provide a native MCP client, use the copy/paste bootstrap prompt in [`non-native-ai-mcp-python.md`](non-native-ai-mcp-python.md). It directs the environment to use the official MCP Python SDK, headless OAuth/PKCE, and a small session-local `portable_mcp` shim instead of hand-written JSON-RPC.
+
 ## Dev
 
 ### `read`
