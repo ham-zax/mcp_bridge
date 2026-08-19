@@ -67,7 +67,15 @@ Human keystrokes are never copied into a separate broker-side input log. Sudo/pa
 
 ## Public exposure
 
-1MCP listens on loopback. Cloudflare exposes HTTPS. OAuth remains required for the public MCP origin.
+1MCP listens on loopback `:3050`. Cloudflare exposes HTTPS and OAuth remains required for the public MCP origin. The optional Satori adapter listens separately on loopback `:3051`; only explicitly configured `/probe/*` and `/v1/*` paths may be routed to it, while `/mcp`, OAuth, discovery, and all other paths remain on 1MCP.
+
+Satori does not bypass 1MCP. It uses a dedicated dynamically registered authorization-code/PKCE client and stores that credential only in private adapter state. The adapter does not request a narrower scope; the MCP SDK resolves scope from live 1MCP protected-resource/authorization metadata, the same authority that governs the main bridge. The current live grant is `tag:code tag:dev tag:terminal`. 1MCP remains the authorization and tool-surface owner; Satori adds no narrower or broader tool permission layer. The current live server provides no refresh token to this client, so failure to restore authenticated access requires explicit operator reauthorization rather than an unauthenticated fallback.
+
+Universal Satori capabilities are high-entropy bearer values carried in URL paths because the compatibility profile cannot require headers; richer clients send the same capability in the `Authorization` header instead. The adapter stores only capability hashes, applies expiry and explicit operator revocation, returns `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, and uses a different operation-scoped continuation token for later status/result reads. Revoking submission authority blocks discovery/new operations but intentionally does not invalidate already-issued read-only operation continuations. Raw submission capabilities and OAuth credentials must not enter ordinary logs, SQLite operation records, docs, or Git. Both universal GET and enhanced POST require durable nonce idempotency because duplicate origin delivery was observed during client probing. Large text results are bounded, split on UTF-8-safe boundaries, and persisted as immutable numbered chunks with per-chunk hashes.
+
+The adapter capability is only a transport bearer for the adapter's existing 1MCP authority; it does not encode per-tool read/write scopes. Universal GET submissions require an operation-bound proof-of-read confirmation before any upstream tool dispatch because a GET-capable client or intermediary may replay or prefetch URLs. The returned confirmation base deliberately omits the challenge. Enhanced authenticated POST submissions do not add this GET-specific confirmation step. In both profiles, 1MCP remains responsible for whether the exact upstream tool call is authorized and available.
+
+Dispatch intent is durably recorded immediately before every MCP tool call. If the call produces a normal MCP result, that result determines `completed` or `tool_failed`. If the worker loses the result after dispatch may have begun, the operation becomes terminal `unknown_outcome` and is never automatically retried. This avoids inferring which upstream tools are safe to repeat.
 
 The pinned 1MCP 0.34.4 installation carries one narrow CSP compatibility patch for the HTTPS OAuth consent callback. Setup verifies the expected upstream source before applying it and fails closed if the shape changed.
 
@@ -77,7 +85,8 @@ Keep these outside Git:
 
 - `.env` deployment identity;
 - generated 1MCP configuration;
-- OAuth/session state;
+- OAuth/session state, including Satori `oauth.json`;
+- Satori SQLite operation state and continuation/confirmation signing key;
 - logs and PID/runtime files;
 - private Terminal state;
 - credentials and tunnel secrets.

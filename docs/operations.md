@@ -10,6 +10,44 @@ bin/stop
 
 Healthy status should report one config-scoped 1MCP process, local health ready, cloudflared running, watchdog running, public health OK, bounded retained-diagnostic storage, and `issues: 0`. It prints both the rendered live source root and, when different, the checkout from which diagnostics are being run; live watchdog ownership is matched against the rendered root so inspecting from a candidate worktree does not create a false "watchdog stopped" result. In personal mode it also reports the Terminal broker socket and, when the user-systemd bus is directly reachable, `ActiveState` plus `NRestarts` for the broker unit. A missing user bus is reported separately from the broker socket so user-systemd observability ambiguity is not mistaken for broker failure.
 
+## Optional Satori adapter
+
+The constrained-client adapter is deliberately outside the normal bridge lifecycle. It does not start with `bin/start`, `mcp-dev-bridge.service`, personal bootstrap, or the watchdog.
+
+Install its local Node dependencies once, authorize its dedicated 1MCP OAuth client, then start it explicitly:
+
+```bash
+(cd providers/satori-adapter && npm ci)
+bin/adapter auth
+bin/adapter auth-status
+bin/adapter start
+bin/adapter status
+bin/adapter stop
+```
+
+`bin/adapter auth` uses dynamic registration, PKCE, and the live 1MCP authorization-code flow with a temporary loopback callback at `http://127.0.0.1:3052/callback`. The callback listener exists only during authorization. If a Windows-host browser cannot return to the WSL loopback listener after consent, use a browser running in the WSL/Linux context for the approval flow; do not copy OAuth codes into chat or persistent notes. The current live deployment issued an access token without a refresh token, so rerun `bin/adapter auth` when reauthorization is required.
+
+Issue one short-lived adapter capability explicitly when a constrained client needs access:
+
+```bash
+bin/adapter issue-cap 3600
+bin/adapter revoke-cap <capability-id>
+```
+
+Issuance prints a non-secret capability ID, the raw capability once for operator delivery, `scope: main`, and its expiry. The adapter stores only the capability hash. This bearer does not define a second per-tool permission scope: OAuth scope is resolved by the MCP SDK from live 1MCP metadata (currently `tag:code tag:dev tag:terminal`, matching main), and tool discovery mirrors the live 1MCP surface. Legacy `read`/`write` capability rows from the earlier prototype are intentionally not accepted as `main` capabilities. Revocation by ID immediately blocks tool discovery and new submissions. It does not revoke an already-issued operation-scoped read continuation URL; that continuation can only read its existing operation.
+
+Transport discovery is available at `GET /v1/about`. Capability-scoped tool discovery uses `GET /v1/s/{capability}/tools` and `GET /v1/s/{capability}/tool/{tool-name-b64}` and mirrors live 1MCP tool names/descriptors. Universal submission is `GET /v1/s/{capability}/call/{client-nonce}/{request-b64}` using strict unpadded base64url JSON with an initial 256-character encoded-request budget. Qwen/Python-class clients may instead use `POST /v1/calls` with `Authorization: Bearer <capability>`, `Idempotency-Key: <client-nonce>`, `Content-Type: application/json`, and the same request envelope containing the exact 1MCP tool name and arguments. The current enhanced JSON body limit is 16 KiB. Both forms create or read the same durable SQLite operation and return an operation-scoped universal status URL.
+
+Small completed text is returned inline. Larger text is stored as immutable UTF-8-safe chunks of at most 8192 bytes, with a current total normalized result bound of 1 MiB. A completed multi-chunk status response returns `chunk_count` and an operation-scoped `chunk_base_url`; fetch numbered chunks starting at 1.
+
+Every universal GET submission prepares an operation and returns `state: confirmation_required`, an operation status URL, a `confirmation_base`, a separate challenge, expiry, and the exact tool name. The adapter never emits `confirmation_base + challenge` as one executable URL. Construct those two returned components and GET the resulting URL; fetching the incomplete base alone is inert. Enhanced authenticated `POST /v1/calls` dispatches without this GET-specific confirmation step. The existing `POST /v1/confirm/{operation-id}` endpoint may confirm a prepared universal operation using the operation-scoped confirmation capability and challenge.
+
+The universal confirmation window is currently 10 minutes. Capability validity is checked again immediately before dispatch. Dispatch intent is recorded for every upstream tool call; if the worker loses the result after dispatch may have begun, the operation becomes `unknown_outcome` and must not be resubmitted automatically because Satori does not infer which upstream tools are safe to repeat.
+
+The adapter binds to `127.0.0.1:3051`. Current deployment ingress sends only `/probe/*` and `/v1/*` to the adapter; `/mcp`, OAuth, discovery, and all other paths remain on 1MCP `:3050`. Probe evidence, adapter OAuth state, SQLite operations, and continuation-key state live privately beneath `${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/satori-adapter`; PID/runtime state stays beneath `${XDG_RUNTIME_DIR:-/run/user/$UID}/mcp-dev-bridge`.
+
+`bin/adapter` commands never modify Cloudflare configuration. Public adapter ingress remains a separate explicit operator action. Stopping the adapter affects only adapter paths; the normal `/mcp`, OAuth, 1MCP, provider, cloudflared, and watchdog lifecycle remains independent.
+
 ## Personal installed lifecycle
 
 The normal private WSL installation is:

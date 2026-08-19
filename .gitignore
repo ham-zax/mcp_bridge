@@ -7,3 +7,4 @@ __pycache__/
 *.pyc
 
 .worktrees/
+providers/satori-adapter/node_modules/
