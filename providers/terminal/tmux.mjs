@@ -22,6 +22,10 @@ const SESSION_NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const MODULE_DIR = import.meta.dirname;
 const PANE_ENTRY = path.join(MODULE_DIR, 'pane-entry.mjs');
 const TRANSCRIPT_WRITER = path.join(MODULE_DIR, 'transcript-writer.mjs');
+const TRANSCRIPT_FINALIZER_HOOK = 'pane-died[100]';
+const TRANSCRIPT_FINALIZED_OPTION = '@wsl_agent_transcript_finalized';
+const ORIGINAL_DEAD_PID_OPTION = '@wsl_agent_original_dead_pid';
+const ORIGINAL_DEAD_STATUS_OPTION = '@wsl_agent_original_dead_status';
 const COLLAB_CLIENT_PID_OPTION = '@wsl_agent_collab_client_pid';
 const COLLAB_CLIENT_TTY_OPTION = '@wsl_agent_collab_client_tty';
 const COLLAB_CLIENT_CREATED_OPTION = '@wsl_agent_collab_client_created';
@@ -174,6 +178,9 @@ export class TmuxBackend {
       '#{pane_pid}',
       '#{pane_dead}',
       '#{pane_dead_status}',
+      `#{${TRANSCRIPT_FINALIZED_OPTION}}`,
+      `#{${ORIGINAL_DEAD_PID_OPTION}}`,
+      `#{${ORIGINAL_DEAD_STATUS_OPTION}}`,
       '#{pane_width}',
       '#{pane_height}',
       '#{session_attached}',
@@ -188,16 +195,23 @@ export class TmuxBackend {
       panePid,
       paneDead,
       paneDeadStatus,
+      transcriptFinalized,
+      originalDeadPid,
+      originalDeadStatus,
       width,
       height,
       attachedClients,
     ] = stdout.trimEnd().split('|');
+    const finalized = parseBoolean(transcriptFinalized);
+    const preservedPid = Number(originalDeadPid);
     return {
       name: sessionName,
       serverPid: Number(serverPid),
-      panePid: Number(panePid),
-      paneDead: parseBoolean(paneDead),
-      paneDeadStatus: parseStatus(paneDeadStatus),
+      panePid: finalized && Number.isSafeInteger(preservedPid) && preservedPid > 0
+        ? preservedPid
+        : Number(panePid),
+      paneDead: finalized ? true : parseBoolean(paneDead),
+      paneDeadStatus: finalized ? parseStatus(originalDeadStatus) : parseStatus(paneDeadStatus),
       cols: Number(width),
       rows: Number(height),
       attachedClients: Number(attachedClients),
@@ -363,6 +377,87 @@ export class TmuxBackend {
     return parseBoolean(stdout.trim());
   }
 
+  async transcriptFinalizerState(name) {
+    validateSessionName(name);
+    const { stdout } = await this.run([
+      'display-message', '-p', '-t', `${name}:0.0`, [
+        '#{pane_id}',
+        '#{pane_pid}',
+        '#{pane_dead}',
+        '#{pane_dead_status}',
+        '#{pane_dead_signal}',
+        '#{pane_pipe}',
+        `#{${TRANSCRIPT_FINALIZED_OPTION}}`,
+      ].join('|'),
+    ]);
+    const [paneId, panePid, paneDead, paneDeadStatus, paneDeadSignal, panePipe, finalized] = stdout.trimEnd().split('|');
+    return {
+      paneId,
+      panePid,
+      paneDead: parseBoolean(paneDead),
+      paneDeadStatus,
+      paneDeadSignal,
+      panePipe: parseBoolean(panePipe),
+      finalized: parseBoolean(finalized),
+    };
+  }
+
+  transcriptFinalizerArgs({ paneId, panePid, paneDeadStatus, paneDeadSignal }) {
+    const terminationCommand = [
+      'read -r _;',
+      `if [ -n "${paneDeadSignal}" ]; then`,
+      `kill -s "${paneDeadSignal}" "$$";`,
+      'else',
+      `exit "${paneDeadStatus}";`,
+      'fi',
+    ].join(' ');
+    return [
+      'set-option', '-p', '-t', paneId, TRANSCRIPT_FINALIZED_OPTION, '1', ';',
+      'set-option', '-p', '-t', paneId, ORIGINAL_DEAD_PID_OPTION, panePid, ';',
+      'set-option', '-p', '-t', paneId, ORIGINAL_DEAD_STATUS_OPTION, paneDeadStatus, ';',
+      'respawn-pane', '-k', '-t', paneId, terminationCommand, ';',
+      'pipe-pane', '-t', paneId, ';',
+      'set-hook', '-p', '-u', '-t', paneId, TRANSCRIPT_FINALIZER_HOOK, ';',
+      'send-keys', '-t', paneId, 'Enter',
+    ];
+  }
+
+  async installTranscriptFinalizer(name) {
+    validateSessionName(name);
+    const args = this.transcriptFinalizerArgs({
+      paneId: '#{pane_id}',
+      panePid: '#{pane_pid}',
+      paneDeadStatus: '#{pane_dead_status}',
+      paneDeadSignal: '#{pane_dead_signal}',
+    });
+    const shellCommand = [
+      shellQuote(this.tmuxBin),
+      ...this.baseArgs().map(shellQuote),
+      ...args.map(shellQuote),
+    ].join(' ');
+    const guardedCommand = `if [ -n "#{pane_dead_status}#{pane_dead_signal}" ]; then ${shellCommand}; fi`;
+    await this.run([
+      'set-hook', '-p', '-t', `${name}:0.0`, TRANSCRIPT_FINALIZER_HOOK,
+      `run-shell -b ${shellQuote(guardedCommand)}`,
+    ]);
+  }
+
+  async finalizeDeadTranscriptPipe(name, state = undefined) {
+    validateSessionName(name);
+    const original = state ?? await this.transcriptFinalizerState(name);
+    if (!original.paneDead || !original.panePipe || original.finalized) return false;
+    if (original.paneDeadStatus === '' && original.paneDeadSignal === '') return false;
+
+    await this.run(this.transcriptFinalizerArgs(original));
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      const current = await this.transcriptFinalizerState(name);
+      if (current.paneDead && !current.panePipe) return true;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new TerminalError('TMUX_ERROR', `timed out finalizing transcript pipe for ${name}`);
+  }
+
   async installTranscriptPipe(name, sessionDir = this.sessionDir(name)) {
     await ensureTranscript(sessionDir, { budgetBytes: this.transcriptBudgetBytes });
     const pipeCommand = [
@@ -420,6 +515,7 @@ export class TmuxBackend {
         '-x', String(resolvedCols), '-y', String(resolvedRows),
       ]);
       await this.installTranscriptPipe(name, sessionDir);
+      await this.installTranscriptFinalizer(name);
       await this.writeSessionMetadata(name, {
         version: 2,
         name,
@@ -456,8 +552,12 @@ export class TmuxBackend {
     const dataDir = dataLayout === 'generation'
       ? this.sessionDataDir(name, generation)
       : this.sessionDir(name);
-    if (!info.paneDead && !(await this.hasTranscriptPipe(name))) {
-      await this.installTranscriptPipe(name, dataDir);
+    const finalizer = await this.transcriptFinalizerState(name);
+    if (finalizer.paneDead) {
+      await this.finalizeDeadTranscriptPipe(name, finalizer);
+    } else {
+      if (!finalizer.panePipe) await this.installTranscriptPipe(name, dataDir);
+      await this.installTranscriptFinalizer(name);
     }
     await this.writeSessionMetadata(name, {
       ...prior,
@@ -467,7 +567,7 @@ export class TmuxBackend {
       dataLayout,
       recoveredAt: new Date().toISOString(),
     });
-    return info;
+    return this.sessionInfo(name);
   }
 
   async reconcileSessions() {
