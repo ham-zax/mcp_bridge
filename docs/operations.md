@@ -102,7 +102,7 @@ Start them directly only when performing lower-level recovery:
 systemctl --user start wsl-agent-tmux.service wsl-agent-terminal-broker.service
 ```
 
-Do not restart tmux merely to deploy broker/provider or frontend-launch code. tmux owns the PTY lifetime.
+Do not restart tmux merely to deploy broker/provider or frontend-launch code. tmux owns the PTY lifetime. Retained-dead panes remain available for reads and exit status, but their transcript `pipe-pane` is finalized at pane death so the per-pane writer receives EOF and exits; broker reconciliation applies the same finalization to historical dead panes that still have a pipe attached.
 
 ## Personal Terminal frontend
 
