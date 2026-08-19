@@ -73,6 +73,8 @@ Satori does not bypass 1MCP. It uses a dedicated dynamically registered authoriz
 
 Universal Satori capabilities are high-entropy bearer values carried in URL paths because the compatibility profile cannot require headers; richer clients send the same capability in the `Authorization` header instead. The adapter stores only capability hashes, applies expiry and explicit operator revocation, returns `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, and uses a different operation-scoped continuation token for later status/result reads. Revoking submission authority blocks discovery/new operations but intentionally does not invalidate already-issued read-only operation continuations. Raw submission capabilities and OAuth credentials must not enter ordinary logs, SQLite operation records, docs, or Git. Both universal GET and enhanced POST require durable nonce idempotency because duplicate origin delivery was observed during client probing. Large text results are bounded, split on UTF-8-safe boundaries, and persisted as immutable numbered chunks with per-chunk hashes.
 
+An optional operator-set master bearer is a password-equivalent bootstrap secret for richer HTTP clients. It is accepted only by `POST /v1/access`, stored only as a private hash outside Git, and exchanges into an ordinary `main` capability with a fixed six-hour lifetime. The master bearer is never accepted as a submission capability itself and is deliberately unavailable in URL-based universal GET routes. Rotating it replaces the stored hash immediately without extending or invalidating already-issued finite capabilities.
+
 The adapter capability is only a transport bearer for the adapter's existing 1MCP authority; it does not encode per-tool read/write scopes. Universal GET submissions require an operation-bound proof-of-read confirmation before any upstream tool dispatch because a GET-capable client or intermediary may replay or prefetch URLs. The returned confirmation base deliberately omits the challenge. Enhanced authenticated POST submissions do not add this GET-specific confirmation step. In both profiles, 1MCP remains responsible for whether the exact upstream tool call is authorized and available.
 
 Dispatch intent is durably recorded immediately before every MCP tool call. If the call produces a normal MCP result, that result determines `completed` or `tool_failed`. If the worker loses the result after dispatch may have begun, the operation becomes terminal `unknown_outcome` and is never automatically retried. This avoids inferring which upstream tools are safe to repeat.
@@ -87,6 +89,7 @@ Keep these outside Git:
 - generated 1MCP configuration;
 - OAuth/session state, including Satori `oauth.json`;
 - Satori SQLite operation state and continuation/confirmation signing key;
+- Satori master-bearer hash;
 - logs and PID/runtime files;
 - private Terminal state;
 - credentials and tunnel secrets.

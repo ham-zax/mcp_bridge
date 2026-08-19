@@ -39,6 +39,30 @@ ABOUT_RESPONSE="$(curl -fsS "$BASE/v1/about")"
 grep -Fq 'universal_profile: universal-get-v1' <<<"$ABOUT_RESPONSE"
 grep -Fq 'enhanced_profile: json-post-v1' <<<"$ABOUT_RESPONSE"
 
+GENERATED_MASTER_RECORD="$(adapter set-master-bearer)"
+GENERATED_MASTER="$(sed -n 's/^master_bearer: //p' <<<"$GENERATED_MASTER_RECORD")"
+test "${#GENERATED_MASTER}" = 43
+grep -Fq 'access_ttl_seconds: 21600' <<<"$GENERATED_MASTER_RECORD"
+
+CUSTOM_MASTER='custom-master-bearer-for-adapter-test-0001'
+adapter set-master-bearer "$CUSTOM_MASTER" | grep -Fq 'master_bearer: set'
+OLD_MASTER_HTTP="$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $GENERATED_MASTER" "$BASE/v1/access")"
+test "$OLD_MASTER_HTTP" = 401
+BAD_MASTER_HTTP="$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Authorization: Bearer wrong-master-bearer-for-adapter-test-0000' "$BASE/v1/access")"
+test "$BAD_MASTER_HTTP" = 401
+ACCESS_RESPONSE="$(curl -fsS -X POST -H "Authorization: Bearer $CUSTOM_MASTER" "$BASE/v1/access")"
+node -e '
+  const value = JSON.parse(process.argv[1]);
+  if (value.protocol !== "SATORI-BRIDGE/1" || value.state !== "ready" || value.scope !== "main") process.exit(1);
+  if (value.ttl_seconds !== 21600 || !/^[A-Za-z0-9_-]{43}$/.test(value.capability)) process.exit(1);
+  const delta = Date.parse(value.expires_at) - Date.now();
+  if (delta < 21_590_000 || delta > 21_600_000) process.exit(1);
+' "$ACCESS_RESPONSE"
+if grep -R -Fq "$CUSTOM_MASTER" "$TMP/state/mcp-dev-bridge/satori-adapter"; then
+  echo "adapter state leaked raw master bearer" >&2
+  exit 1
+fi
+
 CAPABILITY_RECORD="$(adapter issue-cap 60)"
 CAPABILITY_ID="$(sed -n 's/^capability_id: //p' <<<"$CAPABILITY_RECORD")"
 CAPABILITY="$(sed -n 's/^capability: //p' <<<"$CAPABILITY_RECORD")"

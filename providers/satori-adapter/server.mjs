@@ -17,6 +17,7 @@ const configuredPublicBase = (process.env.SATORI_ADAPTER_PUBLIC_URL || '').repla
 const mcpUrl = process.env.SATORI_ADAPTER_MCP_URL || '';
 const oauthCallbackUrl = process.env.SATORI_ADAPTER_OAUTH_CALLBACK_URL || 'http://127.0.0.1:3052/callback';
 const maxJsonBodyBytes = Number.parseInt(process.env.SATORI_ADAPTER_MAX_JSON_BODY_BYTES || String(16 * 1024), 10);
+const masterAccessTtlSeconds = 6 * 60 * 60;
 
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('SATORI_ADAPTER_PORT must be 1..65535');
 if (!Number.isInteger(maxEvidenceBytes) || maxEvidenceBytes < 4096) throw new Error('SATORI_ADAPTER_MAX_EVIDENCE_BYTES must be at least 4096');
@@ -375,6 +376,28 @@ async function handleEnhancedCall(req, res) {
   sendJson(res, 200, enhancedSnapshot(operation, statusUrl, confirmation));
 }
 
+function handleMasterAccess(req, res) {
+  const authorization = req.headers.authorization || '';
+  if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) {
+    sendJson(res, 401, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
+    return;
+  }
+  const masterBearer = authorization.slice('Bearer '.length);
+  if (!operationCore.store.masterBearerMatches(masterBearer)) {
+    sendJson(res, 401, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
+    return;
+  }
+  const issued = operationCore.store.issueMainCapability(masterAccessTtlSeconds);
+  sendJson(res, 200, {
+    protocol: 'SATORI-BRIDGE/1',
+    state: 'ready',
+    capability: issued.token,
+    scope: issued.scope,
+    ttl_seconds: masterAccessTtlSeconds,
+    expires_at: new Date(issued.expiresMs).toISOString(),
+  });
+}
+
 async function handleEnhancedConfirm(req, res, operationId) {
   const authorization = req.headers.authorization || '';
   if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) {
@@ -491,6 +514,15 @@ const server = createServer((req, res) => {
     handleEnhancedCall(req, res).catch(() => {
       sendJson(res, 500, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'internal_error' });
     });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/v1/access') {
+    try {
+      handleMasterAccess(req, res);
+    } catch {
+      sendJson(res, 500, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'internal_error' });
+    }
     return;
   }
 

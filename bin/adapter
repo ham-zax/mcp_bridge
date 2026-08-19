@@ -165,6 +165,20 @@ adapter_issue_capability() {
   SATORI_ADAPTER_STATE_DIR="$ADAPTER_STATE_DIR" node "$ADAPTER_OPERATOR" issue "$ttl"
 }
 
+adapter_set_master_bearer() {
+  [ -f "$ADAPTER_OPERATOR" ] || {
+    echo "adapter operator helper is missing: $ADAPTER_OPERATOR" >&2
+    exit 1
+  }
+  install -d -m 700 "$ADAPTER_STATE_DIR"
+  umask 077
+  if [ "$#" -gt 0 ]; then
+    SATORI_ADAPTER_STATE_DIR="$ADAPTER_STATE_DIR" node "$ADAPTER_OPERATOR" set-master "$1"
+  else
+    SATORI_ADAPTER_STATE_DIR="$ADAPTER_STATE_DIR" node "$ADAPTER_OPERATOR" set-master
+  fi
+}
+
 adapter_revoke_capability() {
   local capability_id="${2:-}"
   [ -n "$capability_id" ] || {
@@ -183,9 +197,10 @@ case "$ACTION" in
   auth) adapter_auth_command auth ;;
   auth-status) adapter_auth_command status ;;
   issue-cap) adapter_issue_capability "${2:-3600}" ;;
+  set-master-bearer) adapter_set_master_bearer "${@:2}" ;;
   revoke-cap) adapter_revoke_capability "$@" ;;
   *)
-    echo "usage: bin/adapter start|stop|status|auth|auth-status|issue-cap [ttl-seconds]|revoke-cap <capability-id>" >&2
+    echo "usage: bin/adapter start|stop|status|auth|auth-status|issue-cap [ttl-seconds]|set-master-bearer [bearer]|revoke-cap <capability-id>" >&2
     exit 2
     ;;
 esac

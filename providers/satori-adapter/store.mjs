@@ -8,6 +8,11 @@ function sha256(value) {
 }
 
 const CHUNK_BYTES = 8192;
+const MASTER_BEARER_FILE = 'master-bearer.sha256';
+
+function validMasterBearer(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9._-]{32,128}$/.test(value);
+}
 
 function splitUtf8(text, maxBytes = CHUNK_BYTES) {
   const chunks = [];
@@ -130,6 +135,29 @@ export class AdapterStore {
 
   issueMainCapability(ttlSeconds = 3600) {
     return this.issueCapability('main', ttlSeconds, 86400);
+  }
+
+  setMasterBearer(token) {
+    if (!validMasterBearer(token)) {
+      throw new Error('master bearer must be 32 to 128 characters using letters, digits, dot, underscore, or hyphen');
+    }
+    const path = join(this.stateDir, MASTER_BEARER_FILE);
+    writeFileSync(path, `${sha256(token)}\n`, { mode: 0o600 });
+    chmodSync(path, 0o600);
+  }
+
+  masterBearerMatches(token) {
+    if (!validMasterBearer(token)) return false;
+    let expected;
+    try {
+      expected = readFileSync(join(this.stateDir, MASTER_BEARER_FILE), 'utf8').trim();
+    } catch (error) {
+      if (error?.code === 'ENOENT') return false;
+      throw error;
+    }
+    const actualBuffer = Buffer.from(sha256(token));
+    const expectedBuffer = Buffer.from(expected);
+    return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
   }
 
   revokeCapability(id) {

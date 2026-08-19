@@ -49,7 +49,7 @@ public_tracked_files() {
 }
 
 test_public_entrypoints() {
-  [ -x "$ROOT/bin/start" ] && [ -x "$ROOT/bin/status" ] && [ -x "$ROOT/bin/stop" ]
+  [ -x "$ROOT/bin/start" ] && [ -x "$ROOT/bin/status" ] && [ -x "$ROOT/bin/stop" ] && [ -x "$ROOT/bin/satori-call" ]
 }
 
 test_public_structure() {
