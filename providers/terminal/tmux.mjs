@@ -403,8 +403,17 @@ export class TmuxBackend {
   }
 
   transcriptFinalizerArgs({ paneId, panePid, paneDeadStatus, paneDeadSignal }) {
+    const screenBuffer = `wsl-agent-transcript-finalizer-${paneId}`;
+    const tmuxCommand = [
+      shellQuote(this.tmuxBin),
+      ...this.baseArgs().map(shellQuote),
+    ].join(' ');
     const terminationCommand = [
+      'stty -echo;',
       'read -r _;',
+      'stty echo;',
+      `${tmuxCommand} save-buffer -b ${shellQuote(screenBuffer)} - | sed '$d';`,
+      `${tmuxCommand} delete-buffer -b ${shellQuote(screenBuffer)};`,
       `if [ -n "${paneDeadSignal}" ]; then`,
       `kill -s "${paneDeadSignal}" "$$";`,
       'else',
@@ -412,6 +421,7 @@ export class TmuxBackend {
       'fi',
     ].join(' ');
     return [
+      'capture-pane', '-t', paneId, '-b', screenBuffer, ';',
       'set-option', '-p', '-t', paneId, TRANSCRIPT_FINALIZED_OPTION, '1', ';',
       'set-option', '-p', '-t', paneId, ORIGINAL_DEAD_PID_OPTION, panePid, ';',
       'set-option', '-p', '-t', paneId, ORIGINAL_DEAD_STATUS_OPTION, paneDeadStatus, ';',

@@ -24,7 +24,7 @@ test('dedicated tmux backend covers create, send, resize, capture, list, dead st
     socketPath: sandbox.socketPath,
     stateRoot: sandbox.stateRoot,
     defaultCwd: '/home/hamza',
-    transcriptBudgetBytes: 1024 * 1024,
+    transcriptBudgetBytes: 4 * 1024 * 1024,
   });
 
   await tmux.openSession({ name: 'ops', command: 'cat', cols: 80, rows: 24 });
@@ -48,7 +48,7 @@ test('dedicated tmux backend covers create, send, resize, capture, list, dead st
 
   const exit7Opened = await tmux.openSession({
     name: 'exit7',
-    command: "sleep 0.1; printf 'exit7-final\\n'; exit 7",
+    command: "sleep 0.1; i=1; while [ $i -le 80 ]; do printf 'exit7-history-%03d\\n' $i; i=$((i+1)); done; printf 'exit7-final\\n'; exit 7",
   });
   const exit7PaneId = tmuxValue(sandbox.socketPath, 'exit7:0.0', '#{pane_id}');
   await waitFor(async () => {
@@ -64,7 +64,32 @@ test('dedicated tmux backend covers create, send, resize, capture, list, dead st
   await waitFor(async () => (await readFile(path.join(exit7State.dataDir, 'transcript.bin'), 'utf8')).includes('exit7-final'), {
     description: 'finalized exit transcript',
   });
+  const exit7Screen = await tmux.captureScreen('exit7');
+  assert.match(exit7Screen, /exit7-history-080/);
+  assert.match(exit7Screen, /exit7-final/);
+  const { stdout: exit7History } = await tmux.run(['capture-pane', '-p', '-S', '-', '-E', '-', '-t', 'exit7:0.0']);
+  assert.match(exit7History, /exit7-history-001/);
+  assert.equal(exit7History.split('exit7-history-080').length - 1, 1);
+  assert.equal(exit7History.split('exit7-final').length - 1, 1);
   await tmux.closeSession('exit7');
+
+  const burstBytes = 2 * 1024 * 1024;
+  await tmux.openSession({
+    name: 'burst-final',
+    command: `${process.execPath} -e "process.stdout.write('x'.repeat(${burstBytes})); process.stdout.write('burst-final-marker\\n'); process.exit(7)"`,
+  });
+  await waitFor(async () => {
+    const burst = await tmux.sessionInfo('burst-final');
+    return burst.paneDead === true && !(await tmux.hasTranscriptPipe('burst-final'));
+  }, { description: 'large final burst drain' });
+  const burstState = await tmux.sessionState('burst-final');
+  await waitFor(async () => (await readFile(path.join(burstState.dataDir, 'transcript.bin'))).includes(Buffer.from('burst-final-marker')), {
+    description: 'large final burst transcript drain',
+  });
+  const burstTranscript = await readFile(path.join(burstState.dataDir, 'transcript.bin'));
+  assert.ok(burstTranscript.length >= burstBytes);
+  assert.equal(burstTranscript.includes(Buffer.from('burst-final-marker')), true);
+  await tmux.closeSession('burst-final');
 
   const signalOpened = await tmux.openSession({
     name: 'signal15',
