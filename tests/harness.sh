@@ -33,7 +33,8 @@ MCP_ONE_MCP_LOG_MAX_FILES=3
 ENV
   mkdir -p "$tmp/runtime" "$tmp/home"
   for profile in restricted trusted-dev personal; do
-    HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    env -u MCP_DEV_MAX_SPOOL_BYTES -u MCP_DEV_SPOOL_TTL_SECONDS -u MCP_DEV_SPOOL_MAX_TOTAL_BYTES \
+      HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
       --profile "$profile" \
       --env-file "$tmp/deployment.env" \
       --state-dir "$tmp/$profile" \
@@ -110,7 +111,8 @@ MCP_PUBLIC_URL=https://mcp.example.test
 MCP_TUNNEL_NAME=
 MCP_DEV_MAX_SPOOL_BYTES=$value
 EOF
-    output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    output="$(env -u MCP_DEV_MAX_SPOOL_BYTES -u MCP_DEV_SPOOL_TTL_SECONDS -u MCP_DEV_SPOOL_MAX_TOTAL_BYTES \
+      HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
       --profile trusted-dev \
       --env-file "$tmp/deployment.env" \
       --state-dir "$tmp/state-$value" \
@@ -128,7 +130,8 @@ MCP_PUBLIC_URL=https://mcp.example.test
 MCP_TUNNEL_NAME=
 MCP_DEV_SPOOL_TTL_SECONDS=0
 EOF
-  output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+  output="$(env -u MCP_DEV_MAX_SPOOL_BYTES -u MCP_DEV_SPOOL_TTL_SECONDS -u MCP_DEV_SPOOL_MAX_TOTAL_BYTES \
+    HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
     --profile trusted-dev \
     --env-file "$tmp/deployment.env" \
     --state-dir "$tmp/state-invalid-ttl" \
@@ -146,7 +149,8 @@ MCP_TUNNEL_NAME=
 MCP_DEV_MAX_SPOOL_BYTES=2048
 MCP_DEV_SPOOL_MAX_TOTAL_BYTES=1024
 EOF
-  output="$(HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+  output="$(env -u MCP_DEV_MAX_SPOOL_BYTES -u MCP_DEV_SPOOL_TTL_SECONDS -u MCP_DEV_SPOOL_MAX_TOTAL_BYTES \
+    HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
     --profile trusted-dev \
     --env-file "$tmp/deployment.env" \
     --state-dir "$tmp/state-invalid-budget" \
