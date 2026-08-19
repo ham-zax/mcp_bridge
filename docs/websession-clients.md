@@ -1,8 +1,8 @@
-# Satori client bootstrap prompts
+# WebSession client bootstrap prompts
 
-Use this guide when connecting chat-based AI clients to the existing WSL bridge through Satori.
+Use this guide when connecting chat-based AI clients to the existing WSL bridge through WebSession.
 
-Satori is a transport adapter only. 1MCP remains the authority for OAuth scope, tool names, tool schemas, availability, and permissions. For master-bearer lifetime, rotation, exchange, and storage rules, see [Satori master bearer](satori-master-bearer.md).
+WebSession is a transport adapter only. 1MCP remains the authority for OAuth scope, tool names, tool schemas, availability, and permissions. For master-bearer lifetime, rotation, exchange, and storage rules, see [WebSession master bearer](websession-master-bearer.md).
 
 ## Operator setup
 
@@ -34,10 +34,10 @@ Treat the capability as a secret. Do not commit it, paste it into documentation,
 For ChatGPT sessions that already have native MCP access to this WSL, prefer the local wrapper instead of constructing bearer-bearing curl commands in the model-visible Bash request:
 
 ```bash
-bin/satori-call dev_1mcp_bash '{"command":"pwd"}'
+bin/websession-call dev_1mcp_bash '{"command":"pwd"}'
 ```
 
-`bin/satori-call <tool> '<arguments-json>'` creates a temporary ordinary capability in private adapter state, submits the exact tool call through the public Satori `POST /v1/calls` path, follows status/chunks to a terminal result, and revokes the temporary capability after a known terminal outcome. It never prints the capability. If submission or status transport becomes ambiguous, it does not retry the operation and leaves the temporary capability to expire rather than changing an unresolved operation.
+`bin/websession-call <tool> '<arguments-json>'` creates a temporary ordinary capability in private adapter state, submits the exact tool call through the public WebSession `POST /v1/calls` path, follows status/chunks to a terminal result, and revokes the temporary capability after a known terminal outcome. It never prints the capability. If submission or status transport becomes ambiguous, it does not retry the operation and leaves the temporary capability to expire rather than changing an unresolved operation.
 
 ## Reusable six-hour bootstrap
 
@@ -56,7 +56,7 @@ bin/adapter set-master-bearer '<your-master-bearer>'
 Do not use the master bearer directly with `/v1/calls` or put it in a URL. Exchange it only through the richer HTTP profile:
 
 ```text
-POST https://<your-satori-host>/v1/access
+POST https://<your-websession-host>/v1/access
 Authorization: Bearer <MASTER_BEARER>
 ```
 
@@ -67,15 +67,15 @@ The response contains a fresh ordinary `main` capability with `ttl_seconds: 2160
 Provide either `<MASTER_BEARER>` or an already-issued `<CAPABILITY>`. Prefer the master bearer when the client supports POST plus custom headers; it exchanges into a fresh six-hour capability without putting the master in a URL.
 
 ```text
-Use Python `requests` to connect to my WSL through Satori. Use the documented routes exactly; do not probe or guess authentication endpoints.
+Use Python `requests` to connect to my WSL through WebSession. Use the documented routes exactly; do not probe or guess authentication endpoints.
 
 Base: https://mcp.hamza.my.id
 Master bearer: <MASTER_BEARER_IF_PROVIDED>
 Capability: <CAPABILITY_IF_PROVIDED>
 
-Keep both credentials secret. Never echo them, log them, or write them to disk. Never put the master bearer in a URL. Satori is transport only; use exact live 1MCP tool names and schemas.
+Keep both credentials secret. Never echo them, log them, or write them to disk. Never put the master bearer in a URL. WebSession is transport only; use exact live 1MCP tool names and schemas.
 
-1. GET `/v1/about` and verify `SATORI-BRIDGE/1`.
+1. GET `/v1/about` and verify `WEBSESSION-MCP-BRIDGE/1`.
 2. If no capability was supplied, exchange the master exactly once with `POST /v1/access` and `Authorization: Bearer <MASTER_BEARER>`. The response must contain `state: ready`, `scope: main`, and `ttl_seconds: 21600`. Keep the returned capability only in memory.
 3. GET `/v1/s/<CAPABILITY>/tools` to discover tools. Inspect an unfamiliar tool at `/v1/s/<CAPABILITY>/tool/<tool-name-b64>`.
 4. Call tools with:
@@ -96,34 +96,34 @@ WSL_PWD: <actual result>
 TOOLS_AVAILABLE: <actual tool_count>
 ```
 
-## ChatGPT / native MCP + optional Satori bootstrap prompt
+## ChatGPT / native MCP + optional WebSession bootstrap prompt
 
 ```text
-You already have native MCP access to my WSL. You also have a local Satori wrapper for sending an operation through the public Satori HTTPS path without placing bearer credentials or curl construction in the model-visible Bash command.
+You already have native MCP access to my WSL. You also have a local WebSession wrapper for sending an operation through the public WebSession HTTPS path without placing bearer credentials or curl construction in the model-visible Bash command.
 
 Use native MCP as the primary interface and discover/use its tools normally.
 
-For a Satori execution from native MCP, do not probe Satori auth routes and do not construct `curl` commands containing `Authorization: Bearer`. From the repository root call only:
+For a WebSession execution from native MCP, do not probe WebSession auth routes and do not construct `curl` commands containing `Authorization: Bearer`. From the repository root call only:
 
-bin/satori-call <exact-native-MCP-tool-name> '<arguments-json>'
+bin/websession-call <exact-native-MCP-tool-name> '<arguments-json>'
 
 Example connection test:
 
-bin/satori-call dev_1mcp_bash '{"command":"pwd"}'
+bin/websession-call dev_1mcp_bash '{"command":"pwd"}'
 
 The wrapper mints and consumes the temporary capability inside WSL, submits through `POST /v1/calls`, follows status/chunks, prints only the tool result, and revokes the temporary capability after a known terminal outcome. If it reports an unresolved transport outcome, do not retry automatically.
 
-Use exact tool names and argument schemas from the native MCP catalog; Satori mirrors that live 1MCP surface. Do not use `args` or `params` in place of `arguments`.
+Use exact tool names and argument schemas from the native MCP catalog; WebSession mirrors that live 1MCP surface. Do not use `args` or `params` in place of `arguments`.
 
 For multi-part work, use only genuinely independent tasks:
 - native MCP for primary repository/tool work
-- Satori for one independent durable operation when useful
+- WebSession for one independent durable operation when useful
 - Terminal for long-running processes
 
 Never execute the same mutation through both paths or run competing edits against the same files.
-Do not assume Satori operations themselves execute concurrently; current adapter dispatch may serialize them.
+Do not assume WebSession operations themselves execute concurrently; current adapter dispatch may serialize them.
 
-First verify WSL access with `pwd` through native MCP. When a Satori-path check is useful, run the wrapper `pwd` example above. Then proceed with my task autonomously.
+First verify WSL access with `pwd` through native MCP. When a WebSession-path check is useful, run the wrapper `pwd` example above. Then proceed with my task autonomously.
 ```
 
 ## GLM / universal GET bootstrap prompt
@@ -131,14 +131,14 @@ First verify WSL access with `pwd` through native MCP. When a Satori-path check 
 Replace `<CAPABILITY>` with a freshly issued ordinary capability. A GET-only client cannot safely exchange the master bearer because the master is header-only and must never appear in a URL.
 
 ```text
-Use your `open` tool as the HTTPS GET transport to connect to my WSL through Satori. Do not decide that `open` is unsuitable before trying it.
+Use your `open` tool as the HTTPS GET transport to connect to my WSL through WebSession. Do not decide that `open` is unsuitable before trying it.
 
 Base: https://mcp.hamza.my.id
 Capability: <CAPABILITY>
 
-Keep the capability secret. Satori is transport only; use exact live 1MCP tool names and schemas. Do not guess routes or request fields.
+Keep the capability secret. WebSession is transport only; use exact live 1MCP tool names and schemas. Do not guess routes or request fields.
 
-1. `open` `https://mcp.hamza.my.id/v1/about`. Continue if the returned content contains `SATORI-BRIDGE/1`. Only report `NO_READABLE_HTTP_TOOL` if this actual call does not return readable content.
+1. `open` `https://mcp.hamza.my.id/v1/about`. Continue if the returned content contains `WEBSESSION-MCP-BRIDGE/1`. Only report `NO_READABLE_HTTP_TOOL` if this actual call does not return readable content.
 2. `open` `https://mcp.hamza.my.id/v1/s/<CAPABILITY>/tools` to discover tools. Inspect an unfamiliar tool at `/v1/s/<CAPABILITY>/tool/<tool-name-b64>`.
 3. For a call, the JSON fields must be exactly `version`, `tool`, and `arguments`: `{"version":1,"tool":"<exact tool name>","arguments":{...}}`. Do not use `args`, `params`, or a top-level `command` field. Compact-JSON encode it, base64url encode it without `=` padding, and keep the encoded request <=256 chars. Use an actual encoder when one is available; do not manually calculate Base64 character-by-character.
 4. With a fresh nonce, `open` `/v1/s/<CAPABILITY>/call/<nonce>/<request-b64>`. Read `confirmation_base` and `challenge`, concatenate them exactly, and `open` that URL. Follow `status_url` if queued/running; fetch numbered chunks if returned. Never retry `unknown_outcome` automatically.

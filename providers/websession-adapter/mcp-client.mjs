@@ -18,11 +18,11 @@ export async function connectMcp({ mcpUrl, stateDir, callbackUrl }) {
     authProvider: provider,
     requestInit: {
       headers: {
-        'user-agent': 'satori-adapter/1',
+        'user-agent': 'websession-adapter/1',
       },
     },
   });
-  const client = new Client({ name: 'satori-adapter', version: '0.1.0' }, { capabilities: {} });
+  const client = new Client({ name: 'websession-adapter', version: '0.1.0' }, { capabilities: {} });
 
   try {
     await client.connect(transport);

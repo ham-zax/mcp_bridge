@@ -28,7 +28,7 @@ export class PersistentOAuthProvider {
 
   get clientMetadata() {
     return {
-      client_name: 'Satori adapter',
+      client_name: 'WebSession adapter',
       redirect_uris: [String(this.redirectUrl)],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],

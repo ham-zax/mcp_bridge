@@ -1,6 +1,6 @@
-# Satori Layered Adapter Implementation Plan
+# WebSession Layered Adapter Implementation Plan
 
-**Design:** [`../specs/2026-08-19-satori-layered-adapter-design.md`](../specs/2026-08-19-satori-layered-adapter-design.md)
+**Design:** [`../specs/2026-08-19-websession-layered-adapter-design.md`](../specs/2026-08-19-websession-layered-adapter-design.md)
 
 **Goal:** Add one durable server-side adapter that gives constrained AI runtimes a universal path-only GET interface and later an optional JSON/HTTP interface, while keeping the existing 1MCP gateway and provider composition authoritative.
 
@@ -35,13 +35,13 @@ The exact adapter filenames below are the intended repository-native seam. Prese
 
 | File | Responsibility |
 |---|---|
-| `providers/satori-adapter/server.mjs` | HTTP entry point, health, lifecycle wiring, facade routing |
-| `providers/satori-adapter/core.mjs` | normalized submission, policy gate, idempotent operation orchestration |
-| `providers/satori-adapter/store.mjs` | `node:sqlite` schema, transactions, leases, capability/operation/result persistence |
-| `providers/satori-adapter/mcp-client.mjs` | authenticated Streamable HTTP client to existing 1MCP |
-| `providers/satori-adapter/protocol.mjs` | strict universal request parsing and stable text/JSON response rendering |
-| `providers/satori-adapter/probe.mjs` | temporary/retained controlled probe handlers and private request evidence |
-| `providers/satori-adapter/package.json` | local package metadata and existing MCP SDK dependency pin |
+| `providers/websession-adapter/server.mjs` | HTTP entry point, health, lifecycle wiring, facade routing |
+| `providers/websession-adapter/core.mjs` | normalized submission, policy gate, idempotent operation orchestration |
+| `providers/websession-adapter/store.mjs` | `node:sqlite` schema, transactions, leases, capability/operation/result persistence |
+| `providers/websession-adapter/mcp-client.mjs` | authenticated Streamable HTTP client to existing 1MCP |
+| `providers/websession-adapter/protocol.mjs` | strict universal request parsing and stable text/JSON response rendering |
+| `providers/websession-adapter/probe.mjs` | temporary/retained controlled probe handlers and private request evidence |
+| `providers/websession-adapter/package.json` | local package metadata and existing MCP SDK dependency pin |
 | `bin/adapter` | explicit adapter-only `start`, `stop`, and `status`; never called by the main lifecycle |
 | `tests/adapter-probe.sh` | focused probe/lifecycle isolation contract |
 | `docs/architecture.md` | current runtime path after adapter introduction |
@@ -55,7 +55,7 @@ Do not create all code files mechanically if a task remains clearer with fewer m
 ### Task 1: Local controlled probe and explicit adapter lifecycle — implemented
 
 **Files:**
-- Create: `providers/satori-adapter/server.mjs` with `/health/ready` and `/probe/*` only.
+- Create: `providers/websession-adapter/server.mjs` with `/health/ready` and `/probe/*` only.
 - Create: `bin/adapter` with explicit `start|stop|status` actions.
 - Create: `tests/adapter-probe.sh` for the required focused runtime/isolation contract.
 - Modify: current architecture/operations docs for the opt-in boundary.
@@ -96,7 +96,7 @@ Do not create all code files mechanically if a task remains clearer with fewer m
 
 **Measured GLM results:**
 - Real model-readable direct GET exists in capable sessions; browser-navigation-only sessions also exist and do not qualify.
-- Compact literal URLs reach the origin and return readable `SATORI-PROBE/1` bodies.
+- Compact literal URLs reach the origin and return readable `WEBSESSION-PROBE/1` bodies.
 - Delays of 1, 2, 4, and 6 seconds completed, but the 6-second case produced three origin GETs.
 - Plain-text canaries were not automatically fetched in the tested direct-fetch profile.
 - Generated-path attempts arrived as 344 and 696 bytes for requested 512/1024 payloads; 2048+ attempts failed before the origin, while the public origin independently accepts 8192 bytes.
@@ -107,10 +107,10 @@ Do not create all code files mechanically if a task remains clearer with fewer m
 - Programmatically generated path payloads of 512, 1024, 2048, 4096, and 8192 bytes all reached the origin intact with HTTP 200.
 - Delayed responses of 1, 2, 4, 6, and 12 seconds all returned readable HTTP 200 bodies; the 12-second result is the current controlled-origin wait proof.
 - The same assistant response generated duplicate origin traffic beyond the requested single application calls, including a repeated query request, a second full path ladder, and repeated delay-ladder requests. Enhanced POST submission therefore requires the same durable idempotency discipline as universal GET.
-- A deliberate 404 exposed both the status code and the SATORI probe body.
+- A deliberate 404 exposed both the status code and the WEBSESSION probe body.
 - The current delay endpoint sends only a final body, so `INCREMENTAL_READS` remains not proven by this controlled-origin run.
 - In this observed same-response Python environment, `/home/workspace` file state survived a later code invocation while an in-memory variable did not. Neither is durable adapter state.
-- A focused `POST /probe/http/{nonce}` reached the controlled origin with HTTP 200 and proved: `Content-Type: application/json`, bearer-header presence without secret disclosure, `Idempotency-Key` presence and nonce match, `X-Satori-Probe` preservation, a 108-byte JSON body with matching SHA-256, valid JSON parsing, and `probe_id` matching the nonce.
+- A focused `POST /probe/http/{nonce}` reached the controlled origin with HTTP 200 and proved: `Content-Type: application/json`, bearer-header presence without secret disclosure, `Idempotency-Key` presence and nonce match, `X-WebSession-Probe` preservation, a 108-byte JSON body with matching SHA-256, valid JSON parsing, and `probe_id` matching the nonce.
 - This completes the transport capability probe. Do not extend transport testing unless implementation later exposes a concrete unanswered capability question.
 
 **Acceptance criteria:**
@@ -125,10 +125,10 @@ Do not create all code files mechanically if a task remains clearer with fewer m
 ### Task 3: Resolve adapter-to-1MCP authentication — complete
 
 **Files:**
-- Create: `providers/satori-adapter/oauth.mjs` for persistent SDK `OAuthClientProvider` state.
-- Create: `providers/satori-adapter/mcp-client.mjs` for authenticated SDK client creation and bounded tool calls.
-- Create: `providers/satori-adapter/auth.mjs` for the temporary loopback operator authorization flow.
-- Create: `providers/satori-adapter/package.json` / lockfile with the repository's existing `@modelcontextprotocol/sdk` version.
+- Create: `providers/websession-adapter/oauth.mjs` for persistent SDK `OAuthClientProvider` state.
+- Create: `providers/websession-adapter/mcp-client.mjs` for authenticated SDK client creation and bounded tool calls.
+- Create: `providers/websession-adapter/auth.mjs` for the temporary loopback operator authorization flow.
+- Create: `providers/websession-adapter/package.json` / lockfile with the repository's existing `@modelcontextprotocol/sdk` version.
 - Modify: `bin/adapter` to add explicit `auth` / `auth-status` commands without coupling them to `start`.
 - Update: `docs/operations.md` and `docs/security.md` with operator authorization/reauthorization behavior.
 
@@ -176,7 +176,7 @@ Do not create all code files mechanically if a task remains clearer with fewer m
 - Implement deterministic request normalization and a request hash.
 - Uniquely key creation by `(principal_id, client_nonce)`.
 - Return the existing operation for identical replay and a readable `nonce_conflict` for nonce reuse with another request.
-- Use one read call only as the first end-to-end durability proof; do not turn that implementation sequence into a Satori authorization policy.
+- Use one read call only as the first end-to-end durability proof; do not turn that implementation sequence into a WebSession authorization policy.
 - Lease queued work durably, persist dispatch intent, call 1MCP, and persist the bounded finite result.
 - Return a small completed result inline when available within the measured fast-path budget; otherwise return an operation-scoped universal status URL.
 - Recover queued/interrupted work conservatively after adapter restart without inferring tool retry safety.
@@ -190,7 +190,7 @@ Do not create all code files mechanically if a task remains clearer with fewer m
 **Implemented evidence (2026-08-19):**
 - `node:sqlite` stores capability hashes and durable operations under the adapter's private state directory.
 - The first vertical proof used strict unpadded base64url JSON, currently capped at the measured conservative 256-character inline budget, to execute `dev_1mcp_read` through 1MCP.
-- Task 7 later removes that initial single-tool implementation boundary: current discovery and dispatch use the live exact 1MCP tool surface without a Satori permission filter.
+- Task 7 later removes that initial single-tool implementation boundary: current discovery and dispatch use the live exact 1MCP tool surface without a WebSession permission filter.
 - Same `(principal, nonce, request)` replay returned the same operation ID and one database row; reuse of the nonce for another request returned `nonce_conflict`.
 - Completed results are durable and readable through an operation-scoped HMAC continuation URL; submission authority is not required for polling.
 - Local and public `GET /v1/s/{capability}/call/{nonce}/{request}` completed a real README read through adapter OAuth -> 1MCP -> Dev.
@@ -212,8 +212,8 @@ Do not create all code files mechanically if a task remains clearer with fewer m
 
 **Steps:**
 - Add strict unpadded base64url parsing with encoded/decoded size limits derived from the probe.
-- Add stable line-oriented `SATORI-BRIDGE/1` response rendering.
-- Mirror the live 1MCP tool names and descriptors without a Satori permission filter.
+- Add stable line-oriented `WEBSESSION-MCP-BRIDGE/1` response rendering.
+- Mirror the live 1MCP tool names and descriptors without a WebSession permission filter.
 - Add operation-scoped read-only continuation capabilities.
 - Add bounded immutable UTF-8 result chunks for larger text.
 - Add operator revocation and TTL handling without introducing a public capability-registration service.
@@ -263,9 +263,9 @@ Do not create all code files mechanically if a task remains clearer with fewer m
 - Enhanced JSON and universal GET parse the same generic request envelope containing an exact 1MCP tool name and arguments and enter the same `OperationCore.submit(...)` path.
 - Two identical public POST submissions with the same idempotency key returned the same operation ID.
 - The returned operation-scoped universal status URL read that exact operation and result, proving richer-runtime loss does not lose operation authority.
-- Enhanced `POST /v1/calls` does not add a Satori per-tool confirmation or permission layer; 1MCP remains the authority owner.
+- Enhanced `POST /v1/calls` does not add a WebSession per-tool confirmation or permission layer; 1MCP remains the authority owner.
 - `POST /v1/confirm/{operation-id}` remains available to confirm an operation prepared through the universal GET transport.
-- New upstream tools require no Satori policy-registry change; live discovery and exact tool-name dispatch follow 1MCP.
+- New upstream tools require no WebSession policy-registry change; live discovery and exact tool-name dispatch follow 1MCP.
 
 **Required repository validation:**
 - Run focused facade-equivalence checks and the relevant model-facing publication gate required by repository policy.
@@ -280,24 +280,24 @@ Do not create all code files mechanically if a task remains clearer with fewer m
 - Produces: the same 1MCP OAuth scopes, live tool surface, exact tool names/arguments, universal proof-of-read confirmation, and conservative ambiguous-outcome recovery.
 
 **Steps:**
-- Let the MCP SDK resolve OAuth scope from live 1MCP metadata rather than hardcoding a Satori scope set; the current grant is `tag:code tag:dev tag:terminal`, matching main.
+- Let the MCP SDK resolve OAuth scope from live 1MCP metadata rather than hardcoding a WebSession scope set; the current grant is `tag:code tag:dev tag:terminal`, matching main.
 - Use one adapter `main` capability rather than per-tool read/write scopes.
 - Mirror live 1MCP tool descriptors and pass exact tool names/arguments through to 1MCP.
-- Require proof-of-read confirmation uniformly for universal GET submissions; do not classify upstream tools as safe/unsafe inside Satori.
+- Require proof-of-read confirmation uniformly for universal GET submissions; do not classify upstream tools as safe/unsafe inside WebSession.
 - Let enhanced authenticated POST dispatch without the GET-specific confirmation step.
 - Record dispatch intent before every MCP tool call and transition ambiguous post-dispatch interruption to `unknown_outcome` rather than inferring retry safety.
 
 **Acceptance criteria:**
-- Satori has no independent per-tool authorization allowlist or read/write scope split.
+- WebSession has no independent per-tool authorization allowlist or read/write scope split.
 - Adapter OAuth scope set matches the main bridge scope set.
 - Tool discovery is the live 1MCP surface and request dispatch uses exact upstream names/arguments.
 - Revoked/expired adapter transport authority cannot start new work.
 - Universal GET prefetch/replay protection changes transport only, not 1MCP authorization semantics.
 
 **Implemented evidence (2026-08-19):**
-- Removed the Satori tool policy registry and read/write capability split; `bin/adapter issue-cap` issues only `scope: main` bearers and legacy prototype scope rows are not accepted as main capabilities.
+- Removed the WebSession tool policy registry and read/write capability split; `bin/adapter issue-cap` issues only `scope: main` bearers and legacy prototype scope rows are not accepted as main capabilities.
 - Generic request parsing preserves exact 1MCP tool names and arguments; enhanced POST dispatches them directly and universal discovery reads the live 1MCP catalog.
-- Universal GET confirmation applies uniformly to every tool, avoiding any Satori inference about which upstream tools are safe to execute from a GET transport.
+- Universal GET confirmation applies uniformly to every tool, avoiding any WebSession inference about which upstream tools are safe to execute from a GET transport.
 - Dispatch intent is persisted immediately before every MCP call; a recovered dispatched operation transitions to terminal `unknown_outcome` rather than being blindly retried.
 
 **Required repository validation:**

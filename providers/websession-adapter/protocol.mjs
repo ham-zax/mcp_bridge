@@ -49,7 +49,7 @@ export function parseUniversalRequest(segment) {
 
 export function renderOperation(operation, statusUrl, confirmation = undefined) {
   const lines = [
-    'SATORI-BRIDGE/1',
+    'WEBSESSION-MCP-BRIDGE/1',
     `state: ${operation.state}`,
     `operation_id: ${operation.id}`,
     `status_url: ${statusUrl}`,
@@ -82,7 +82,7 @@ export function renderOperation(operation, statusUrl, confirmation = undefined) 
 
 export function renderChunk(operationId, chunk) {
   return [
-    'SATORI-BRIDGE/1',
+    'WEBSESSION-MCP-BRIDGE/1',
     'state: chunk',
     `operation_id: ${operationId}`,
     `chunk_number: ${chunk.chunk_number}`,
@@ -94,5 +94,5 @@ export function renderChunk(operationId, chunk) {
 }
 
 export function renderBridgeError(code, message) {
-  return ['SATORI-BRIDGE/1', 'state: rejected', `code: ${code}`, `message: ${message}`].join('\n');
+  return ['WEBSESSION-MCP-BRIDGE/1', 'state: rejected', `code: ${code}`, `message: ${message}`].join('\n');
 }

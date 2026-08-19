@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { AdapterStore } from './store.mjs';
 
 const action = process.argv[2];
-const stateDir = process.env.SATORI_ADAPTER_STATE_DIR;
-if (!stateDir) throw new Error('SATORI_ADAPTER_STATE_DIR is required');
+const stateDir = process.env.WEBSESSION_ADAPTER_STATE_DIR;
+if (!stateDir) throw new Error('WEBSESSION_ADAPTER_STATE_DIR is required');
 
 const store = new AdapterStore(stateDir);
 try {

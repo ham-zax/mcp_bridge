@@ -1,5 +1,5 @@
 [Unit]
-Description=MCP Development Bridge
+Description=WebSession MCP Bridge
 Documentation=file://@REPO_ROOT@/README.md
 ConditionPathExists=@REPO_ROOT@/bin/start
 

@@ -1,6 +1,6 @@
 # Security
 
-MCP Development Bridge exposes development capabilities to ChatGPT. The security boundary is the trust profile plus the Linux account running the bridge.
+WebSession MCP Bridge exposes development capabilities to ChatGPT. The security boundary is the trust profile plus the Linux account running the bridge.
 
 ## Profiles
 

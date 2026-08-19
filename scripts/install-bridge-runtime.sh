@@ -46,7 +46,7 @@ else
   exit 1
 fi
 
-echo "== verifying MCP Development Bridge prerequisites =="
+echo "== verifying WebSession MCP Bridge prerequisites =="
 for cmd in node npm npx uv uvx cloudflared curl flock; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "$cmd missing" >&2; exit 1; }
 done

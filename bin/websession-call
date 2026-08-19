@@ -3,27 +3,27 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { AdapterStore } from '../providers/satori-adapter/store.mjs';
+import { AdapterStore } from '../providers/websession-adapter/store.mjs';
 
 const ACCESS_TTL_SECONDS = 6 * 60 * 60;
 const POLL_MS = 250;
 const HTTP_TIMEOUT_MS = 30_000;
 
 function usage() {
-  throw new Error("usage: bin/satori-call <tool> '<arguments-json>'");
+  throw new Error("usage: bin/websession-call <tool> '<arguments-json>'");
 }
 
 function adapterStateDir() {
   const stateBase = process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state');
-  return process.env.SATORI_ADAPTER_STATE_DIR || join(stateBase, 'mcp-dev-bridge', 'satori-adapter');
+  return process.env.WEBSESSION_ADAPTER_STATE_DIR || join(stateBase, 'mcp-dev-bridge', 'websession-adapter');
 }
 
 function publicBase() {
-  const configured = process.env.SATORI_ADAPTER_PUBLIC_URL || process.env.TUNNEL_URL;
+  const configured = process.env.WEBSESSION_ADAPTER_PUBLIC_URL || process.env.TUNNEL_URL;
   if (configured) return configured.replace(/\/$/, '');
   const runtimeBase = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid()}`;
   const value = readFileSync(join(runtimeBase, 'mcp-dev-bridge', 'tunnel.url'), 'utf8').trim();
-  if (!value) throw new Error('public Satori URL is unavailable; start the bridge or set SATORI_ADAPTER_PUBLIC_URL');
+  if (!value) throw new Error('public WebSession URL is unavailable; start the bridge or set WEBSESSION_ADAPTER_PUBLIC_URL');
   return value.replace(/\/$/, '');
 }
 
@@ -80,7 +80,7 @@ function blockValue(text, name) {
 
 function parseTextSnapshot(text) {
   const state = lineValue(text, 'state');
-  if (!state) throw new Error('invalid Satori status response');
+  if (!state) throw new Error('invalid WebSession status response');
   return {
     state,
     statusUrl: lineValue(text, 'status_url'),
@@ -93,7 +93,7 @@ function parseTextSnapshot(text) {
 
 async function readChunks(chunkBaseUrl, count) {
   if (!chunkBaseUrl || !Number.isInteger(count) || count < 1) {
-    throw new Error('invalid Satori chunk response');
+    throw new Error('invalid WebSession chunk response');
   }
   let output = '';
   for (let number = 1; number <= count; number += 1) {
@@ -101,7 +101,7 @@ async function readChunks(chunkBaseUrl, count) {
     if (!response.ok) throw new Error(`chunk ${number} failed with HTTP ${response.status}`);
     const text = await response.text();
     const content = blockValue(text, 'content');
-    if (content === undefined) throw new Error(`invalid Satori chunk ${number}`);
+    if (content === undefined) throw new Error(`invalid WebSession chunk ${number}`);
     output += content;
   }
   return output;
@@ -113,7 +113,7 @@ async function completedOutput(snapshot) {
 }
 
 async function waitForTerminal(statusUrl) {
-  if (!statusUrl) throw new Error('Satori response omitted status_url');
+  if (!statusUrl) throw new Error('WebSession response omitted status_url');
   while (true) {
     await new Promise(resolve => setTimeout(resolve, POLL_MS));
     const response = await request(statusUrl);
@@ -163,7 +163,7 @@ async function main() {
     try {
       snapshot = JSON.parse(responseText);
     } catch {
-      throw new Error('invalid Satori submission response');
+      throw new Error('invalid WebSession submission response');
     }
 
     if (snapshot.state === 'queued' || snapshot.state === 'running') {
@@ -185,7 +185,7 @@ async function main() {
       revokeOnExit = true;
       throw new Error(`${snapshot.state}: ${snapshot.error || snapshot.state}`);
     } else {
-      throw new Error(`unexpected Satori state: ${snapshot.state || 'unknown'}`);
+      throw new Error(`unexpected WebSession state: ${snapshot.state || 'unknown'}`);
     }
   } finally {
     if (revokeOnExit) revokeCapability(stateDir, issued.id);
@@ -195,6 +195,6 @@ async function main() {
 }
 
 main().catch(error => {
-  process.stderr.write(`satori-call: ${error.message}\n`);
+  process.stderr.write(`websession-call: ${error.message}\n`);
   process.exitCode = 1;
 });

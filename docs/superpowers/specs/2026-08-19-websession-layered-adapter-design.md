@@ -1,4 +1,4 @@
-# Satori Layered Adapter Design
+# WebSession Layered Adapter Design
 
 **Status:** accepted architecture. The controlled transport probe is the first implementation step.
 
@@ -150,7 +150,7 @@ The request cannot override server policy, confirmation requirements, executor c
 
 This is the preferred transport when a runtime directly proves richer HTTP capabilities, while universal GET remains the compatibility floor. A controlled Qwen/Python run through this exact Cloudflare path proved model-visible GET responses, exact query preservation, programmatically generated paths through 8192 bytes, readable 404 status/body, and delayed responses through 12 seconds. The same assistant response also produced duplicate origin traffic beyond the explicitly requested single application calls: the query request appeared twice, the full path ladder appeared twice, and multiple delay-ladder requests were repeated. Whether those duplicates came from Qwen orchestration, repeated code invocations, or an HTTP layer is not material to the server contract: the enhanced profile also requires idempotent submission and must never assume one client-side Python call implies one origin delivery. The delayed probe endpoint sends only a final body, so that run does not establish incremental streaming capability. In the observed same-response Python environment, a file under `/home/workspace` survived a later code invocation while an in-memory variable did not; neither client-local mechanism is part of the durability model.
 
-A focused controlled-origin POST then completed with HTTP 200 through `POST /probe/http/{nonce}`. The origin observed `Content-Type: application/json`, bearer-header presence without logging or echoing the bearer value, `Idempotency-Key` presence with exact nonce match, `X-Satori-Probe` preservation, a 108-byte body with matching SHA-256, valid JSON parsing, and `probe_id` equal to the path nonce. This promotes POST, JSON body carriage, and the required custom-header carriage from prior client evidence to controlled-origin evidence. Transport probing is complete unless implementation later exposes a concrete unanswered capability question.
+A focused controlled-origin POST then completed with HTTP 200 through `POST /probe/http/{nonce}`. The origin observed `Content-Type: application/json`, bearer-header presence without logging or echoing the bearer value, `Idempotency-Key` presence with exact nonce match, `X-WebSession-Probe` preservation, a 108-byte body with matching SHA-256, valid JSON parsing, and `probe_id` equal to the path nonce. This promotes POST, JSON body carriage, and the required custom-header carriage from prior client evidence to controlled-origin evidence. Transport probing is complete unless implementation later exposes a concrete unanswered capability question.
 
 ```http
 POST /v1/calls
@@ -240,7 +240,7 @@ Completed results and terminal operation identity are immutable except for reten
 
 ## Authorization ownership
 
-1MCP remains the sole owner of OAuth scope validation, tool availability, and provider/tool authorization. Satori must not add a second per-tool allowlist, read/write scope split, or argument policy. Its dedicated OAuth client lets the MCP SDK resolve scope from live 1MCP metadata (currently `tag:code tag:dev tag:terminal`, matching main), tool discovery mirrors the live 1MCP descriptors, and dispatch uses the exact upstream tool name and arguments.
+1MCP remains the sole owner of OAuth scope validation, tool availability, and provider/tool authorization. WebSession must not add a second per-tool allowlist, read/write scope split, or argument policy. Its dedicated OAuth client lets the MCP SDK resolve scope from live 1MCP metadata (currently `tag:code tag:dev tag:terminal`, matching main), tool discovery mirrors the live 1MCP descriptors, and dispatch uses the exact upstream tool name and arguments.
 
 The adapter capability is only a transport bearer for that existing authority. Capability expiry/revocation controls access to the adapter transport; it must not narrow or widen the underlying 1MCP tool semantics.
 
@@ -253,7 +253,7 @@ The universal confirmation flow must defend against automatic link fetching.
 The preparation response returns the components separately:
 
 ```text
-SATORI-BRIDGE/1
+WEBSESSION-MCP-BRIDGE/1
 state: confirmation_required
 operation: <operation-id>
 
@@ -411,7 +411,7 @@ Do not build these into the first usable version:
 
 ## First usable milestone
 
-The first useful Satori adapter is deliberately one-operation focused:
+The first useful WebSession adapter is deliberately one-operation focused:
 
 1. a tool-enabled GET-only client can open `/about` and `/tools`;
 2. it can prepare and confirm one small request through path-only URLs;

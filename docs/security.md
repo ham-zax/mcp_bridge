@@ -67,11 +67,11 @@ Human keystrokes are never copied into a separate broker-side input log. Sudo/pa
 
 ## Public exposure
 
-1MCP listens on loopback `:3050`. Cloudflare exposes HTTPS and OAuth remains required for the public MCP origin. The optional Satori adapter listens separately on loopback `:3051`; only explicitly configured `/probe/*` and `/v1/*` paths may be routed to it, while `/mcp`, OAuth, discovery, and all other paths remain on 1MCP.
+1MCP listens on loopback `:3050`. Cloudflare exposes HTTPS and OAuth remains required for the public MCP origin. The optional WebSession adapter listens separately on loopback `:3051`; only explicitly configured `/probe/*` and `/v1/*` paths may be routed to it, while `/mcp`, OAuth, discovery, and all other paths remain on 1MCP.
 
-Satori does not bypass 1MCP. It uses a dedicated dynamically registered authorization-code/PKCE client and stores that credential only in private adapter state. The adapter does not request a narrower scope; the MCP SDK resolves scope from live 1MCP protected-resource/authorization metadata, the same authority that governs the main bridge. The current live grant is `tag:code tag:dev tag:terminal`. 1MCP remains the authorization and tool-surface owner; Satori adds no narrower or broader tool permission layer. The current live server provides no refresh token to this client, so failure to restore authenticated access requires explicit operator reauthorization rather than an unauthenticated fallback.
+WebSession does not bypass 1MCP. It uses a dedicated dynamically registered authorization-code/PKCE client and stores that credential only in private adapter state. The adapter does not request a narrower scope; the MCP SDK resolves scope from live 1MCP protected-resource/authorization metadata, the same authority that governs the main bridge. The current live grant is `tag:code tag:dev tag:terminal`. 1MCP remains the authorization and tool-surface owner; WebSession adds no narrower or broader tool permission layer. The current live server provides no refresh token to this client, so failure to restore authenticated access requires explicit operator reauthorization rather than an unauthenticated fallback.
 
-Universal Satori capabilities are high-entropy bearer values carried in URL paths because the compatibility profile cannot require headers; richer clients send the same capability in the `Authorization` header instead. The adapter stores only capability hashes, applies expiry and explicit operator revocation, returns `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, and uses a different operation-scoped continuation token for later status/result reads. Revoking submission authority blocks discovery/new operations but intentionally does not invalidate already-issued read-only operation continuations. Raw submission capabilities and OAuth credentials must not enter ordinary logs, SQLite operation records, docs, or Git. Both universal GET and enhanced POST require durable nonce idempotency because duplicate origin delivery was observed during client probing. Large text results are bounded, split on UTF-8-safe boundaries, and persisted as immutable numbered chunks with per-chunk hashes.
+Universal WebSession capabilities are high-entropy bearer values carried in URL paths because the compatibility profile cannot require headers; richer clients send the same capability in the `Authorization` header instead. The adapter stores only capability hashes, applies expiry and explicit operator revocation, returns `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, and uses a different operation-scoped continuation token for later status/result reads. Revoking submission authority blocks discovery/new operations but intentionally does not invalidate already-issued read-only operation continuations. Raw submission capabilities and OAuth credentials must not enter ordinary logs, SQLite operation records, docs, or Git. Both universal GET and enhanced POST require durable nonce idempotency because duplicate origin delivery was observed during client probing. Large text results are bounded, split on UTF-8-safe boundaries, and persisted as immutable numbered chunks with per-chunk hashes.
 
 An optional operator-set master bearer is a password-equivalent bootstrap secret for richer HTTP clients. It is accepted only by `POST /v1/access`, stored only as a private hash outside Git, and exchanges into an ordinary `main` capability with a fixed six-hour lifetime. The master bearer is never accepted as a submission capability itself and is deliberately unavailable in URL-based universal GET routes. Rotating it replaces the stored hash immediately without extending or invalidating already-issued finite capabilities.
 
@@ -87,9 +87,9 @@ Keep these outside Git:
 
 - `.env` deployment identity;
 - generated 1MCP configuration;
-- OAuth/session state, including Satori `oauth.json`;
-- Satori SQLite operation state and continuation/confirmation signing key;
-- Satori master-bearer hash;
+- OAuth/session state, including WebSession `oauth.json`;
+- WebSession SQLite operation state and continuation/confirmation signing key;
+- WebSession master-bearer hash;
 - logs and PID/runtime files;
 - private Terminal state;
 - credentials and tunnel secrets.

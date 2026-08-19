@@ -6,23 +6,23 @@ import { createServer } from 'node:http';
 import { OperationCore } from './core.mjs';
 import { decodeToolName, parseCapabilityToken, parseClientNonce, parseRequest, parseUniversalRequest, renderBridgeError, renderChunk, renderOperation } from './protocol.mjs';
 
-const host = process.env.SATORI_ADAPTER_HOST || '127.0.0.1';
-const port = Number.parseInt(process.env.SATORI_ADAPTER_PORT || '3051', 10);
+const host = process.env.WEBSESSION_ADAPTER_HOST || '127.0.0.1';
+const port = Number.parseInt(process.env.WEBSESSION_ADAPTER_PORT || '3051', 10);
 const stateBase = process.env.XDG_STATE_HOME || join(process.env.HOME || homedir(), '.local', 'state');
-const stateDir = process.env.SATORI_ADAPTER_STATE_DIR || join(stateBase, 'mcp-dev-bridge', 'satori-adapter');
+const stateDir = process.env.WEBSESSION_ADAPTER_STATE_DIR || join(stateBase, 'mcp-dev-bridge', 'websession-adapter');
 const evidencePath = join(stateDir, 'probe.jsonl');
 const rotatedEvidencePath = `${evidencePath}.1`;
-const maxEvidenceBytes = Number.parseInt(process.env.SATORI_ADAPTER_MAX_EVIDENCE_BYTES || String(4 * 1024 * 1024), 10);
-const configuredPublicBase = (process.env.SATORI_ADAPTER_PUBLIC_URL || '').replace(/\/$/, '');
-const mcpUrl = process.env.SATORI_ADAPTER_MCP_URL || '';
-const oauthCallbackUrl = process.env.SATORI_ADAPTER_OAUTH_CALLBACK_URL || 'http://127.0.0.1:3052/callback';
-const maxJsonBodyBytes = Number.parseInt(process.env.SATORI_ADAPTER_MAX_JSON_BODY_BYTES || String(16 * 1024), 10);
+const maxEvidenceBytes = Number.parseInt(process.env.WEBSESSION_ADAPTER_MAX_EVIDENCE_BYTES || String(4 * 1024 * 1024), 10);
+const configuredPublicBase = (process.env.WEBSESSION_ADAPTER_PUBLIC_URL || '').replace(/\/$/, '');
+const mcpUrl = process.env.WEBSESSION_ADAPTER_MCP_URL || '';
+const oauthCallbackUrl = process.env.WEBSESSION_ADAPTER_OAUTH_CALLBACK_URL || 'http://127.0.0.1:3052/callback';
+const maxJsonBodyBytes = Number.parseInt(process.env.WEBSESSION_ADAPTER_MAX_JSON_BODY_BYTES || String(16 * 1024), 10);
 const masterAccessTtlSeconds = 6 * 60 * 60;
 
-if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('SATORI_ADAPTER_PORT must be 1..65535');
-if (!Number.isInteger(maxEvidenceBytes) || maxEvidenceBytes < 4096) throw new Error('SATORI_ADAPTER_MAX_EVIDENCE_BYTES must be at least 4096');
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('WEBSESSION_ADAPTER_PORT must be 1..65535');
+if (!Number.isInteger(maxEvidenceBytes) || maxEvidenceBytes < 4096) throw new Error('WEBSESSION_ADAPTER_MAX_EVIDENCE_BYTES must be at least 4096');
 if (!Number.isInteger(maxJsonBodyBytes) || maxJsonBodyBytes < 1024 || maxJsonBodyBytes > 1024 * 1024) {
-  throw new Error('SATORI_ADAPTER_MAX_JSON_BODY_BYTES must be 1024..1048576');
+  throw new Error('WEBSESSION_ADAPTER_MAX_JSON_BODY_BYTES must be 1024..1048576');
 }
 
 mkdirSync(stateDir, { recursive: true, mode: 0o700 });
@@ -113,13 +113,13 @@ async function handleUniversalGet(req, res, parts) {
   const base = publicBase(req);
 
   if (parts[0] !== 'v1') {
-    sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+    sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
     return true;
   }
 
   if (parts[1] === 'about' && parts.length === 2) {
     sendText(res, 200, [
-      'SATORI-BRIDGE/1',
+      'WEBSESSION-MCP-BRIDGE/1',
       'state: ready',
       'universal_profile: universal-get-v1',
       'enhanced_profile: json-post-v1',
@@ -131,7 +131,7 @@ async function handleUniversalGet(req, res, parts) {
   }
 
   if (parts[1] !== 's') {
-    sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+    sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
     return true;
   }
 
@@ -139,10 +139,10 @@ async function handleUniversalGet(req, res, parts) {
     const capability = parseCapabilityToken(parts[2]);
     const access = capability ? await operationCore.permittedTools(capability) : undefined;
     if (!access) {
-      sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+      sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
       return true;
     }
-    const lines = ['SATORI-BRIDGE/1', 'state: ready', `tool_count: ${access.tools.length}`];
+    const lines = ['WEBSESSION-MCP-BRIDGE/1', 'state: ready', `tool_count: ${access.tools.length}`];
     access.tools.forEach((tool, index) => {
       const number = index + 1;
       lines.push(
@@ -159,7 +159,7 @@ async function handleUniversalGet(req, res, parts) {
     const capability = parseCapabilityToken(parts[2]);
     const access = capability ? await operationCore.permittedTools(capability) : undefined;
     if (!access) {
-      sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+      sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
       return true;
     }
     try {
@@ -167,7 +167,7 @@ async function handleUniversalGet(req, res, parts) {
       const tool = access.tools.find(candidate => candidate.name === toolName);
       if (!tool) throw new Error('tool not found');
       const lines = [
-        'SATORI-BRIDGE/1',
+        'WEBSESSION-MCP-BRIDGE/1',
         'state: ready',
         `tool: ${tool.name}`,
         'universal_get_confirmation: required',
@@ -178,7 +178,7 @@ async function handleUniversalGet(req, res, parts) {
       ];
       sendText(res, 200, lines.join('\n'));
     } catch {
-      sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+      sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
     }
     return true;
   }
@@ -186,7 +186,7 @@ async function handleUniversalGet(req, res, parts) {
   if (parts[3] === 'call' && parts.length === 6) {
     const capability = parseCapabilityToken(parts[2]);
     if (!capability) {
-      sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+      sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
       return true;
     }
     try {
@@ -194,7 +194,7 @@ async function handleUniversalGet(req, res, parts) {
       const parsed = parseUniversalRequest(parts[5]);
       const submitted = operationCore.submit(capability, nonce, parsed, 'universal-get-v1');
       if (submitted.unauthorized) {
-        sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+        sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
         return true;
       }
       if (submitted.nonceConflict) {
@@ -225,12 +225,12 @@ async function handleUniversalGet(req, res, parts) {
     const operationId = parts[4];
     const challenge = parts[5];
     if (!confirmationCapability || !/^[A-Za-z0-9_-]{16}$/.test(challenge)) {
-      sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+      sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
       return true;
     }
     const confirmed = operationCore.confirm(operationId, confirmationCapability, challenge);
     if (confirmed.notFound || confirmed.authorizationInvalid || !confirmed.operation) {
-      sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+      sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
       return true;
     }
     const operation = confirmed.operation.state === 'queued'
@@ -244,13 +244,13 @@ async function handleUniversalGet(req, res, parts) {
   if (parts[3] === 'op' && parts[5] === 'chunk' && parts.length === 7) {
     const continuation = parseCapabilityToken(parts[2]);
     if (!continuation || !/^[1-9][0-9]{0,8}$/.test(parts[6])) {
-      sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+      sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
       return true;
     }
     const operationId = parts[4];
     const chunk = operationCore.readOperationChunk(operationId, continuation, Number(parts[6]));
     if (!chunk) {
-      sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+      sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
       return true;
     }
     sendText(res, 200, renderChunk(operationId, chunk));
@@ -260,13 +260,13 @@ async function handleUniversalGet(req, res, parts) {
   if (parts[3] === 'op' && parts.length === 5) {
     const continuation = parseCapabilityToken(parts[2]);
     if (!continuation) {
-      sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+      sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
       return true;
     }
     const operationId = parts[4];
     const operation = operationCore.readOperation(operationId, continuation);
     if (!operation) {
-      sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+      sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
       return true;
     }
     const statusUrl = `${base}/v1/s/${continuation}/op/${operation.id}`;
@@ -274,13 +274,13 @@ async function handleUniversalGet(req, res, parts) {
     return true;
   }
 
-  sendText(res, 404, 'SATORI-BRIDGE/1\nstate: rejected\ncode: not_found');
+  sendText(res, 404, 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: not_found');
   return true;
 }
 
 function enhancedSnapshot(operation, statusUrl, confirmation = undefined) {
   const value = {
-    protocol: 'SATORI-BRIDGE/1',
+    protocol: 'WEBSESSION-MCP-BRIDGE/1',
     state: operation.state,
     operation_id: operation.id,
     status_url: statusUrl,
@@ -306,12 +306,12 @@ function enhancedSnapshot(operation, statusUrl, confirmation = undefined) {
 async function handleEnhancedCall(req, res) {
   const authorization = req.headers.authorization || '';
   if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) {
-    sendJson(res, 401, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
+    sendJson(res, 401, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
     return;
   }
   const capability = parseCapabilityToken(authorization.slice('Bearer '.length));
   if (!capability) {
-    sendJson(res, 401, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
+    sendJson(res, 401, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
     return;
   }
 
@@ -319,13 +319,13 @@ async function handleEnhancedCall(req, res) {
   try {
     nonce = parseClientNonce(req.headers['idempotency-key'] || '');
   } catch {
-    sendJson(res, 400, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'invalid_idempotency_key' });
+    sendJson(res, 400, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'invalid_idempotency_key' });
     return;
   }
 
   const contentType = String(req.headers['content-type'] || '').split(';', 1)[0].trim().toLowerCase();
   if (contentType !== 'application/json') {
-    sendJson(res, 415, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'content_type_required' });
+    sendJson(res, 415, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'content_type_required' });
     return;
   }
 
@@ -335,7 +335,7 @@ async function handleEnhancedCall(req, res) {
   } catch (error) {
     const tooLarge = error.message.startsWith('body exceeds ');
     sendJson(res, tooLarge ? 413 : 400, {
-      protocol: 'SATORI-BRIDGE/1',
+      protocol: 'WEBSESSION-MCP-BRIDGE/1',
       state: 'rejected',
       code: tooLarge ? 'body_too_large' : 'invalid_request',
     });
@@ -346,17 +346,17 @@ async function handleEnhancedCall(req, res) {
   try {
     parsed = parseRequest(JSON.parse(body.toString('utf8')));
   } catch (error) {
-    sendJson(res, 400, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'invalid_request', message: error.message });
+    sendJson(res, 400, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'invalid_request', message: error.message });
     return;
   }
 
   const submitted = operationCore.submit(capability, nonce, parsed, 'json-post-v1');
   if (submitted.unauthorized) {
-    sendJson(res, 401, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
+    sendJson(res, 401, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
     return;
   }
   if (submitted.nonceConflict) {
-    sendJson(res, 409, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'nonce_conflict' });
+    sendJson(res, 409, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'nonce_conflict' });
     return;
   }
 
@@ -379,17 +379,17 @@ async function handleEnhancedCall(req, res) {
 function handleMasterAccess(req, res) {
   const authorization = req.headers.authorization || '';
   if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) {
-    sendJson(res, 401, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
+    sendJson(res, 401, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
     return;
   }
   const masterBearer = authorization.slice('Bearer '.length);
   if (!operationCore.store.masterBearerMatches(masterBearer)) {
-    sendJson(res, 401, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
+    sendJson(res, 401, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
     return;
   }
   const issued = operationCore.store.issueMainCapability(masterAccessTtlSeconds);
   sendJson(res, 200, {
-    protocol: 'SATORI-BRIDGE/1',
+    protocol: 'WEBSESSION-MCP-BRIDGE/1',
     state: 'ready',
     capability: issued.token,
     scope: issued.scope,
@@ -401,17 +401,17 @@ function handleMasterAccess(req, res) {
 async function handleEnhancedConfirm(req, res, operationId) {
   const authorization = req.headers.authorization || '';
   if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) {
-    sendJson(res, 401, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
+    sendJson(res, 401, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
     return;
   }
   const confirmationCapability = parseCapabilityToken(authorization.slice('Bearer '.length));
   if (!confirmationCapability) {
-    sendJson(res, 401, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
+    sendJson(res, 401, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'authorization_required' });
     return;
   }
   const contentType = String(req.headers['content-type'] || '').split(';', 1)[0].trim().toLowerCase();
   if (contentType !== 'application/json') {
-    sendJson(res, 415, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'content_type_required' });
+    sendJson(res, 415, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'content_type_required' });
     return;
   }
 
@@ -426,13 +426,13 @@ async function handleEnhancedConfirm(req, res, operationId) {
       throw new Error('invalid confirmation challenge');
     }
   } catch (error) {
-    sendJson(res, 400, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'invalid_request', message: error.message });
+    sendJson(res, 400, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'invalid_request', message: error.message });
     return;
   }
 
   const confirmed = operationCore.confirm(operationId, confirmationCapability, value.challenge);
   if (confirmed.notFound || confirmed.authorizationInvalid || !confirmed.operation) {
-    sendJson(res, 404, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'not_found' });
+    sendJson(res, 404, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'not_found' });
     return;
   }
   const operation = confirmed.operation.state === 'queued'
@@ -449,7 +449,7 @@ async function handleHttpProbe(req, res, url, noncePart) {
   const contentType = req.headers['content-type'] || '';
   const authorizationPresent = Boolean(req.headers.authorization);
   const idempotencyKey = req.headers['idempotency-key'] || '';
-  const xSatoriProbe = req.headers['x-satori-probe'] || '';
+  const xWebSessionProbe = req.headers['x-websession-probe'] || '';
   let jsonValid = false;
   let probeIdMatchesNonce = false;
 
@@ -468,7 +468,7 @@ async function handleHttpProbe(req, res, url, noncePart) {
     authorization_present: authorizationPresent,
     idempotency_key_present: Boolean(idempotencyKey),
     idempotency_key_matches_nonce: idempotencyKey === nonce,
-    x_satori_probe: xSatoriProbe,
+    x_websession_probe: xWebSessionProbe,
     body_bytes: body.length,
     body_sha256: bodySha256,
     json_valid: jsonValid,
@@ -476,7 +476,7 @@ async function handleHttpProbe(req, res, url, noncePart) {
   });
 
   sendText(res, 200, [
-    'SATORI-PROBE/1',
+    'WEBSESSION-PROBE/1',
     'state: observed',
     `request_id: ${entry.request_id}`,
     `method: ${entry.method}`,
@@ -485,7 +485,7 @@ async function handleHttpProbe(req, res, url, noncePart) {
     `authorization_present: ${authorizationPresent ? 'yes' : 'no'}`,
     `idempotency_key_present: ${idempotencyKey ? 'yes' : 'no'}`,
     `idempotency_key_matches_nonce: ${idempotencyKey === nonce ? 'yes' : 'no'}`,
-    `x_satori_probe: ${xSatoriProbe}`,
+    `x_websession_probe: ${xWebSessionProbe}`,
     `body_bytes: ${body.length}`,
     `body_sha256: ${bodySha256}`,
     `json_valid: ${jsonValid ? 'yes' : 'no'}`,
@@ -498,21 +498,21 @@ const server = createServer((req, res) => {
   try {
     url = new URL(req.url || '/', `http://${host}:${port}`);
   } catch {
-    sendText(res, 400, 'SATORI-PROBE/1\nstate: rejected\ncode: invalid_url');
+    sendText(res, 400, 'WEBSESSION-PROBE/1\nstate: rejected\ncode: invalid_url');
     return;
   }
 
   const parts = url.pathname.split('/').filter(Boolean);
   if (req.method === 'POST' && parts[0] === 'probe' && parts[1] === 'http' && parts.length === 3) {
     handleHttpProbe(req, res, url, parts[2]).catch((error) => {
-      sendText(res, 400, `SATORI-PROBE/1\nstate: rejected\ncode: invalid_probe_request\nmessage: ${error.message}`);
+      sendText(res, 400, `WEBSESSION-PROBE/1\nstate: rejected\ncode: invalid_probe_request\nmessage: ${error.message}`);
     });
     return;
   }
 
   if (req.method === 'POST' && url.pathname === '/v1/calls') {
     handleEnhancedCall(req, res).catch(() => {
-      sendJson(res, 500, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'internal_error' });
+      sendJson(res, 500, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'internal_error' });
     });
     return;
   }
@@ -521,22 +521,22 @@ const server = createServer((req, res) => {
     try {
       handleMasterAccess(req, res);
     } catch {
-      sendJson(res, 500, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'internal_error' });
+      sendJson(res, 500, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'internal_error' });
     }
     return;
   }
 
   if (req.method === 'POST' && parts[0] === 'v1' && parts[1] === 'confirm' && parts.length === 3) {
     handleEnhancedConfirm(req, res, parts[2]).catch(() => {
-      sendJson(res, 500, { protocol: 'SATORI-BRIDGE/1', state: 'rejected', code: 'internal_error' });
+      sendJson(res, 500, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'internal_error' });
     });
     return;
   }
 
   if (req.method !== 'GET') {
     sendText(res, 405, parts[0] === 'v1'
-      ? 'SATORI-BRIDGE/1\nstate: rejected\ncode: method_not_allowed'
-      : 'SATORI-PROBE/1\nstate: rejected\ncode: method_not_allowed');
+      ? 'WEBSESSION-MCP-BRIDGE/1\nstate: rejected\ncode: method_not_allowed'
+      : 'WEBSESSION-PROBE/1\nstate: rejected\ncode: method_not_allowed');
     return;
   }
 
@@ -548,12 +548,12 @@ const server = createServer((req, res) => {
   }
 
   if (url.pathname === '/health/ready') {
-    sendText(res, 200, 'SATORI-ADAPTER/1\nstate: ready');
+    sendText(res, 200, 'WEBSESSION-ADAPTER/1\nstate: ready');
     return;
   }
 
   if (parts[0] !== 'probe') {
-    sendText(res, 404, 'SATORI-PROBE/1\nstate: rejected\ncode: not_found');
+    sendText(res, 404, 'WEBSESSION-PROBE/1\nstate: rejected\ncode: not_found');
     return;
   }
 
@@ -562,7 +562,7 @@ const server = createServer((req, res) => {
       const nonce = boundedToken(parts[2], 'nonce');
       const entry = recordEvidence(req, url, 'request', { nonce });
       sendText(res, 200, [
-        'SATORI-PROBE/1',
+        'WEBSESSION-PROBE/1',
         'state: observed',
         `request_id: ${entry.request_id}`,
         `method: ${entry.method}`,
@@ -580,7 +580,7 @@ const server = createServer((req, res) => {
       const bytes = Buffer.byteLength(payload, 'utf8');
       const sha256 = createHash('sha256').update(payload, 'utf8').digest('hex');
       recordEvidence(req, url, 'echo-path', { payload_bytes: bytes, payload_sha256: sha256 });
-      sendText(res, 200, `SATORI-PROBE/1\nstate: observed\npayload_bytes: ${bytes}\nsha256: ${sha256}`);
+      sendText(res, 200, `WEBSESSION-PROBE/1\nstate: observed\npayload_bytes: ${bytes}\nsha256: ${sha256}`);
       return;
     }
 
@@ -591,7 +591,7 @@ const server = createServer((req, res) => {
       setTimeout(() => {
         const elapsedMs = Number((process.hrtime.bigint() - started) / 1_000_000n);
         recordEvidence(req, url, 'delay', { requested_seconds: seconds, server_elapsed_ms: elapsedMs });
-        sendText(res, 200, `SATORI-PROBE/1\nstate: observed\nrequested_seconds: ${seconds}\nserver_elapsed_ms: ${elapsedMs}`);
+        sendText(res, 200, `WEBSESSION-PROBE/1\nstate: observed\nrequested_seconds: ${seconds}\nserver_elapsed_ms: ${elapsedMs}`);
       }, seconds * 1000);
       return;
     }
@@ -601,7 +601,7 @@ const server = createServer((req, res) => {
       const base = publicBase(req);
       recordEvidence(req, url, 'page', { nonce });
       sendText(res, 200, [
-        'SATORI-PROBE/1',
+        'WEBSESSION-PROBE/1',
         'state: prefetch_probe',
         'instruction:',
         'Open only instructed_url. Do not open either canary URL.',
@@ -619,18 +619,18 @@ const server = createServer((req, res) => {
       const kind = boundedToken(parts[2], 'kind');
       const nonce = boundedToken(parts[3], 'nonce');
       const entry = recordEvidence(req, url, 'hit', { kind, nonce });
-      sendText(res, 200, `SATORI-PROBE/1\nstate: hit_recorded\nrequest_id: ${entry.request_id}\nkind: ${kind}\nnonce: ${nonce}`);
+      sendText(res, 200, `WEBSESSION-PROBE/1\nstate: hit_recorded\nrequest_id: ${entry.request_id}\nkind: ${kind}\nnonce: ${nonce}`);
       return;
     }
 
-    sendText(res, 404, 'SATORI-PROBE/1\nstate: rejected\ncode: not_found');
+    sendText(res, 404, 'WEBSESSION-PROBE/1\nstate: rejected\ncode: not_found');
   } catch (error) {
-    sendText(res, 400, `SATORI-PROBE/1\nstate: rejected\ncode: invalid_probe_request\nmessage: ${error.message}`);
+    sendText(res, 400, `WEBSESSION-PROBE/1\nstate: rejected\ncode: invalid_probe_request\nmessage: ${error.message}`);
   }
 });
 
 server.listen(port, host, () => {
-  process.stdout.write(`Satori adapter probe listening on http://${host}:${port}\n`);
+  process.stdout.write(`WebSession adapter probe listening on http://${host}:${port}\n`);
 });
 
 function shutdown() {

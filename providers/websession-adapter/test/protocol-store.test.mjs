@@ -38,7 +38,7 @@ test('universal decoder rejects extra fields and non-canonical encoding', () => 
 });
 
 test('store hashes main capabilities, deduplicates nonce reuse, and scopes continuation tokens', () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'satori-adapter-test-'));
+  const stateDir = mkdtempSync(join(tmpdir(), 'websession-adapter-test-'));
   const store = new AdapterStore(stateDir);
   try {
     const issued = store.issueMainCapability(60);
@@ -67,7 +67,7 @@ test('store hashes main capabilities, deduplicates nonce reuse, and scopes conti
 });
 
 test('universal confirmation is hashed, revocation-aware, idempotent, and interruption-safe', () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'satori-adapter-confirm-'));
+  const stateDir = mkdtempSync(join(tmpdir(), 'websession-adapter-confirm-'));
   let store = new AdapterStore(stateDir);
   try {
     const issued = store.issueMainCapability(60);
@@ -130,7 +130,7 @@ test('universal confirmation is hashed, revocation-aware, idempotent, and interr
 });
 
 test('completed results are stored as immutable UTF-8 chunks', () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'satori-adapter-chunks-'));
+  const stateDir = mkdtempSync(join(tmpdir(), 'websession-adapter-chunks-'));
   const store = new AdapterStore(stateDir);
   try {
     const issued = store.issueMainCapability(60);

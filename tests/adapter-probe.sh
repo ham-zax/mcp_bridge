@@ -13,8 +13,8 @@ adapter() {
     HOME="$TMP/home" \
     XDG_STATE_HOME="$TMP/state" \
     XDG_RUNTIME_DIR="$TMP/run" \
-    SATORI_ADAPTER_PORT="$PORT" \
-    SATORI_ADAPTER_PUBLIC_URL="$BASE" \
+    WEBSESSION_ADAPTER_PORT="$PORT" \
+    WEBSESSION_ADAPTER_PUBLIC_URL="$BASE" \
     "$ROOT/bin/adapter" "$@"
 }
 
@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if grep -Eq 'satori-adapter|bin/adapter' "$ROOT/bin/start" "$ROOT/bin/stop" "$ROOT/bin/status" "$ROOT/lib/bridge/watchdog.sh"; then
+if grep -Eq 'websession-adapter|bin/adapter' "$ROOT/bin/start" "$ROOT/bin/stop" "$ROOT/bin/status" "$ROOT/lib/bridge/watchdog.sh"; then
   echo "main bridge lifecycle must not reference the optional adapter" >&2
   exit 1
 fi
@@ -53,12 +53,12 @@ test "$BAD_MASTER_HTTP" = 401
 ACCESS_RESPONSE="$(curl -fsS -X POST -H "Authorization: Bearer $CUSTOM_MASTER" "$BASE/v1/access")"
 node -e '
   const value = JSON.parse(process.argv[1]);
-  if (value.protocol !== "SATORI-BRIDGE/1" || value.state !== "ready" || value.scope !== "main") process.exit(1);
+  if (value.protocol !== "WEBSESSION-MCP-BRIDGE/1" || value.state !== "ready" || value.scope !== "main") process.exit(1);
   if (value.ttl_seconds !== 21600 || !/^[A-Za-z0-9_-]{43}$/.test(value.capability)) process.exit(1);
   const delta = Date.parse(value.expires_at) - Date.now();
   if (delta < 21_590_000 || delta > 21_600_000) process.exit(1);
 ' "$ACCESS_RESPONSE"
-if grep -R -Fq "$CUSTOM_MASTER" "$TMP/state/mcp-dev-bridge/satori-adapter"; then
+if grep -R -Fq "$CUSTOM_MASTER" "$TMP/state/mcp-dev-bridge/websession-adapter"; then
   echo "adapter state leaked raw master bearer" >&2
   exit 1
 fi
@@ -77,10 +77,10 @@ ECHO_RESPONSE="$(curl -fsS "$BASE/probe/echo-path/$PAYLOAD")"
 grep -Fq 'payload_bytes: 512' <<<"$ECHO_RESPONSE"
 grep -Fq "sha256: $EXPECTED_SHA" <<<"$ECHO_RESPONSE"
 
-REQUEST_RESPONSE="$(curl -fsS -A 'satori-adapter-test/1.0' "$BASE/probe/request/test-nonce?alpha=one")"
+REQUEST_RESPONSE="$(curl -fsS -A 'websession-adapter-test/1.0' "$BASE/probe/request/test-nonce?alpha=one")"
 grep -Fq 'nonce: test-nonce' <<<"$REQUEST_RESPONSE"
 grep -Fq 'query: ?alpha=one' <<<"$REQUEST_RESPONSE"
-grep -Fq 'user_agent: satori-adapter-test/1.0' <<<"$REQUEST_RESPONSE"
+grep -Fq 'user_agent: websession-adapter-test/1.0' <<<"$REQUEST_RESPONSE"
 
 HTTP_BODY='{"probe_id":"post-test","message":"probe","number":12345,"unicode":"✓"}'
 HTTP_RESPONSE="$(curl -fsS \
@@ -88,7 +88,7 @@ HTTP_RESPONSE="$(curl -fsS \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer test-secret-not-echoed' \
   -H 'Idempotency-Key: post-test' \
-  -H 'X-Satori-Probe: test' \
+  -H 'X-WebSession-Probe: test' \
   --data "$HTTP_BODY" \
   "$BASE/probe/http/post-test")"
 grep -Fq 'method: POST' <<<"$HTTP_RESPONSE"
@@ -96,7 +96,7 @@ grep -Fq 'content_type: application/json' <<<"$HTTP_RESPONSE"
 grep -Fq 'authorization_present: yes' <<<"$HTTP_RESPONSE"
 grep -Fq 'idempotency_key_present: yes' <<<"$HTTP_RESPONSE"
 grep -Fq 'idempotency_key_matches_nonce: yes' <<<"$HTTP_RESPONSE"
-grep -Fq 'x_satori_probe: test' <<<"$HTTP_RESPONSE"
+grep -Fq 'x_websession_probe: test' <<<"$HTTP_RESPONSE"
 grep -Fq 'json_valid: yes' <<<"$HTTP_RESPONSE"
 grep -Fq 'probe_id_matches_nonce: yes' <<<"$HTTP_RESPONSE"
 if grep -Fq 'test-secret-not-echoed' <<<"$HTTP_RESPONSE"; then
@@ -113,7 +113,7 @@ grep -Fq "$BASE/probe/hit/instructed/prefetch-test" <<<"$PAGE_RESPONSE"
 grep -Fq "$BASE/probe/hit/canary-a/prefetch-test" <<<"$PAGE_RESPONSE"
 curl -fsS "$BASE/probe/hit/instructed/prefetch-test" | grep -Fq 'kind: instructed'
 
-EVIDENCE="$TMP/state/mcp-dev-bridge/satori-adapter/probe.jsonl"
+EVIDENCE="$TMP/state/mcp-dev-bridge/websession-adapter/probe.jsonl"
 test -s "$EVIDENCE"
 grep -Fq '"route":"echo-path"' "$EVIDENCE"
 grep -Fq '"route":"request"' "$EVIDENCE"

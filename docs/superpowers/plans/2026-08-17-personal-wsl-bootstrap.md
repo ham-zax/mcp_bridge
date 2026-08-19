@@ -386,7 +386,7 @@ Fix only verified issues inside scope and rerun the affected checks.
 
 - [ ] **Step 3: Integrate into canonical `main`**
 
-Fetch `origin/main`, require the feature branch to still descend from current local main or resolve divergence without rewriting unrelated history, then fast-forward merge the verified feature branch into canonical `/home/hamza/repo/satori_bridge`.
+Fetch `origin/main`, require the feature branch to still descend from current local main or resolve divergence without rewriting unrelated history, then fast-forward merge the verified feature branch into canonical `/home/hamza/repo/websession_mcp_bridge`.
 
 - [ ] **Step 4: Run live bootstrap with explicit startup consent**
 

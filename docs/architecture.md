@@ -16,9 +16,9 @@ Linux / WSL host
 
 1MCP is the single public MCP gateway. Cloudflare supplies the public HTTPS transport; providers remain local stdio processes.
 
-An optional Satori adapter runs separately on loopback `:3051` for constrained non-MCP clients. Cloudflare may route only `/probe/*` and `/v1/*` to it while `/mcp`, OAuth, and discovery remain on 1MCP `:3050`. The adapter exposes a universal readable-GET facade plus a preferred bearer-authenticated JSON POST facade; both normalize into the same SQLite-backed durable operation core with nonce idempotency, explicit capability revocation, operation-scoped read continuations, immutable bounded text chunks, and universal-GET proof-of-read confirmation. The adapter authenticates back to the existing public 1MCP gateway with its own persisted authorization-code/PKCE credential and never bypasses 1MCP to reach providers directly. Satori does not define a second tool-permission model: OAuth scope is resolved from live 1MCP metadata (currently `tag:code tag:dev tag:terminal`, matching main), discovery mirrors the live 1MCP tool descriptors, and calls use the exact upstream tool names and arguments.
+An optional WebSession adapter runs separately on loopback `:3051` for constrained non-MCP clients. Cloudflare may route only `/probe/*` and `/v1/*` to it while `/mcp`, OAuth, and discovery remain on 1MCP `:3050`. The adapter exposes a universal readable-GET facade plus a preferred bearer-authenticated JSON POST facade; both normalize into the same SQLite-backed durable operation core with nonce idempotency, explicit capability revocation, operation-scoped read continuations, immutable bounded text chunks, and universal-GET proof-of-read confirmation. The adapter authenticates back to the existing public 1MCP gateway with its own persisted authorization-code/PKCE credential and never bypasses 1MCP to reach providers directly. WebSession does not define a second tool-permission model: OAuth scope is resolved from live 1MCP metadata (currently `tag:code tag:dev tag:terminal`, matching main), discovery mirrors the live 1MCP tool descriptors, and calls use the exact upstream tool names and arguments.
 
-Satori is not part of the normal bridge lifecycle: `bin/start`, `bin/stop`, `bin/status`, the watchdog, and `mcp-dev-bridge.service` continue to own only the existing 1MCP path. The adapter is authorized with `bin/adapter auth` and started explicitly with `bin/adapter start`; public adapter ingress is configured separately and never replaces `/mcp`.
+WebSession is not part of the normal bridge lifecycle: `bin/start`, `bin/stop`, `bin/status`, the watchdog, and `mcp-dev-bridge.service` continue to own only the existing 1MCP path. The adapter is authorized with `bin/adapter auth` and started explicitly with `bin/adapter start`; public adapter ingress is configured separately and never replaces `/mcp`.
 
 ## Capability boundaries
 
@@ -87,7 +87,7 @@ Terminal broker socket   ${XDG_RUNTIME_DIR:-/run/user/$UID}/wsl-agent-terminal.s
 
 The bridge supervises one config-scoped 1MCP process, one cloudflared process, and one watchdog. Lifecycle operations use an exclusive lock and validated process ownership.
 
-The optional Satori adapter has independent manual lifetime. `bin/adapter start|stop|status` owns only that process; `bin/adapter auth|auth-status` owns its separate 1MCP OAuth credential and `bin/adapter issue-cap` is an explicit operator capability-issuance action. Normal bridge startup and user-systemd startup do not enable the adapter.
+The optional WebSession adapter has independent manual lifetime. `bin/adapter start|stop|status` owns only that process; `bin/adapter auth|auth-status` owns its separate 1MCP OAuth credential and `bin/adapter issue-cap` is an explicit operator capability-issuance action. Normal bridge startup and user-systemd startup do not enable the adapter.
 
 Personal Terminal lifetime is split into two user services:
 

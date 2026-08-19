@@ -1,4 +1,4 @@
-# MCP Development Bridge
+# WebSession MCP Bridge
 
 A small, authenticated bridge that lets ChatGPT work against a Linux or WSL development machine through MCP.
 

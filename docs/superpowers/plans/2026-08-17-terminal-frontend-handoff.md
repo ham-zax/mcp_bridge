@@ -253,16 +253,16 @@
 - No source changes unless integration conflict resolution is required.
 
 **Interfaces:**
-- Consumes: exact verified candidate SHA from Tasks 1-6 and the canonical live checkout `/home/hamza/repo/satori_bridge`.
+- Consumes: exact verified candidate SHA from Tasks 1-6 and the canonical live checkout `/home/hamza/repo/websession_mcp_bridge`.
 - Produces: an explicitly activated canonical checkout whose live broker/provider paths resolve to the verified candidate.
 
 **Steps:**
 - [ ] Record the exact verified feature-branch SHA and confirm the feature worktree is clean.
 - [ ] Stop before activation unless the user has explicitly authorized integration/live activation. Implementation completion alone is not permission to merge, rewrite `main`, push, or restart services.
-- [ ] Preferred activation: integrate the verified candidate into the canonical `/home/hamza/repo/satori_bridge` checkout using the approved branch-finishing decision, preserving unrelated changes and avoiding history rewrites. If the candidate is already integrated into canonical `main`, do not reset or rewrite history; record that state, verify the live source paths resolve to the integrated candidate, and proceed only after explicit rollout authorization.
+- [ ] Preferred activation: integrate the verified candidate into the canonical `/home/hamza/repo/websession_mcp_bridge` checkout using the approved branch-finishing decision, preserving unrelated changes and avoiding history rewrites. If the candidate is already integrated into canonical `main`, do not reset or rewrite history; record that state, verify the live source paths resolve to the integrated candidate, and proceed only after explicit rollout authorization.
 - [ ] After integration, verify `git rev-parse HEAD` in the canonical checkout contains the verified candidate and the checkout is clean enough for deployment.
-- [ ] Verify the rendered personal MCP config resolves Terminal provider execution to `/home/hamza/repo/satori_bridge/providers/terminal/mcp-server.mjs` from the activated candidate.
-- [ ] Verify the installed `wsl-agent-terminal-broker.service` `WorkingDirectory` and `ExecStart` resolve to `/home/hamza/repo/satori_bridge` and its `providers/terminal/broker.mjs` from the activated candidate.
+- [ ] Verify the rendered personal MCP config resolves Terminal provider execution to `/home/hamza/repo/websession_mcp_bridge/providers/terminal/mcp-server.mjs` from the activated candidate.
+- [ ] Verify the installed `wsl-agent-terminal-broker.service` `WorkingDirectory` and `ExecStart` resolve to `/home/hamza/repo/websession_mcp_bridge` and its `providers/terminal/broker.mjs` from the activated candidate.
 - [ ] Do not restart live services if either provider or broker still resolves to an older checkout/SHA.
 
 **Acceptance criteria:**

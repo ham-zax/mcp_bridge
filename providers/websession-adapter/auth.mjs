@@ -4,11 +4,11 @@ import { PersistentOAuthProvider } from './oauth.mjs';
 import { listMcpTools } from './mcp-client.mjs';
 
 const action = process.argv[2] || 'status';
-const mcpUrl = process.env.SATORI_ADAPTER_MCP_URL;
-const stateDir = process.env.SATORI_ADAPTER_STATE_DIR;
-const callbackUrl = process.env.SATORI_ADAPTER_OAUTH_CALLBACK_URL || 'http://127.0.0.1:3052/callback';
-if (!mcpUrl) throw new Error('SATORI_ADAPTER_MCP_URL is required');
-if (!stateDir) throw new Error('SATORI_ADAPTER_STATE_DIR is required');
+const mcpUrl = process.env.WEBSESSION_ADAPTER_MCP_URL;
+const stateDir = process.env.WEBSESSION_ADAPTER_STATE_DIR;
+const callbackUrl = process.env.WEBSESSION_ADAPTER_OAUTH_CALLBACK_URL || 'http://127.0.0.1:3052/callback';
+if (!mcpUrl) throw new Error('WEBSESSION_ADAPTER_MCP_URL is required');
+if (!stateDir) throw new Error('WEBSESSION_ADAPTER_STATE_DIR is required');
 
 function normalizedUrl(value) {
   return new URL(value).href;
@@ -51,11 +51,11 @@ function callbackListener(url, provider) {
       }
 
       res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-      res.end('Satori adapter authorization received. You may close this window.\n');
+      res.end('WebSession adapter authorization received. You may close this window.\n');
       resolveCallback({ code });
     } catch (error) {
       res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-      res.end('Satori adapter authorization failed. Return to the terminal.\n');
+      res.end('WebSession adapter authorization failed. Return to the terminal.\n');
       rejectCallback(error);
     }
   });
@@ -80,7 +80,7 @@ async function showStatus() {
   const tokens = provider.tokens();
   if (!tokens?.access_token) throw new Error('adapter OAuth is not authorized; run bin/adapter auth');
   const tools = await listMcpTools({ mcpUrl, stateDir, callbackUrl });
-  process.stdout.write(`Satori adapter OAuth: authorized\nOAuth scopes: ${tokens.scope || ''}\nMCP tools: ${tools.tools.length}\n`);
+  process.stdout.write(`WebSession adapter OAuth: authorized\nOAuth scopes: ${tokens.scope || ''}\nMCP tools: ${tools.tools.length}\n`);
 }
 
 async function authorize() {
@@ -100,7 +100,7 @@ async function authorize() {
     const result = await auth(provider, { serverUrl: mcpUrl });
     if (result === 'REDIRECT') {
       if (!authorizationUrl) throw new Error('OAuth SDK did not provide an authorization URL');
-      process.stdout.write('Open this URL in your browser to authorize the Satori adapter:\n');
+      process.stdout.write('Open this URL in your browser to authorize the WebSession adapter:\n');
       process.stdout.write(`${authorizationUrl}\n`);
       const { code } = await listener.callback;
       const finished = await auth(provider, { serverUrl: mcpUrl, authorizationCode: code });

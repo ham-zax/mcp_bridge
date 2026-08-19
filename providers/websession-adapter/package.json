@@ -1,5 +1,5 @@
 {
-  "name": "mcp-dev-bridge-satori-adapter",
+  "name": "websession-mcp-bridge-adapter",
   "private": true,
   "version": "0.1.0",
   "type": "module",
