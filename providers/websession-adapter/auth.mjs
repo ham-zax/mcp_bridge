@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createInterface } from 'node:readline';
 import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
 import { PersistentOAuthProvider } from './oauth.mjs';
 import { listMcpTools } from './mcp-client.mjs';
@@ -102,9 +103,34 @@ async function authorize() {
       if (!authorizationUrl) throw new Error('OAuth SDK did not provide an authorization URL');
       process.stdout.write('Open this URL in your browser to authorize the WebSession adapter:\n');
       process.stdout.write(`${authorizationUrl}\n`);
-      const { code } = await listener.callback;
-      const finished = await auth(provider, { serverUrl: mcpUrl, authorizationCode: code });
-      if (finished !== 'AUTHORIZED') throw new Error('OAuth token exchange did not complete');
+      process.stdout.write('Then paste the final callback URL here if the browser cannot reach WSL localhost:\n');
+
+      const input = createInterface({ input: process.stdin, output: process.stdout });
+      const pastedCallback = new Promise((resolve, reject) => {
+        input.once('line', line => {
+          try {
+            const pasted = new URL(line.trim());
+            if (pasted.origin !== callback.origin || pasted.pathname !== callback.pathname) {
+              throw new Error(`pasted callback URL must target ${callback.origin}${callback.pathname}`);
+            }
+            const code = pasted.searchParams.get('code');
+            const state = pasted.searchParams.get('state');
+            if (!code) throw new Error('pasted callback URL does not include an authorization code');
+            if (!state || state !== provider.expectedState()) throw new Error('pasted callback state mismatch');
+            resolve({ code });
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+
+      try {
+        const { code } = await Promise.race([listener.callback, pastedCallback]);
+        const finished = await auth(provider, { serverUrl: mcpUrl, authorizationCode: code });
+        if (finished !== 'AUTHORIZED') throw new Error('OAuth token exchange did not complete');
+      } finally {
+        input.close();
+      }
     }
   } finally {
     await listener.close();
