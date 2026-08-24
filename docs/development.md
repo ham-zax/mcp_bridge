@@ -8,7 +8,8 @@ lib/bridge/          lifecycle/process supervision internals
 providers/pi-dev/    Dev read/edit/write/file_ops/Bash/wait provider
 providers/code-router/ Code facade + rooted CodeDB router
 providers/terminal/  Terminal MCP, broker, tmux/transcript logic
-providers/browser/   Browser facade + resource-local Chrome child routing
+providers/browser/   Chrome DevTools facade + resource-local child routing
+providers/browser-fast/ compact observe/execute facade over Agent Browser on Windows + Linux
 providers/local-tools/ stable Local tool broker over private inner 1MCP
 providers/legacy-shell/ restricted-profile legacy shell
 config/              tracked templates and trust profiles
@@ -28,6 +29,7 @@ npm --prefix providers/pi-dev ci --omit=dev
 npm --prefix providers/terminal ci --omit=dev
 npm --prefix providers/code-router ci --omit=dev
 npm --prefix providers/browser ci --omit=dev
+npm --prefix providers/browser-fast ci --omit=dev
 npm --prefix providers/local-tools ci --omit=dev
 ```
 
@@ -41,11 +43,12 @@ bash tests/lifecycle.sh
 (cd providers/terminal && npm test)
 (cd providers/code-router && npm test)
 (cd providers/browser && npm test)
+(cd providers/browser-fast && npm test)
 (cd providers/local-tools && npm test)
 bash scripts/check-personal-toolbox.sh
 node scripts/check-doc-links.mjs
 bash -n bin/* lib/bridge/*.sh scripts/*.sh tests/*.sh
-node --check scripts/*.mjs providers/pi-dev/*.mjs providers/terminal/*.mjs providers/code-router/*.mjs providers/browser/*.mjs providers/local-tools/*.mjs
+node --check scripts/*.mjs providers/pi-dev/*.mjs providers/terminal/*.mjs providers/code-router/*.mjs providers/browser/*.mjs providers/browser-fast/*.mjs providers/local-tools/*.mjs
 git diff --check
 ```
 

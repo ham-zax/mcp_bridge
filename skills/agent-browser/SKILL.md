@@ -1,6 +1,6 @@
 ---
 name: agent-browser
-description: Browser automation and interactive web-app work on the connected local PC. Use for navigation, forms, screenshots, authenticated flows, exploratory QA, bug hunts, or Electron automation. Prefer the resource-local Browser capability routed through the Local tool broker when the task depends on the user's normal Windows Chrome state or visible WSLg Linux Chrome; use the agent-browser CLI for isolated browser automation when that local state is not required.
+description: Browser automation and interactive web-app work on the connected local PC. Use for navigation, forms, screenshots, authenticated flows, exploratory QA, bug hunts, or Electron automation. For resource-local state, route through Local: use browser-fast for routine interaction on the dedicated persistent Windows MCP Chrome profile or WSLg, and browser for DevTools diagnostics. Use the agent-browser CLI only for isolated browser sessions.
 ---
 
 # Agent Browser
@@ -9,25 +9,34 @@ Choose the browser boundary before acting. Browser state is a resource-local cap
 
 ## Route by browser state
 
-- Existing Windows Chrome profile, logged-in sessions, cookies, already-open tabs, or Windows-only localhost/browser state -> use the Local broker with logical `server="browser"`; omit `arguments.browser_target` so the Browser facade uses the Windows default.
-- Managed visible Linux Chrome, WSL-local browser state, or a browser that should live beside Linux resources -> use the same logical `server="browser"` route and pass `arguments.browser_target="linux"`.
-- Isolated/fresh browser automation, CLI-specific workflows, or Electron automation that does not need either resource-local Chrome profile -> use the installed `agent-browser` CLI.
+- Routine Windows interaction -> use Local logical `server="browser-fast"`; omit `arguments.browser_target` so it uses the dedicated persistent MCP Chrome profile. That profile is separate from everyday Chrome and keeps its own sign-ins/cookies. The full `browser` diagnostics surface targets this same Windows MCP profile.
+- Routine interaction with managed visible Linux/WSLg browser state -> use the same logical `server="browser-fast"` route with `arguments.browser_target="linux"`.
+- DevTools diagnostics such as network, console, performance, Lighthouse, heap, screenshots, or detailed debugging -> use Local logical `server="browser"`; omit `arguments.browser_target` for the dedicated Windows MCP profile or pass `"linux"` for WSLg.
+- If the user specifically asks to control everyday Windows Chrome, report that it is outside the MCP browser boundary; do not silently substitute it for the dedicated profile.
+- Isolated/fresh browser automation, CLI-specific workflows, or Electron automation that does not need either resource-local browser -> use the installed `agent-browser` CLI.
 - Public information lookup with no real browser interaction or authenticated/local state -> normal web research may be more appropriate.
 
-The outer Local broker is authorized through `tag:local`; the private Browser facade and both Chrome children remain behind that Local authorization boundary. If Local is not authorized or the requested target is unavailable, report that boundary; do not silently substitute Dev shell commands that launch or control another browser profile.
+The outer Local broker is authorized through `tag:local`; both private browser surfaces and their Windows/Linux executors remain behind that Local authorization boundary. If Local is not authorized or the requested target is unavailable, report that boundary; do not silently substitute Dev shell commands that launch or control another browser profile.
 
-## Chrome MCP workflow
+## Resource-local workflow
 
-Use the Local broker's stable logical route:
+For routine interaction, use the fast surface:
 
-- If the Browser action is already known, such as `list_pages`, `navigate_page`, `take_screenshot`, or `list_network_requests`, reuse its known schema and call `tool_call(server="browser", tool=..., arguments=...)` directly.
-- If the action is not known, call `tool_list(server="browser", query=...)` with a genuinely selective term such as `navigate`, `screenshot`, `network`, or `upload`. Follow `nextCursor` only when the bounded result page does not contain the needed action.
-- Call `tool_schema(server="browser", tool=...)` only when the selected action's current schema is not already known in the conversation.
-- Reuse loaded action schemas instead of rediscovering them every turn.
+- `browser-fast` has a fixed two-tool surface: `observe` and `execute`. Do not call `tool_list` merely to rediscover them. If a schema is not already loaded, use `tool_schema(server="browser-fast", tool="observe"|"execute")`, then invoke it through `tool_call`.
+- Start with `observe` when the current state is not already known. Prefer `scope="interactive"`; it returns compact refs plus the current `active_tab`.
+- Pass that `active_tab` as the required `tab` argument to one `execute` call for the mechanical sequence. `execute.tab` is a fail-closed context token: execution validates the pinned CDP target without switching first, so refs from `observe` remain valid.
+- A click that creates exactly one new target is followed automatically before later actions. If multiple new targets appear, the remaining actions stay `not_run`; re-observe and choose deliberately rather than guessing.
+- Prefer `observe(tab=...)` for an intentional tab switch because it immediately returns fresh refs. Use `tab_switch` inside `execute` only when no later ref-based action depends on the pre-switch snapshot; otherwise switch by observation first.
+- Keep `stop_on_error=true` unless continuing after a failed action is explicitly safe. The executor never retries. Read `completed`, `failed`, `unknown`, and `not_run` before deciding whether another call is safe, and never replay an `unknown` consequential action automatically.
+- Re-observe after stale/unavailable tab context, ambiguity, failure, or any transition that needs fresh refs. Observation explicitly rebinds its chosen/current tab before snapshotting, so it is the recovery boundary after strict `--pin-tab` loses its prior target. Do not snapshot between routine mechanical steps merely to confirm each success.
 
-`tool_call` preserves successful downstream rich MCP results, so screenshots remain native image content. Keep Linux and Windows profiles distinct; do not imply that cookies, tabs, or authentication state cross between them. Never search for `_1mcp_` qualified names, generated inner config paths, or separate `chrome-linux` / `chrome-windows` provider namespaces.
+For DevTools work, use `server="browser"`. If the action is already known, reuse its schema and call it directly. Otherwise use a narrow `tool_list(server="browser", query=...)`, load the exact `tool_schema` once, then reuse it for the session.
 
-The facade deliberately advertises no MCP filesystem roots to its Chrome children. Upstream path-bearing browser operations therefore remain restricted to each child's OS temp directory; prefer native result content instead of arbitrary `filePath`/upload paths.
+On Windows, `browser-fast` and `browser` share the same dedicated persistent MCP Chrome profile and therefore the same Windows tabs/authentication state. Windows and Linux browser state remain separate. The Windows MCP profile is launched or reused by the harness; do not replace that lifecycle with shell-launched everyday Chrome. If sign-in is needed, use the visible dedicated MCP profile.
+
+`tool_call` preserves successful downstream rich MCP results, so DevTools screenshots remain native image content. Never search for `_1mcp_` qualified names or generated inner config paths.
+
+The DevTools facade deliberately advertises no MCP filesystem roots to its Chrome children, so its path-bearing operations remain restricted to each child's OS temp directory. `browser-fast` V1 deliberately does not expose host-file upload.
 
 ## Agent Browser CLI fallback
 

@@ -7,7 +7,7 @@ description: Use when a request involves inspecting, changing, cleaning up, buil
 
 Route by the information or mutation semantics, not by file count, connector-call count, or habit. Keep this skill limited to tool selection; do not prescribe Git, planning, testing, review, or implementation methodology.
 
-When Superpowers Web Adapter also applies, let Superpowers control engineering workflow and use this skill only to choose the Dev, Code, Terminal, Local, or wait primitive. When Agent Browser also applies, let it choose the browser surface and use this skill only to route the selected private Browser action through Local.
+When Superpowers Web Adapter also applies, let Superpowers control engineering workflow and use this skill only to choose the Dev, Code, Terminal, Local, or wait primitive. When Agent Browser also applies, let it choose the logical browser server and `browser_target`; preserve that choice and use this skill only to route the selected private Browser action through Local.
 
 ## Route the task
 
@@ -20,7 +20,7 @@ When Superpowers Web Adapter also applies, let Superpowers control engineering w
 - Literal search or ordinary repository inspection -> `bash`; prefer `rg`, then focused `read`. For broad/noisy matches, prefer `rg -l` before reading selected files. Use `fd` for simple filename lookup, `find` for complex filesystem predicates, and `jq` for JSON.
 - Known or guessable symbol definition -> `code_symbol` when CodeDB-backed intelligence is worth invoking.
 - Semantic repository exploration -> `code_search` or `code_context`. On a large or unfamiliar repository with unknown CodeDB state, start with `bash` + `rg` + focused `read` instead of automatically starting CodeDB.
-- Private logical MCP capability -> Local: use selective `tool_list(server=...)` discovery when the action is unknown, load an exact `tool_schema(server=..., tool=...)` when needed, then invoke `tool_call(server=..., tool=..., arguments=...)`. Reuse schemas already loaded in the conversation. Browser is logical `server="browser"`; omit `arguments.browser_target` for normal Windows Chrome or set it to `"linux"` for WSLg Chrome.
+- Private logical MCP capability -> Local. If the logical server/tool is already selected, skip catalog discovery, load its exact `tool_schema` only when the schema is not already known, then invoke `tool_call(server=..., tool=..., arguments=...)`. If the action is unknown, use selective `tool_list(server=..., query=...)` first. Reuse loaded schemas. When Agent Browser applies, preserve its selected `browser-fast` vs `browser` route and `browser_target`; never rewrite the browser backend here.
 - Short bounded noninteractive command, build, test, Git, or inspection -> `bash`.
 - Persistent or interactive PTY/process work -> Terminal.
 - Human visibility or input in a durable PTY, including sudo/password/MFA or manual TUI interaction -> Terminal collaborative presentation/handoff. If the human should watch from the start, use `terminal_open(..., present:true)`. When human input is needed later, use `terminal_yield`: it reuses an attached designated frontend or launches the configured personal frontend on the exact tmux PTY, then gives the human control. If frontend launch fails with no attachment attempt still settling, give the installed `wsl-term attach <session>` fallback; never ask the user to send a secret through chat.
@@ -33,7 +33,7 @@ When Superpowers Web Adapter also applies, let Superpowers control engineering w
 - Diagnose with an explicit four-layer model: **presentation layer -> MCP proxy/harness transport -> WSL process/filesystem -> repository state**. Evidence at one layer does not silently determine the next layer. A generic proxy/status message does not override a successful concrete harness invocation; likewise, an MCP transport response does not by itself prove the underlying shell command exited successfully.
 - Distinguish three model-visible states: **observable success**, **observable tool/provider error**, and **UNOBSERVABLE presentation**. A hidden, redacted, skipped, or otherwise opaque UI result is not evidence that the underlying command succeeded and is not evidence that it failed.
 - When WSL observability becomes uncertain, perform at most one bounded `bash` health probe against the intended repository. Prefer a compact summary such as `pwd`, `git rev-parse --show-toplevel`, short `HEAD`, current branch, dirty-file count, and an explicit success marker. Do not invent image/file/base64/HTTP/alternate-filesystem visibility probes.
-- Discover/load concrete MCP tool schemas through the installed tool catalog once per session/profile and reuse them. Never search the public web for internal MCP function names.
+- Discover/load concrete downstream MCP schemas through Local once per session/profile and reuse them. Use logical server names only; never search for `_1mcp_` qualified names, generated inner-config paths, or internal MCP function names on the public web.
 - Do not claim `verified`, `green`, `committed`, or equivalent repository state from inferred or hidden output. Obtain a small observable WSL result first.
 
 ## Terminal observation discipline

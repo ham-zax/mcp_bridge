@@ -33,7 +33,7 @@ Not every profile enables every provider. Public/general installations use the s
 | `trusted-dev` | workspace-bounded `read`, `edit`, `write` | unrestricted native Bash as the Linux service user | no | dedicated trusted development hosts |
 | `personal` | WSL-user paths, including absolute paths | unrestricted native Bash | yes | private Codex-like personal harness |
 
-`trusted-dev` and `personal` deliberately carry the authority of the Linux user running the bridge. In `personal`, an explicitly authorized Browser scope can also control authenticated native Windows Chrome state. Read [Security](docs/security.md) before enabling either.
+`trusted-dev` and `personal` deliberately carry the authority of the Linux user running the bridge. In `personal`, an explicitly authorized `tag:local` grant can also control authenticated native Windows Chrome state. Read [Security](docs/security.md) before enabling either.
 
 ## Personal harness surface
 
@@ -43,8 +43,9 @@ The private personal harness keeps three small direct domains plus one stable Lo
 Dev       read edit write file_ops wait bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
-Local     tool_list tool_schema tool_call -> logical server "browser"
-Browser   private facade behind Local, with resource-local Windows/Linux routing
+Local        tool_list tool_schema tool_call -> private browser capabilities
+browser      Chrome DevTools diagnostics behind Local
+browser-fast experimental observe/execute interaction behind Local
 ```
 
 A few important design choices:
@@ -55,7 +56,7 @@ A few important design choices:
 - `pc_sleep` is personal-only and sleeps the Windows host after explicit confirmation, with an optional Task Scheduler wake time.
 - Terminal PTYs are owned by tmux, so they survive provider, broker, and 1MCP restarts.
 - Code requests are routed to the nearest canonical Git root; the raw CodeDB tool catalog is hidden behind three small actions.
-- Browser control is model-facing through exactly three Local broker tools. Agents discover/call the stable logical server `browser`; `browser_target=linux` stays inside the selected Browser tool arguments. The private Browser facade starts the corresponding resource-local Chrome DevTools MCP child internally, while the outer Local provider is authorized by the generic `tag:local` OAuth domain.
+- Browser control is model-facing through exactly three Local broker tools. Routine interaction uses experimental logical server `browser-fast`: `observe`, then pass its returned `active_tab` to batched `execute`; DevTools diagnostics use logical server `browser`. Windows defaults to a dedicated persistent MCP Chrome profile shared by both logical surfaces, not everyday Chrome; `browser_target=linux` selects the separate WSLg state. Both surfaces remain under the generic `tag:local` OAuth domain.
 
 See [Personal harness](docs/personal/harness.md) for the practical workflow.
 

@@ -107,7 +107,7 @@ Restart the broker without restarting tmux when only broker/provider code change
 
 ### Local tool broker
 
-Personal local capabilities are model-facing through one `local` provider under `tag:local`. Browser is the first private logical server behind it. The provider exposes exactly:
+Personal local capabilities are model-facing through one `local` provider under `tag:local`. Browser capabilities are private logical servers behind it. The provider exposes exactly:
 
 ```text
 tool_list tool_schema tool_call
@@ -117,17 +117,23 @@ The Local broker owns stable logical `{server, tool}` routing and connects over 
 
 ### Browser
 
-Browser remains the private resource-local execution owner behind Local. The private inner 1MCP publishes the Browser facade as logical server `browser`; the facade exposes the complete Chrome DevTools MCP catalog internally and dispatches each call to the child selected by `browser_target`:
+The private inner 1MCP currently publishes two browser surfaces in the same `tag:local` trust domain:
 
 ```text
-Local tool_call(server="browser", ...)
-  -> private inner 1MCP direct
-  -> browser facade
-       +-- windows (default) -> Windows cmd/npx -> normal native Windows Chrome profile
-       `-- linux             -> Linux npx -> managed visible Chrome through WSLg
+Local
+  +-- server="browser"      -> Chrome DevTools MCP facade
+  |    +-- windows (default) -> dedicated persistent MCP Chrome profile
+  |    `-- linux             -> managed visible Chrome through WSLg
+  `-- server="browser-fast" -> compact observe/execute facade
+       +-- windows (default) -> pinned native Agent Browser 0.34.0 -> same MCP Chrome profile
+       `-- linux             -> pinned Agent Browser 0.34.0 batch -> WSLg Chrome
 ```
 
-The facade inherits the WSLg display/runtime environment needed by its Linux child. Its Windows child uses `%LOCALAPPDATA%\\Google\\Chrome\\User Data` so normal-profile discovery remains username-independent in tracked source. It still returns downstream `CallToolResult` objects unchanged, so screenshots remain native image content rather than wrapper JSON/text.
+`browser` keeps the complete Chrome DevTools MCP catalog for network, console, performance, Lighthouse, heap, screenshots, and detailed debugging. It adds `browser_target`, strips that field before forwarding, and returns downstream `CallToolResult` objects unchanged.
+
+`browser-fast` is an experimental routine-interaction surface with only `observe` and `execute`. `observe` returns compact interactive refs plus stable Agent Browser/CDP target IDs. `execute` requires the tab ID returned by `observe`, serializes the complete operation per browser target, validates that the pinned Agent Browser session is still on that exact target without switching tabs, runs mechanical actions locally, stops on the first error by default, never retries, and reports completed/failed/unknown/not-run steps plus a final observation. After each click, it compares the target set: exactly one new target is bound before later actions and final observation, zero continues on the current target, and multiple new targets stop the sequence without guessing. Other tab switching remains an Agent Browser operation through `observe(tab=...)` or an explicit `tab_switch` action. V1 omits host-file upload.
+
+Windows browser ownership is shared below both logical surfaces by one runtime. It keeps persistent browser state under `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`, launches visible Google Chrome with `--user-data-dir` plus `--remote-debugging-port=0` when that profile is not already healthy, waits for that profile's `DevToolsActivePort`, and returns the resulting loopback HTTP/WebSocket endpoints. `browser` connects Chrome DevTools MCP to the HTTP endpoint with `--browserUrl`; `browser-fast` connects pinned native Agent Browser 0.34.0 to the WebSocket with `--cdp` and `--pin-tab`. The everyday Chrome data directory is never an MCP execution target. The MCP profile persists cookies, local storage, extensions, and sign-ins across Chrome restarts, so the user can sign into this visible profile once and reuse it. Agent Browser's separate one-shot Windows Node helper still owns bounded stdout/stderr capture so cold daemon startup cannot keep the WSL interop lifetime open. On Linux, `browser-fast` uses the pinned Agent Browser CLI in WSLg with `--pin-tab` and `AGENT_BROWSER_NO_XVFB=1`. Complete operations are serialized per target, normalized tab IDs prefer the CDP `targetId`, and each `observe` explicitly rebinds the chosen/current target before snapshotting so a strict pin can recover after its prior target is closed.
 
 ## Trust/profile separation
 

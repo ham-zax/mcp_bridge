@@ -51,13 +51,16 @@ Private-only profile:
 Dev       read edit write file_ops wait bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
-Local     tool_list tool_schema tool_call -> logical Browser server
-Browser   private facade over resource-local Chrome DevTools MCP 1.7.0 children
+Local        tool_list tool_schema tool_call -> private logical browser servers
+browser      Chrome DevTools MCP 1.7.0 diagnostics/debugging facade
+browser-fast experimental observe/execute surface: Agent Browser 0.34.0 on Windows and Linux
 ```
 
 The renderer resolves one absolute personal default cwd from `MCP_PERSONAL_DEFAULT_CWD` when supplied, otherwise from the actual WSL user's `$HOME`, and uses it for both Dev and Code. No tracked personal profile/template carries a machine-specific home path. Terminal communicates through the private broker socket and receives one normalized `MCP_TERMINAL_FRONTEND` presentation preference; tracked source keeps `kitty` as the compatibility default while a local deployment may select `windows-terminal`.
 
-For personal rendering, the outer config contains `local`, `code`, `dev`, and `terminal`. The outer `local` provider is tagged only `local` and points at the repository Local broker. The renderer also atomically materializes a private inner config at the bridge state root containing only Browser, and writes that inner config before publishing the outer config so config reload cannot start Local against a missing file. The Local broker starts the pinned 1MCP entry over stdio in direct mode; it exposes only bounded discovery/schema/call metatools, while the Browser facade remains the owner of Windows/WSLg launch details. Browser tools default to the normal Windows Chrome profile; `browser_target=linux` selects the WSLg-managed Chrome child. The facade advertises no filesystem roots to its Chrome children, so upstream path-bearing browser tools remain OS-temp-only.
+For personal rendering, the outer config contains `local`, `code`, `dev`, and `terminal`. The outer `local` provider is tagged only `local` and points at the repository Local broker. The renderer also atomically materializes a private inner config at the bridge state root containing `browser` and experimental `browser-fast`, and writes that inner config before publishing the outer config so config reload cannot start Local against a missing file. The Local broker starts pinned 1MCP over stdio in direct mode and exposes only bounded discovery/schema/call metatools.
+
+`browser` remains the full Chrome DevTools MCP facade for diagnostics and rich results; its tools default to the dedicated persistent Windows MCP Chrome profile and use `browser_target=linux` for WSLg. `browser-fast` exposes only `observe` and `execute` for routine interaction and uses pinned Agent Browser 0.34.0 on both targets. Windows keeps the MCP Chrome data directory at `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`; a shared runtime launches that visible profile with an ephemeral debugging port and supplies its `DevToolsActivePort` endpoint to both logical servers. The everyday Chrome user-data directory is not attached or copied. `browser_target=linux` uses the separate WSLg browser state. Both stay behind the same `tag:local` authorization boundary.
 
 `pc_sleep` is registered only in this personal user-path mode and uses Windows Task Scheduler for an optional wake time. Code has no repository-size preflight or threshold: first use may start a persistent CodeDB child and create or update substantial on-disk index state, potentially consuming significant disk and RAM. Tool descriptions steer large or unfamiliar repository discovery toward Dev Bash/`rg` and focused `read` first; that guidance is not runtime enforcement.
 

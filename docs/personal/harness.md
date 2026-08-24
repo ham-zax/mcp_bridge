@@ -8,8 +8,9 @@ The `personal` profile is the private Codex-like development surface. It runs wi
 Dev       read edit write file_ops wait bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
-Local     tool_list tool_schema tool_call -> logical server "browser"
-Browser   private Chrome facade; Windows by default, WSLg Linux when requested
+Local        tool_list tool_schema tool_call -> private browser capabilities
+browser      full Chrome DevTools diagnostics; Windows default, WSLg on request
+browser-fast experimental observe/execute interaction surface; Windows default, WSLg on request
 ```
 
 Think in four model-facing domains:
@@ -17,7 +18,7 @@ Think in four model-facing domains:
 - **Dev** handles focused text/file work, bounded execution, durable waits, and explicit Windows-host sleep.
 - **Code** provides rooted indexed repository intelligence without exposing raw CodeDB mechanics; first use may create or update heavyweight persistent index state.
 - **Terminal** owns durable PTY/process lifetime and human/model terminal ownership.
-- **Local/Browser** exposes only three stable broker tools. Discover Browser actions with logical `server="browser"`, load one schema when needed, then invoke with `tool_call`. Omit `arguments.browser_target` for the normal native Windows Chrome profile; use `arguments.browser_target="linux"` for the WSLg-managed Chrome instance. The private facade keeps those profiles separate internally.
+- **Local/Browser** exposes only three stable broker tools. Use logical `server="browser-fast"` for routine interaction: `observe` once, then pass the returned `active_tab` to `execute` with the mechanical sequence. `execute.tab` is required and stale/unavailable tab context fails before action dispatch. A click follows exactly one newly opened target before later actions; multiple new targets stop the sequence without guessing and require another observation. Use logical `server="browser"` for DevTools diagnostics and load only the specific DevTools schema needed. Omit `arguments.browser_target` for the dedicated persistent Windows MCP Chrome profile; use `arguments.browser_target="linux"` for WSLg. The Windows MCP profile is separate from everyday Chrome and keeps its own persistent sign-ins; Windows MCP and Linux browser state remain separate.
 
 ## Private setup
 
@@ -33,7 +34,7 @@ scripts/bootstrap-personal.sh --enable-startup
 
 `--enable-startup` is explicit consent to install the user-systemd units, enable user linger, enable the services, and start them now. After that, the services start automatically whenever this WSL user's systemd manager starts. The bootstrap does **not** configure Windows to launch WSL.
 
-The same command also qualifies the personal CLI toolbox, installs/verifies the pinned 1MCP runtime through the repository's shared runtime installer, installs all five pinned personal in-repo provider dependency trees, renders the outer personal composition plus the private inner Browser composition, and installs:
+The same command also qualifies the personal CLI toolbox, installs/verifies the pinned 1MCP runtime through the repository's shared runtime installer, installs all six pinned personal in-repo provider dependency trees, renders the outer personal composition plus the private inner browser composition, and installs:
 
 ```text
 ~/.local/bin/wsl-term -> <this checkout>/bin/wsl-term

@@ -212,7 +212,7 @@ In short: Causal Coding sets the mutation boundary; the standalone Superpowers-d
 
 ### Other skills
 
-- If Agent Browser applies, let it choose the browser action and route that action through the private logical Browser server exposed via Local on `wsl-web-harness`. Do not substitute a browser CLI unless that Skill explicitly calls for one in the active environment.
+- If Agent Browser applies, let it choose the browser surface/action and route that action through the selected private logical browser server exposed via Local on `wsl-web-harness`. Do not substitute a browser CLI unless that Skill explicitly calls for one in the active environment.
 - If Codebase Memory applies, use its graph workflow only when its required graph tools are actually connected; otherwise fall back to source inspection without pretending graph evidence exists.
 - Repository-specific instructions (`AGENTS.md`, `CLAUDE.md`, project docs, etc.) remain authoritative within their scope.
 
