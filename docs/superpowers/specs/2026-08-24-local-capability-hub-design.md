@@ -87,6 +87,8 @@ The desired property is different:
 - Combining unrelated trust domains merely to avoid a future OAuth authorization.
 - Making downstream tool annotations first-class ChatGPT host annotations through a generic `tool_call`; that metadata can be returned to the model, but the host sees the broker tool as the first-class action.
 
+The browser-automation restriction above bounded this Local-broker migration; it is not a permanent ban on a faster browser executor. A later performance mission adds experimental logical server `browser-fast` behind the unchanged Local broker while retaining `browser` as the Chrome DevTools surface. Any future cutover must preserve the Local three-tool contract and `tag:local` trust boundary.
+
 ## Current runtime evidence
 
 The design depends on a distinction in pinned 1MCP 0.36.0 between direct tool routing and its built-in lazy metatools.
@@ -313,7 +315,7 @@ It continues to:
 - consume pinned `chrome-devtools-mcp` through MCP client transports;
 - expose the complete Chrome DevTools tool set internally;
 - augment schemas with `browser_target`;
-- default to normal Windows Chrome when `browser_target` is omitted or `windows`;
+- default to the dedicated persistent Windows MCP Chrome profile when `browser_target` is omitted or `windows`;
 - use WSLg Chrome for `browser_target=linux`;
 - remove the facade-only target selector before forwarding downstream;
 - return downstream `CallToolResult` values unchanged.
@@ -469,9 +471,9 @@ The Skill should instruct the model to:
 - call `tool_schema` only when the selected action's schema is not already known in the conversation;
 - call `tool_call` directly once the action/schema is known;
 - reuse known action schemas during the session rather than rediscovering them every turn;
-- omit `arguments.browser_target` for the normal Windows Chrome target;
+- omit `arguments.browser_target` for the dedicated persistent Windows MCP Chrome target;
 - set `arguments.browser_target="linux"` for the resource-local WSLg target;
-- keep isolated/fresh browser or Electron automation on the existing agent-browser CLI path when normal Windows/WSLg state is not required.
+- keep isolated/fresh browser or Electron automation on the existing agent-browser CLI path when neither dedicated Windows MCP Chrome nor resource-local WSLg state is required.
 
 The Skill must never need to know `mcp-local.json`, generated inner config paths, provider file paths, or `_1mcp_` qualified names.
 
