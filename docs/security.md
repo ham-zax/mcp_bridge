@@ -29,9 +29,11 @@ Private Codex-like WSL authority.
 - Code can inspect Git repositories reachable by that user.
 - Terminal can create and control persistent tmux-backed PTYs.
 - Durable waits can observe local process/port/file/HTTP/systemd state and private Terminal state.
-- Browser can control the normal authenticated native Windows Chrome profile or the separate managed WSLg Chrome profile after explicit `tag:browser` authorization.
+- Local Browser access can control the normal authenticated native Windows Chrome profile or the separate managed WSLg Chrome profile after explicit `tag:browser` authorization.
 
 This profile is intentionally powerful. Treat it like giving a coding agent an interactive shell as your WSL user plus, when `tag:browser` is granted, control of authenticated browser state.
+
+The outer `local` provider is the `tag:browser` authorization boundary for this migration. Its generic `tool_call(server, tool, arguments)` means every downstream MCP admitted to that broker instance shares that authority, so the private inner config initially contains only Browser. A future MCP may join only when sharing Browser's trust domain is an intentional security statement; otherwise it needs a separate broker/scope or direct exposure.
 
 The Browser facade intentionally does not advertise MCP filesystem roots to its internal Chrome DevTools MCP clients. Upstream path-bearing browser tools therefore remain restricted to the relevant OS temp directory; `tag:browser` does not grant arbitrary repository or Windows filesystem access through those path arguments.
 
@@ -90,7 +92,7 @@ The adapter capability is only a transport bearer for the adapter's existing 1MC
 
 Dispatch intent is durably recorded immediately before every MCP tool call. If the call produces a normal MCP result, that result determines `completed` or `tool_failed`. If the worker loses the result after dispatch may have begun, the operation becomes terminal `unknown_outcome` and is never automatically retried. This avoids inferring which upstream tools are safe to repeat.
 
-Pinned 1MCP 0.36.0 generates OAuth-consent CSP from a validated registered callback origin, so the former 0.34.4 source patch is intentionally removed. Browser authority is separate from Dev/Code/Terminal: `tag:browser` exposes one Browser facade that can reach either resource-local Chrome child only after explicit client authorization.
+Pinned 1MCP 0.36.0 generates OAuth-consent CSP from a validated registered callback origin, so the former 0.34.4 source patch is intentionally removed. Browser authority is separate from Dev/Code/Terminal: `tag:browser` exposes the three-tool Local broker, whose private inner 1MCP currently contains only the Browser facade. The facade can reach either resource-local Chrome child only after explicit client authorization at that outer domain.
 
 ## Sensitive state
 

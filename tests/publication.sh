@@ -25,12 +25,14 @@ is_public_path() {
     experiments/herdr/* | \
     config/profiles/personal.env | \
     config/templates/mcp-personal.json | \
+    config/templates/mcp-local.json | \
     providers/terminal/* | \
     scripts/install-terminal-broker-user.sh | \
     systemd/wsl-agent-tmux.service.in | \
     systemd/wsl-agent-terminal-broker.service.in | \
     providers/code-router/* | \
     providers/browser/* | \
+    providers/local-tools/* | \
     scripts/bootstrap-personal.sh | \
     skills/* | \
     bin/wsl-term)
@@ -96,6 +98,7 @@ test_private_only_paths_are_not_public() {
     docs/history/example \
     config/profiles/personal.env \
     config/templates/mcp-personal.json \
+    config/templates/mcp-local.json \
     docs/personal/example \
     docs/benchmarks/terminal-preflight.md \
     docs/benchmarks/herdr-terminal-comparison.md \
@@ -106,6 +109,7 @@ test_private_only_paths_are_not_public() {
     systemd/wsl-agent-terminal-broker.service.in \
     providers/code-router/example \
     providers/browser/example \
+    providers/local-tools/example \
     scripts/bootstrap-personal.sh \
     skills/example \
     bin/wsl-term; do

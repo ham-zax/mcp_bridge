@@ -9,6 +9,7 @@ providers/pi-dev/    Dev read/edit/write/file_ops/Bash/wait provider
 providers/code-router/ Code facade + rooted CodeDB router
 providers/terminal/  Terminal MCP, broker, tmux/transcript logic
 providers/browser/   Browser facade + resource-local Chrome child routing
+providers/local-tools/ stable Local tool broker over private inner 1MCP
 providers/legacy-shell/ restricted-profile legacy shell
 config/              tracked templates and trust profiles
 scripts/             setup, rendering, migration, toolbox, installers
@@ -27,6 +28,7 @@ npm --prefix providers/pi-dev ci --omit=dev
 npm --prefix providers/terminal ci --omit=dev
 npm --prefix providers/code-router ci --omit=dev
 npm --prefix providers/browser ci --omit=dev
+npm --prefix providers/local-tools ci --omit=dev
 ```
 
 ## Full verification
@@ -39,10 +41,11 @@ bash tests/lifecycle.sh
 (cd providers/terminal && npm test)
 (cd providers/code-router && npm test)
 (cd providers/browser && npm test)
+(cd providers/local-tools && npm test)
 bash scripts/check-personal-toolbox.sh
 node scripts/check-doc-links.mjs
 bash -n bin/* lib/bridge/*.sh scripts/*.sh tests/*.sh
-node --check scripts/*.mjs providers/pi-dev/*.mjs providers/terminal/*.mjs providers/code-router/*.mjs providers/browser/*.mjs
+node --check scripts/*.mjs providers/pi-dev/*.mjs providers/terminal/*.mjs providers/code-router/*.mjs providers/browser/*.mjs providers/local-tools/*.mjs
 git diff --check
 ```
 

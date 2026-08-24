@@ -40,20 +40,23 @@ ENV
       --state-dir "$tmp/$profile" \
       --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
   done
-  node - "$tmp/restricted/1mcp/mcp.json" "$tmp/trusted-dev/1mcp/mcp.json" "$tmp/personal/1mcp/mcp.json" "$tmp/personal/bridge.env" "$ROOT" "$tmp/runtime" "$tmp/home" <<'NODE2'
+  node - "$tmp/restricted/1mcp/mcp.json" "$tmp/trusted-dev/1mcp/mcp.json" "$tmp/personal/1mcp/mcp.json" "$tmp/personal/local-1mcp/mcp.json" "$tmp/personal/bridge.env" "$ROOT" "$tmp/runtime" "$tmp/home" <<'NODE2'
 const fs = require('fs');
-const [restrictedFile, trustedFile, personalFile, personalEnvFile, root, runtimeDir, personalHome] = process.argv.slice(2);
+const [restrictedFile, trustedFile, personalFile, personalLocalFile, personalEnvFile, root, runtimeDir, personalHome] = process.argv.slice(2);
 const restricted = JSON.parse(fs.readFileSync(restrictedFile, 'utf8'));
 const trusted = JSON.parse(fs.readFileSync(trustedFile, 'utf8'));
 const personal = JSON.parse(fs.readFileSync(personalFile, 'utf8'));
+const personalLocal = JSON.parse(fs.readFileSync(personalLocalFile, 'utf8'));
 const personalEnv = fs.readFileSync(personalEnvFile, 'utf8');
 const keys = cfg => Object.keys(cfg.mcpServers ?? {}).sort();
 if (JSON.stringify(keys(restricted)) !== JSON.stringify(['dev', 'shell'])) process.exit(1);
 if (JSON.stringify(keys(trusted)) !== JSON.stringify(['dev'])) process.exit(1);
-if (JSON.stringify(keys(personal)) !== JSON.stringify(['browser', 'code', 'dev', 'terminal'])) process.exit(1);
+if (JSON.stringify(keys(personal)) !== JSON.stringify(['code', 'dev', 'local', 'terminal'])) process.exit(1);
+if (JSON.stringify(keys(personalLocal)) !== JSON.stringify(['browser'])) process.exit(1);
 if (restricted.mcpServers?.code || trusted.mcpServers?.code) process.exit(1);
 if (restricted.mcpServers?.terminal || trusted.mcpServers?.terminal) process.exit(1);
-if (restricted.mcpServers?.browser || trusted.mcpServers?.browser) process.exit(1);
+if (restricted.mcpServers?.local || trusted.mcpServers?.local) process.exit(1);
+if (restricted.mcpServers?.browser || trusted.mcpServers?.browser || personal.mcpServers?.browser) process.exit(1);
 if (restricted.mcpServers?.codedb || trusted.mcpServers?.codedb || personal.mcpServers?.codedb) process.exit(1);
 if (restricted.mcpServers?.filesystem || trusted.mcpServers?.filesystem || personal.mcpServers?.filesystem) process.exit(1);
 if (restricted.mcpServers.dev.env.MCP_DEV_SHELL_MODE !== 'allowlist') process.exit(1);
@@ -84,13 +87,18 @@ if (!personal.mcpServers.terminal.args.includes(root + '/providers/terminal/mcp-
 if (personal.mcpServers.terminal.env.MCP_TERMINAL_SOCKET !== runtimeDir + '/wsl-agent-terminal.sock') process.exit(1);
 if (personal.mcpServers.terminal.env.MCP_TERMINAL_FRONTEND !== 'kitty') process.exit(1);
 if (personal.mcpServers.terminal.env.MCP_TERMINAL_READ_MAX_BYTES !== '65536') process.exit(1);
-if (personal.mcpServers.browser.command !== 'node') process.exit(1);
-if (!personal.mcpServers.browser.args.includes(root + '/providers/browser/server.mjs')) process.exit(1);
-if (personal.mcpServers.browser.env.XDG_RUNTIME_DIR !== runtimeDir) process.exit(1);
-if (personal.mcpServers.browser.env.WAYLAND_DISPLAY !== 'wayland-0') process.exit(1);
-if (personal.mcpServers.browser.env.DISPLAY !== ':0') process.exit(1);
-if (personal.mcpServers.browser.env.PULSE_SERVER !== 'unix:/mnt/wslg/PulseServer') process.exit(1);
-if (JSON.stringify(personal.mcpServers.browser.tags) !== JSON.stringify(['browser'])) process.exit(1);
+if (personal.mcpServers.local.command !== 'node') process.exit(1);
+if (!personal.mcpServers.local.args.includes(root + '/providers/local-tools/server.mjs')) process.exit(1);
+if (personal.mcpServers.local.env.MCP_LOCAL_INNER_CONFIG !== personalLocalFile) process.exit(1);
+if (!personal.mcpServers.local.env.MCP_LOCAL_ONE_MCP_ENTRY.endsWith('/@1mcp/agent/build/index.js')) process.exit(1);
+if (JSON.stringify(personal.mcpServers.local.tags) !== JSON.stringify(['browser'])) process.exit(1);
+if (personalLocal.mcpServers.browser.command !== 'node') process.exit(1);
+if (!personalLocal.mcpServers.browser.args.includes(root + '/providers/browser/server.mjs')) process.exit(1);
+if (personalLocal.mcpServers.browser.env.XDG_RUNTIME_DIR !== runtimeDir) process.exit(1);
+if (personalLocal.mcpServers.browser.env.WAYLAND_DISPLAY !== 'wayland-0') process.exit(1);
+if (personalLocal.mcpServers.browser.env.DISPLAY !== ':0') process.exit(1);
+if (personalLocal.mcpServers.browser.env.PULSE_SERVER !== 'unix:/mnt/wslg/PulseServer') process.exit(1);
+if (personalLocal.mcpServers.browser.tags !== undefined) process.exit(1);
 if (!personalEnv.includes("MCP_BRIDGE_PROFILE='personal'")) process.exit(1);
 NODE2
   local rc=$?
@@ -346,7 +354,9 @@ test_personal_runtime_files_have_no_machine_home() {
     "$ROOT/providers/terminal/tmux.mjs" \
     "$ROOT/providers/terminal/broker.mjs" \
     "$ROOT/providers/code-router/server.mjs" \
-    "$ROOT/providers/browser/server.mjs" >/dev/null
+    "$ROOT/providers/local-tools/server.mjs" \
+    "$ROOT/providers/browser/server.mjs" \
+    "$ROOT/config/templates/mcp-local.json" >/dev/null
 }
 
 
@@ -404,7 +414,7 @@ test_legacy_filesystem_dependency_removed() {
 }
 
 run_test 'raw CodeDB surface stays removed from public composition' test_raw_codedb_surface_removed
-run_test 'final rendered composition adds Browser, Code, and Terminal only to personal mode' test_final_rendered_composition
+run_test 'final rendered composition places Browser behind Local only in personal mode' test_final_rendered_composition
 run_test 'Dev spool deployment override rejects invalid values' test_dev_spool_limit_validation
 run_test '1MCP rotating log deployment policy rejects invalid values' test_one_mcp_log_policy_validation
 run_test 'personal Terminal frontend selector defaults, overrides, and validates in profile scope' test_terminal_frontend_selector

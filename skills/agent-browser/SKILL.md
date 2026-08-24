@@ -1,6 +1,6 @@
 ---
 name: agent-browser
-description: Browser automation and interactive web-app work on the connected local PC. Use for navigation, forms, screenshots, authenticated flows, exploratory QA, bug hunts, or Electron automation. Prefer the single resource-local Browser MCP surface when the task depends on the user's normal Windows Chrome state or visible WSLg Linux Chrome; use the agent-browser CLI for isolated browser automation when that local state is not required.
+description: Browser automation and interactive web-app work on the connected local PC. Use for navigation, forms, screenshots, authenticated flows, exploratory QA, bug hunts, or Electron automation. Prefer the resource-local Browser capability routed through the Local tool broker when the task depends on the user's normal Windows Chrome state or visible WSLg Linux Chrome; use the agent-browser CLI for isolated browser automation when that local state is not required.
 ---
 
 # Agent Browser
@@ -9,18 +9,23 @@ Choose the browser boundary before acting. Browser state is a resource-local cap
 
 ## Route by browser state
 
-- Existing Windows Chrome profile, logged-in sessions, cookies, already-open tabs, or Windows-only localhost/browser state -> use the `browser` MCP provider through `mcp-harness-local`; omit `browser_target` so it uses the Windows default.
-- Managed visible Linux Chrome, WSL-local browser state, or a browser that should live beside Linux resources -> use the same `browser` MCP provider and pass `browser_target=linux`.
+- Existing Windows Chrome profile, logged-in sessions, cookies, already-open tabs, or Windows-only localhost/browser state -> use the Local broker with logical `server="browser"`; omit `arguments.browser_target` so the Browser facade uses the Windows default.
+- Managed visible Linux Chrome, WSL-local browser state, or a browser that should live beside Linux resources -> use the same logical `server="browser"` route and pass `arguments.browser_target="linux"`.
 - Isolated/fresh browser automation, CLI-specific workflows, or Electron automation that does not need either resource-local Chrome profile -> use the installed `agent-browser` CLI.
 - Public information lookup with no real browser interaction or authenticated/local state -> normal web research may be more appropriate.
 
-The Browser facade and both internal Chrome children are covered by the separate `tag:browser` authorization domain. If Browser is not authorized or the requested target is unavailable, report that boundary; do not silently substitute Dev shell commands that launch or control another browser profile.
+The outer Local broker is tagged only `browser` for this domain; the private Browser facade and both Chrome children remain behind that authorization boundary. If Browser is not authorized or the requested target is unavailable, report that boundary; do not silently substitute Dev shell commands that launch or control another browser profile.
 
 ## Chrome MCP workflow
 
-When `mcp-harness-local` is available, discover the concrete action by exact tool name whenever it is known, such as `list_pages`, `navigate_page`, `take_screenshot`, or `list_network_requests`. Otherwise use a genuinely selective term such as `navigate`, `screenshot`, `network`, or `upload`. Avoid broad `page`, `browser`, or provider-wide discovery, and reuse loaded schemas instead of enumerating the full Chrome catalog.
+Use the Local broker's stable logical route:
 
-Use the single direct Browser MCP tool namespace so rich results such as screenshots remain native image content. Keep Linux and Windows profiles distinct; do not imply that cookies, tabs, or authentication state cross between them. Do not search for separate `chrome-linux` or `chrome-windows` provider namespaces.
+- If the Browser action is already known, such as `list_pages`, `navigate_page`, `take_screenshot`, or `list_network_requests`, reuse its known schema and call `tool_call(server="browser", tool=..., arguments=...)` directly.
+- If the action is not known, call `tool_list(server="browser", query=...)` with a genuinely selective term such as `navigate`, `screenshot`, `network`, or `upload`. Follow `nextCursor` only when the bounded result page does not contain the needed action.
+- Call `tool_schema(server="browser", tool=...)` only when the selected action's current schema is not already known in the conversation.
+- Reuse loaded action schemas instead of rediscovering them every turn.
+
+`tool_call` preserves successful downstream rich MCP results, so screenshots remain native image content. Keep Linux and Windows profiles distinct; do not imply that cookies, tabs, or authentication state cross between them. Never search for `_1mcp_` qualified names, generated inner config paths, or separate `chrome-linux` / `chrome-windows` provider namespaces.
 
 The facade deliberately advertises no MCP filesystem roots to its Chrome children. Upstream path-bearing browser operations therefore remain restricted to each child's OS temp directory; prefer native result content instead of arbitrary `filePath`/upload paths.
 

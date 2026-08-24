@@ -14,28 +14,46 @@ const cfg = JSON.parse(fs.readFileSync(configFile, 'utf8'));
 const dev = cfg.mcpServers?.dev;
 const code = cfg.mcpServers?.code;
 const terminal = cfg.mcpServers?.terminal;
-const browser = cfg.mcpServers?.browser;
+const local = cfg.mcpServers?.local;
 if (cfg.mcpServers?.filesystem) throw new Error('filesystem provider must be absent after Pi cutover');
 if (cfg.mcpServers?.codedb) throw new Error('raw codedb provider must remain hidden behind the Code facade');
+if (cfg.mcpServers?.browser) throw new Error('Browser facade must remain private behind the Local broker');
 if (profile) {
   const actual = Object.keys(cfg.mcpServers ?? {}).sort();
-  const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : profile === 'personal' ? ['browser', 'code', 'dev', 'terminal'] : null;
+  const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : profile === 'personal' ? ['code', 'dev', 'local', 'terminal'] : null;
   if (!expected || JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`unexpected final provider set for ${profile || 'unknown'}: ${actual.join(',')}`);
   }
 }
-if (browser) {
-  if (profile !== 'personal') throw new Error('Browser provider is private to the personal profile');
-  if (browser.command !== 'node') throw new Error('Browser facade must run with node');
-  const expectedServer = path.join(repoRoot, 'providers', 'browser', 'server.mjs');
-  if (JSON.stringify(browser.args ?? []) !== JSON.stringify([expectedServer])) throw new Error('unexpected Browser facade server path');
-  const env = browser.env ?? {};
-  if (!path.isAbsolute(env.XDG_RUNTIME_DIR ?? '')) throw new Error('Browser XDG_RUNTIME_DIR must be absolute');
-  if (env.WAYLAND_DISPLAY !== 'wayland-0' || env.DISPLAY !== ':0' || env.PULSE_SERVER !== 'unix:/mnt/wslg/PulseServer') throw new Error('unexpected Browser WSLg environment');
-  if (JSON.stringify(browser.tags ?? []) !== JSON.stringify(['browser'])) throw new Error('Browser facade must use only the browser tag');
-  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'browser', 'package.json'), 'utf8'));
-  if (pkg.dependencies?.['@modelcontextprotocol/sdk'] !== '1.30.0') throw new Error('unexpected Browser MCP SDK pin');
-  if (pkg.dependencies?.zod !== '4.4.3') throw new Error('unexpected Browser zod pin');
+if (local) {
+  if (profile !== 'personal') throw new Error('Local broker is private to the personal profile');
+  if (local.command !== 'node') throw new Error('Local broker must run with node');
+  const expectedServer = path.join(repoRoot, 'providers', 'local-tools', 'server.mjs');
+  if (JSON.stringify(local.args ?? []) !== JSON.stringify([expectedServer])) throw new Error('unexpected Local broker server path');
+  const env = local.env ?? {};
+  if (!path.isAbsolute(env.MCP_LOCAL_INNER_CONFIG ?? '')) throw new Error('Local inner config path must be absolute');
+  if (!path.isAbsolute(env.MCP_LOCAL_ONE_MCP_ENTRY ?? '')) throw new Error('Local inner 1MCP entry path must be absolute');
+  if (!env.MCP_LOCAL_ONE_MCP_ENTRY.endsWith('/@1mcp/agent/build/index.js')) throw new Error('unexpected Local inner 1MCP entry path');
+  if (JSON.stringify(local.tags ?? []) !== JSON.stringify(['browser'])) throw new Error('Local broker must use only the browser tag in this migration');
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'local-tools', 'package.json'), 'utf8'));
+  if (pkg.dependencies?.['@modelcontextprotocol/sdk'] !== '1.30.0') throw new Error('unexpected Local broker MCP SDK pin');
+  const installedSdk = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'local-tools', 'node_modules', '@modelcontextprotocol', 'sdk', 'package.json'), 'utf8'));
+  if (installedSdk.version !== '1.30.0') throw new Error(`unexpected installed Local broker MCP SDK version: ${installedSdk.version}`);
+
+  const inner = JSON.parse(fs.readFileSync(env.MCP_LOCAL_INNER_CONFIG, 'utf8'));
+  const innerNames = Object.keys(inner.mcpServers ?? {}).sort();
+  if (JSON.stringify(innerNames) !== JSON.stringify(['browser'])) throw new Error(`unexpected Local inner provider set: ${innerNames.join(',')}`);
+  const browser = inner.mcpServers.browser;
+  if (browser.command !== 'node') throw new Error('inner Browser facade must run with node');
+  const expectedBrowserServer = path.join(repoRoot, 'providers', 'browser', 'server.mjs');
+  if (JSON.stringify(browser.args ?? []) !== JSON.stringify([expectedBrowserServer])) throw new Error('unexpected inner Browser facade server path');
+  const browserEnv = browser.env ?? {};
+  if (!path.isAbsolute(browserEnv.XDG_RUNTIME_DIR ?? '')) throw new Error('Browser XDG_RUNTIME_DIR must be absolute');
+  if (browserEnv.WAYLAND_DISPLAY !== 'wayland-0' || browserEnv.DISPLAY !== ':0' || browserEnv.PULSE_SERVER !== 'unix:/mnt/wslg/PulseServer') throw new Error('unexpected Browser WSLg environment');
+  if (browser.tags !== undefined) throw new Error('inner Browser provider must not carry an outer OAuth tag');
+  const browserPkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'browser', 'package.json'), 'utf8'));
+  if (browserPkg.dependencies?.['@modelcontextprotocol/sdk'] !== '1.30.0') throw new Error('unexpected Browser MCP SDK pin');
+  if (browserPkg.dependencies?.zod !== '4.4.3') throw new Error('unexpected Browser zod pin');
 }
 if (terminal) {
   if (profile !== 'personal') throw new Error('Terminal provider is private to the personal profile');
@@ -123,4 +141,4 @@ curl -sf -m 5 -X POST "$URL" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1.0.0"}}}'
 echo
 echo
-echo "(connectivity check only; inspect dev plus restricted-only shell for public profiles, or dev + qualified Code and Terminal providers for personal composition)"
+echo "(connectivity check only; inspect dev plus restricted-only shell for public profiles, or Dev/Code/Terminal plus the three-tool Local broker for personal composition)"

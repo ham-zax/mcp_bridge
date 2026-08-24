@@ -34,6 +34,20 @@ terminal_open terminal_read terminal_send terminal_resize terminal_list terminal
 
 The MCP provider talks to a local broker over a Unix socket. tmux owns PTY/process lifetime; the broker owns metadata, transcript/cursor state, and human/model control leases.
 
+## Local — `providers/local-tools/`
+
+Private stable tool-broker surface:
+
+```text
+tool_list tool_schema tool_call
+```
+
+The Local provider connects over stdio to one private inner 1MCP in direct mode. It exposes logical `{server, tool}` identities, bounded live discovery, exact schema lookup, and raw downstream `CallToolResult` forwarding. V1 has no catalog/schema cache. The initial inner composition contains only Browser and the outer Local provider remains tagged only `browser`.
+
+## Browser — `providers/browser/`
+
+Browser remains the resource-local execution owner behind Local. It republishes the complete pinned Chrome DevTools MCP catalog internally, adds `browser_target`, defaults to normal Windows Chrome, and routes `browser_target=linux` to WSLg Chrome. It is not directly model-facing in the personal outer composition.
+
 ## Legacy shell — `providers/legacy-shell/`
 
 Retained only for the public `restricted` profile's conservative allowlisted shell policy.

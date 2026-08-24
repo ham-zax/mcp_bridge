@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -77,6 +78,16 @@ async function atomicWrite(file, content, mode = 0o600) {
   await fs.rename(temp, file);
 }
 
+function resolveOneMcpEntry(override) {
+  if (override !== undefined && override !== '') {
+    if (!path.isAbsolute(override)) throw new Error('BRIDGE_ONE_MCP_ENTRY must be an absolute path when set');
+    return override;
+  }
+  const npmRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
+  if (!npmRoot) throw new Error('npm root -g returned an empty path');
+  return path.join(npmRoot, '@1mcp', 'agent', 'build', 'index.js');
+}
+
 export async function renderConfig(options) {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const repoRoot = path.resolve(options.repoRoot ?? path.join(scriptDir, '..'));
@@ -95,7 +106,7 @@ export async function renderConfig(options) {
   const deployment = {
     ...(await readEnvFile(envFile, { optional: true })),
     ...Object.fromEntries(
-      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_DEV_MAX_SPOOL_BYTES', 'MCP_DEV_SPOOL_TTL_SECONDS', 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES', 'MCP_ONE_MCP_LOG_MAX_SIZE_BYTES', 'MCP_ONE_MCP_LOG_MAX_FILES', 'MCP_PERSONAL_DEFAULT_CWD', 'MCP_TERMINAL_FRONTEND'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
+      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_DEV_MAX_SPOOL_BYTES', 'MCP_DEV_SPOOL_TTL_SECONDS', 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES', 'MCP_ONE_MCP_LOG_MAX_SIZE_BYTES', 'MCP_ONE_MCP_LOG_MAX_FILES', 'MCP_PERSONAL_DEFAULT_CWD', 'MCP_TERMINAL_FRONTEND', 'BRIDGE_ONE_MCP_ENTRY'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
     ),
   };
   const profileValues = await readEnvFile(path.join(repoRoot, 'config', 'profiles', `${profile}.env`));
@@ -174,9 +185,9 @@ export async function renderConfig(options) {
   }
   if (parsedUrl.protocol !== 'https:') throw new Error('MCP_PUBLIC_URL must use https');
 
-  const templateName = isPersonal ? 'mcp-personal.json' : 'mcp.json';
-  const template = JSON.parse(await fs.readFile(path.join(repoRoot, 'config', 'templates', templateName), 'utf8'));
-  const rendered = replaceStrings(template, {
+  const localInnerConfigPath = isPersonal ? path.join(stateDir, 'local-1mcp', 'mcp.json') : '';
+  const oneMcpEntry = isPersonal ? resolveOneMcpEntry(deployment.BRIDGE_ONE_MCP_ENTRY) : '';
+  const replacements = {
     __WORKSPACE_ROOT__: workspaceRoot,
     __REPO_ROOT__: repoRoot,
     __SHELL_ALLOW_COMMANDS__: profileValues.MCP_SHELL_ALLOW_COMMANDS ?? '',
@@ -191,7 +202,15 @@ export async function renderConfig(options) {
     __TERMINAL_SOCKET__: runtimeDir ? path.join(runtimeDir, 'wsl-agent-terminal.sock') : '',
     __TERMINAL_FRONTEND__: terminalFrontend,
     __RUNTIME_DIR__: runtimeDir ?? '',
-  });
+    __LOCAL_INNER_CONFIG__: localInnerConfigPath,
+    __ONE_MCP_ENTRY__: oneMcpEntry,
+  };
+  const templateName = isPersonal ? 'mcp-personal.json' : 'mcp.json';
+  const template = JSON.parse(await fs.readFile(path.join(repoRoot, 'config', 'templates', templateName), 'utf8'));
+  const rendered = replaceStrings(template, replacements);
+  const localRendered = isPersonal
+    ? replaceStrings(JSON.parse(await fs.readFile(path.join(repoRoot, 'config', 'templates', 'mcp-local.json'), 'utf8')), replacements)
+    : null;
 
   if (isPersonal) {
     rendered.mcpServers.dev.env.MCP_DEV_SHELL_MODE = shellMode;
@@ -204,16 +223,22 @@ export async function renderConfig(options) {
   }
 
   const oneMcpDir = path.join(stateDir, '1mcp');
+  const localOneMcpDir = isPersonal ? path.dirname(localInnerConfigPath) : null;
   const logDir = path.join(stateDir, 'logs');
   const oneMcpLogFile = path.join(logDir, 'one-mcp.log');
   await fs.mkdir(stateDir, { recursive: true, mode: 0o700 });
   await fs.chmod(stateDir, 0o700);
   await fs.mkdir(oneMcpDir, { recursive: true, mode: 0o700 });
   await fs.chmod(oneMcpDir, 0o700);
+  if (localOneMcpDir) {
+    await fs.mkdir(localOneMcpDir, { recursive: true, mode: 0o700 });
+    await fs.chmod(localOneMcpDir, 0o700);
+  }
   await fs.mkdir(logDir, { recursive: true, mode: 0o700 });
   await fs.chmod(logDir, 0o700);
 
   const configPath = path.join(oneMcpDir, 'mcp.json');
+  if (localRendered) await atomicWrite(localInnerConfigPath, `${JSON.stringify(localRendered, null, 2)}\n`);
   await atomicWrite(configPath, `${JSON.stringify(rendered, null, 2)}\n`);
   const appConfigPath = path.join(oneMcpDir, 'config.toml');
   const appConfig = [
@@ -241,7 +266,7 @@ export async function renderConfig(options) {
   const bridgeEnvPath = path.join(stateDir, 'bridge.env');
   await atomicWrite(bridgeEnvPath, bridgeEnv);
 
-  return { profile, repoRoot, stateDir, oneMcpDir, configPath, appConfigPath, oneMcpLogFile, bridgeEnvPath };
+  return { profile, repoRoot, stateDir, oneMcpDir, configPath, localInnerConfigPath: localInnerConfigPath || null, appConfigPath, oneMcpLogFile, bridgeEnvPath };
 }
 
 async function main() {

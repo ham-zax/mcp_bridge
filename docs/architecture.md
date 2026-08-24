@@ -11,7 +11,8 @@ Cloudflare Tunnel
   -> Dev
   -> Code       (personal only)
   -> Terminal   (personal only)
-  -> Browser    (personal only)
+  -> Local      (personal only, tag:browser)
+       -> private inner 1MCP -> Browser
 Linux / WSL host
 ```
 
@@ -104,18 +105,30 @@ wsl-agent-terminal-broker.service  broker/transcript/control state
 
 Restart the broker without restarting tmux when only broker/provider code changes.
 
-### Browser
+### Local tool broker
 
-Browser is one private personal MCP provider under `tag:browser`. It exposes the Chrome DevTools MCP tool catalog once and dispatches each call to the resource-local child selected by `browser_target`:
+Personal Browser capability is model-facing through one `local` provider under `tag:browser`. It exposes exactly:
 
 ```text
-browser facade
-  +-- windows (default) -> Windows cmd/npx -> normal native Windows Chrome profile
-  `-- linux             -> Linux npx -> managed visible Chrome through WSLg
+tool_list tool_schema tool_call
 ```
 
-The facade inherits the WSLg display/runtime environment needed by its Linux child. Its Windows child uses `%LOCALAPPDATA%\\Google\\Chrome\\User Data` so normal-profile discovery remains username-independent in tracked source. The facade returns downstream `CallToolResult` objects unchanged, so screenshots remain native image content rather than wrapper JSON/text.
+The Local broker owns stable logical `{server, tool}` routing and connects over stdio to a private inner 1MCP running in normal direct mode. V1 keeps no broker catalog/schema cache: discovery and schema lookup consult current inner `tools/list`, while `tool_call` dispatches the qualified inner tool directly and returns the downstream `CallToolResult` unchanged. Discovery is bounded with an opaque self-contained cursor; downstream catalog churn does not change the outer three-tool surface.
+
+### Browser
+
+Browser remains the private resource-local execution owner behind Local. The private inner 1MCP publishes the Browser facade as logical server `browser`; the facade exposes the complete Chrome DevTools MCP catalog internally and dispatches each call to the child selected by `browser_target`:
+
+```text
+Local tool_call(server="browser", ...)
+  -> private inner 1MCP direct
+  -> browser facade
+       +-- windows (default) -> Windows cmd/npx -> normal native Windows Chrome profile
+       `-- linux             -> Linux npx -> managed visible Chrome through WSLg
+```
+
+The facade inherits the WSLg display/runtime environment needed by its Linux child. Its Windows child uses `%LOCALAPPDATA%\\Google\\Chrome\\User Data` so normal-profile discovery remains username-independent in tracked source. It still returns downstream `CallToolResult` objects unchanged, so screenshots remain native image content rather than wrapper JSON/text.
 
 ## Trust/profile separation
 
-Public `restricted` and `trusted-dev` configurations do not gain private Code, Terminal, Browser, `wait`, or personal Terminal-socket dependencies. The private `personal` profile is an explicit separate composition.
+Public `restricted` and `trusted-dev` configurations do not gain private Code, Terminal, Local/Browser, `wait`, or personal Terminal-socket dependencies. The private `personal` profile is an explicit separate composition.

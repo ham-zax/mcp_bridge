@@ -49,16 +49,14 @@
         "terminal"
       ]
     },
-    "browser": {
+    "local": {
       "command": "node",
       "args": [
-        "__REPO_ROOT__/providers/browser/server.mjs"
+        "__REPO_ROOT__/providers/local-tools/server.mjs"
       ],
       "env": {
-        "XDG_RUNTIME_DIR": "__RUNTIME_DIR__",
-        "WAYLAND_DISPLAY": "wayland-0",
-        "DISPLAY": ":0",
-        "PULSE_SERVER": "unix:/mnt/wslg/PulseServer"
+        "MCP_LOCAL_INNER_CONFIG": "__LOCAL_INNER_CONFIG__",
+        "MCP_LOCAL_ONE_MCP_ENTRY": "__ONE_MCP_ENTRY__"
       },
       "tags": [
         "browser"

@@ -1,6 +1,6 @@
 interface:
   display_name: Agent Browser
-  short_description: Route local browser work to Chrome MCP or agent-browser CLI.
+  short_description: Route local browser work through Local broker or agent-browser CLI.
 policy:
   products:
   - chatgpt

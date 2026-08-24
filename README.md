@@ -19,14 +19,15 @@ Cloudflare Tunnel
   +-- Dev       Files, Bash, durable waits
   +-- Code      repository-rooted code intelligence
   +-- Terminal  persistent tmux-backed PTYs
-  `-- Browser   authenticated native Windows / managed WSLg Chrome
+  `-- Local     stable tool_list / tool_schema / tool_call
+        `-- private inner 1MCP -> Browser -> Windows / WSLg Chrome
 ```
 
 Not every profile enables every provider. Public/general installations use the smaller `restricted` or `trusted-dev` surfaces. The private `personal` profile adds the full WSL coding harness.
 
 ## Trust profiles
 
-| Profile | Files | Shell | Code / Terminal / Browser | Intended use |
+| Profile | Files | Shell | Code / Terminal / Local-Browser | Intended use |
 |---|---|---|---|---|
 | `restricted` | workspace-bounded `read`, `edit`, `write` | separate allowlisted legacy shell | no | conservative public/general installs |
 | `trusted-dev` | workspace-bounded `read`, `edit`, `write` | unrestricted native Bash as the Linux service user | no | dedicated trusted development hosts |
@@ -36,13 +37,14 @@ Not every profile enables every provider. Public/general installations use the s
 
 ## Personal harness surface
 
-The private personal harness is grouped into four capability domains:
+The private personal harness keeps three small direct domains plus one stable Local broker domain:
 
 ```text
 Dev       read edit write file_ops wait bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
-Browser   one Chrome DevTools MCP facade with resource-local Windows/Linux routing
+Local     tool_list tool_schema tool_call -> logical server "browser"
+Browser   private facade behind Local, with resource-local Windows/Linux routing
 ```
 
 A few important design choices:
@@ -53,7 +55,7 @@ A few important design choices:
 - `pc_sleep` is personal-only and sleeps the Windows host after explicit confirmation, with an optional Task Scheduler wake time.
 - Terminal PTYs are owned by tmux, so they survive provider, broker, and 1MCP restarts.
 - Code requests are routed to the nearest canonical Git root; the raw CodeDB tool catalog is hidden behind three small actions.
-- Browser control is one model-facing MCP surface. It defaults to the normal native Windows Chrome profile and accepts `browser_target=linux` when the requested state belongs to WSLg Chrome; the facade starts the corresponding resource-local Chrome DevTools MCP child internally. Browser requires the separate `tag:browser` OAuth scope.
+- Browser control is model-facing through exactly three Local broker tools. Agents discover/call the stable logical server `browser`; `browser_target=linux` stays inside the selected Browser tool arguments. The private Browser facade starts the corresponding resource-local Chrome DevTools MCP child internally, and the outer Local provider remains in the separate `tag:browser` OAuth domain.
 
 See [Personal harness](docs/personal/harness.md) for the practical workflow.
 
@@ -115,7 +117,7 @@ For Terminal lifetime and broker operations, recovery, logs, safe restarts, and 
 - [Documentation index](docs/README.md) — choose the right guide quickly
 - [Getting started](docs/getting-started.md) — install and connect
 - [Operations](docs/operations.md) — run, inspect, restart, and recover
-- [Personal WSL harness](docs/personal/harness.md) — use the private Dev, Code, Terminal, and Browser domains
+- [Personal WSL harness](docs/personal/harness.md) — use the private Dev, Code, Terminal, and Local-routed Browser domains
 - [Engineering history](docs/history/README.md) — preserved benchmarks, plans, specs, and acceptance evidence
 
 ## Current status
@@ -130,7 +132,7 @@ The current documentation describes that accepted architecture. Older benchmark 
 
 ## 1MCP compatibility note
 
-The project pins 1MCP 0.36.0 after qualifying the current Dev/Code/Terminal composition, browser rich results, and config hot reload. The bridge continues to supervise the real Node entrypoint directly; the former 0.34.4 OAuth-consent CSP source patch is no longer needed because 0.36.0 handles validated callback origins upstream. Details are in [Operations](docs/operations.md).
+The project pins 1MCP 0.36.0 after qualifying the current Dev/Code/Terminal composition, direct-mode rich Browser results, and config hot reload. Personal Browser tools sit behind a repository-owned Local broker and a private inner 1MCP running in normal direct mode; stock lazy `tool_invoke` is not used because it wraps rich results. The bridge continues to supervise the public 1MCP Node entrypoint directly. Details are in [Operations](docs/operations.md).
 
 ## Public/private publication boundary
 

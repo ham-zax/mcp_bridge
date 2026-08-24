@@ -75,6 +75,7 @@ if [ "${PERSONAL_BOOTSTRAP_SKIP_INSTALL:-0}" != "1" ]; then
   npm --prefix "$ROOT/providers/code-router" ci --omit=dev
   npm --prefix "$ROOT/providers/terminal" ci --omit=dev
   npm --prefix "$ROOT/providers/browser" ci --omit=dev
+  npm --prefix "$ROOT/providers/local-tools" ci --omit=dev
 else
   echo "== skipping toolbox/provider installation by PERSONAL_BOOTSTRAP_SKIP_INSTALL =="
 fi

@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "mcpServers": {
+    "browser": {
+      "command": "node",
+      "args": [
+        "__REPO_ROOT__/providers/browser/server.mjs"
+      ],
+      "env": {
+        "XDG_RUNTIME_DIR": "__RUNTIME_DIR__",
+        "WAYLAND_DISPLAY": "wayland-0",
+        "DISPLAY": ":0",
+        "PULSE_SERVER": "unix:/mnt/wslg/PulseServer"
+      }
+    }
+  }
+}
