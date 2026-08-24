@@ -116,9 +116,15 @@ test('child configs keep Linux and Windows execution resource-local', () => {
   assert.deepEqual(linux.env, env);
   assert.ok(linux.args.includes('chrome-devtools-mcp@1.7.0'));
 
-  const windows = childConfig('windows', env);
+  assert.throws(() => childConfig('windows', env), /WINDOWS_BROWSER_URL_REQUIRED/);
+  const windows = childConfig('windows', env, [], { browserUrl: 'http://127.0.0.1:43111' });
   assert.equal(windows.command, '/mnt/c/Windows/System32/cmd.exe');
   assert.equal(windows.cwd, '/mnt/c');
-  assert.ok(windows.args.includes('--autoConnect'));
-  assert.ok(windows.args.includes('--user-data-dir=%LOCALAPPDATA%\\Google\\Chrome\\User Data'));
+  assert.equal(windows.args.includes('--autoConnect'), false);
+  assert.equal(windows.args.includes('--user-data-dir=%LOCALAPPDATA%\\Google\\Chrome\\User Data'), false);
+  assert.deepEqual(windows.args.slice(windows.args.indexOf('--browserUrl'), windows.args.indexOf('--browserUrl') + 2), ['--browserUrl', 'http://127.0.0.1:43111']);
+
+  const routed = childConfig('windows', env, ['--experimentalPageIdRouting'], { browserUrl: 'http://127.0.0.1:43111' });
+  assert.ok(routed.args.includes('--experimentalPageIdRouting'));
+  assert.equal(windows.args.includes('--experimentalPageIdRouting'), false);
 });

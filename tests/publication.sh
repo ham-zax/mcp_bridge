@@ -32,6 +32,7 @@ is_public_path() {
     systemd/wsl-agent-terminal-broker.service.in | \
     providers/code-router/* | \
     providers/browser/* | \
+    providers/browser-fast/* | \
     providers/local-tools/* | \
     scripts/bootstrap-personal.sh | \
     skills/* | \
@@ -109,6 +110,7 @@ test_private_only_paths_are_not_public() {
     systemd/wsl-agent-terminal-broker.service.in \
     providers/code-router/example \
     providers/browser/example \
+    providers/browser-fast/example \
     providers/local-tools/example \
     scripts/bootstrap-personal.sh \
     skills/example \

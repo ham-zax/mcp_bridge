@@ -8,3 +8,4 @@ __pycache__/
 
 .worktrees/
 providers/websession-adapter/node_modules/
+providers/browser-fast/node_modules/

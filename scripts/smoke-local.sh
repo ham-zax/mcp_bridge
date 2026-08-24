@@ -17,7 +17,7 @@ const terminal = cfg.mcpServers?.terminal;
 const local = cfg.mcpServers?.local;
 if (cfg.mcpServers?.filesystem) throw new Error('filesystem provider must be absent after Pi cutover');
 if (cfg.mcpServers?.codedb) throw new Error('raw codedb provider must remain hidden behind the Code facade');
-if (cfg.mcpServers?.browser) throw new Error('Browser facade must remain private behind the Local broker');
+if (cfg.mcpServers?.browser || cfg.mcpServers?.['browser-fast']) throw new Error('Browser providers must remain private behind the Local broker');
 if (profile) {
   const actual = Object.keys(cfg.mcpServers ?? {}).sort();
   const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : profile === 'personal' ? ['code', 'dev', 'local', 'terminal'] : null;
@@ -42,7 +42,7 @@ if (local) {
 
   const inner = JSON.parse(fs.readFileSync(env.MCP_LOCAL_INNER_CONFIG, 'utf8'));
   const innerNames = Object.keys(inner.mcpServers ?? {}).sort();
-  if (JSON.stringify(innerNames) !== JSON.stringify(['browser'])) throw new Error(`unexpected Local inner provider set: ${innerNames.join(',')}`);
+  if (JSON.stringify(innerNames) !== JSON.stringify(['browser', 'browser-fast'])) throw new Error(`unexpected Local inner provider set: ${innerNames.join(',')}`);
   const browser = inner.mcpServers.browser;
   if (browser.command !== 'node') throw new Error('inner Browser facade must run with node');
   const expectedBrowserServer = path.join(repoRoot, 'providers', 'browser', 'server.mjs');
@@ -54,6 +54,19 @@ if (local) {
   const browserPkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'browser', 'package.json'), 'utf8'));
   if (browserPkg.dependencies?.['@modelcontextprotocol/sdk'] !== '1.30.0') throw new Error('unexpected Browser MCP SDK pin');
   if (browserPkg.dependencies?.zod !== '4.4.3') throw new Error('unexpected Browser zod pin');
+
+  const fast = inner.mcpServers['browser-fast'];
+  if (fast.command !== 'node') throw new Error('inner Browser Fast provider must run with node');
+  const expectedFastServer = path.join(repoRoot, 'providers', 'browser-fast', 'server.mjs');
+  if (JSON.stringify(fast.args ?? []) !== JSON.stringify([expectedFastServer])) throw new Error('unexpected inner Browser Fast server path');
+  const fastEnv = fast.env ?? {};
+  if (!path.isAbsolute(fastEnv.XDG_RUNTIME_DIR ?? '')) throw new Error('Browser Fast XDG_RUNTIME_DIR must be absolute');
+  if (fastEnv.WAYLAND_DISPLAY !== 'wayland-0' || fastEnv.DISPLAY !== ':0' || fastEnv.PULSE_SERVER !== 'unix:/mnt/wslg/PulseServer') throw new Error('unexpected Browser Fast WSLg environment');
+  if (fast.tags !== undefined) throw new Error('inner Browser Fast provider must not carry an outer OAuth tag');
+  const fastPkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'browser-fast', 'package.json'), 'utf8'));
+  if (fastPkg.dependencies?.['@modelcontextprotocol/sdk'] !== '1.30.0') throw new Error('unexpected Browser Fast MCP SDK pin');
+  if (fastPkg.dependencies?.['agent-browser'] !== '0.34.0') throw new Error('unexpected Browser Fast Agent Browser pin');
+  if (fastPkg.dependencies?.zod !== '4.4.3') throw new Error('unexpected Browser Fast zod pin');
 }
 if (terminal) {
   if (profile !== 'personal') throw new Error('Terminal provider is private to the personal profile');

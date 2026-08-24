@@ -52,7 +52,7 @@ const keys = cfg => Object.keys(cfg.mcpServers ?? {}).sort();
 if (JSON.stringify(keys(restricted)) !== JSON.stringify(['dev', 'shell'])) process.exit(1);
 if (JSON.stringify(keys(trusted)) !== JSON.stringify(['dev'])) process.exit(1);
 if (JSON.stringify(keys(personal)) !== JSON.stringify(['code', 'dev', 'local', 'terminal'])) process.exit(1);
-if (JSON.stringify(keys(personalLocal)) !== JSON.stringify(['browser'])) process.exit(1);
+if (JSON.stringify(keys(personalLocal)) !== JSON.stringify(['browser', 'browser-fast'])) process.exit(1);
 if (restricted.mcpServers?.code || trusted.mcpServers?.code) process.exit(1);
 if (restricted.mcpServers?.terminal || trusted.mcpServers?.terminal) process.exit(1);
 if (restricted.mcpServers?.local || trusted.mcpServers?.local) process.exit(1);
@@ -99,6 +99,13 @@ if (personalLocal.mcpServers.browser.env.WAYLAND_DISPLAY !== 'wayland-0') proces
 if (personalLocal.mcpServers.browser.env.DISPLAY !== ':0') process.exit(1);
 if (personalLocal.mcpServers.browser.env.PULSE_SERVER !== 'unix:/mnt/wslg/PulseServer') process.exit(1);
 if (personalLocal.mcpServers.browser.tags !== undefined) process.exit(1);
+if (personalLocal.mcpServers['browser-fast'].command !== 'node') process.exit(1);
+if (!personalLocal.mcpServers['browser-fast'].args.includes(root + '/providers/browser-fast/server.mjs')) process.exit(1);
+if (personalLocal.mcpServers['browser-fast'].env.XDG_RUNTIME_DIR !== runtimeDir) process.exit(1);
+if (personalLocal.mcpServers['browser-fast'].env.WAYLAND_DISPLAY !== 'wayland-0') process.exit(1);
+if (personalLocal.mcpServers['browser-fast'].env.DISPLAY !== ':0') process.exit(1);
+if (personalLocal.mcpServers['browser-fast'].env.PULSE_SERVER !== 'unix:/mnt/wslg/PulseServer') process.exit(1);
+if (personalLocal.mcpServers['browser-fast'].tags !== undefined) process.exit(1);
 if (!personalEnv.includes("MCP_BRIDGE_PROFILE='personal'")) process.exit(1);
 NODE2
   local rc=$?
@@ -356,6 +363,7 @@ test_personal_runtime_files_have_no_machine_home() {
     "$ROOT/providers/code-router/server.mjs" \
     "$ROOT/providers/local-tools/server.mjs" \
     "$ROOT/providers/browser/server.mjs" \
+    "$ROOT/providers/browser-fast/server.mjs" \
     "$ROOT/config/templates/mcp-local.json" >/dev/null
 }
 

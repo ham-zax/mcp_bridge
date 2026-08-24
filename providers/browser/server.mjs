@@ -4,6 +4,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { ensureWindowsChrome } from './windows-chrome-runtime.mjs';
 
 export const CHROME_DEVTOOLS_MCP_VERSION = '1.7.0';
 export const BROWSER_TARGET_FIELD = 'browser_target';
@@ -37,16 +38,20 @@ function linuxBrowserEnv(env = process.env) {
   return values;
 }
 
-export function childConfig(target, env = process.env) {
+export function childConfig(target, env = process.env, extraArgs = [], { browserUrl } = {}) {
+  if (!Array.isArray(extraArgs) || extraArgs.some(value => typeof value !== 'string')) throw new TypeError('extraArgs must be a string array');
   if (target === 'linux') {
     return {
       command: 'npx',
-      args: BASE_CHROME_ARGS,
+      args: [...BASE_CHROME_ARGS, ...extraArgs],
       env: linuxBrowserEnv(env),
       stderr: 'inherit'
     };
   }
   if (target === 'windows') {
+    if (typeof browserUrl !== 'string' || browserUrl.length === 0) {
+      throw browserError('WINDOWS_BROWSER_URL_REQUIRED', 'dedicated Windows MCP Chrome endpoint is required');
+    }
     return {
       command: '/mnt/c/Windows/System32/cmd.exe',
       args: [
@@ -55,10 +60,10 @@ export function childConfig(target, env = process.env) {
         'npx',
         '-y',
         `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`,
-        '--autoConnect',
-        '--user-data-dir=%LOCALAPPDATA%\\Google\\Chrome\\User Data',
+        '--browserUrl', browserUrl,
         '--no-usage-statistics',
-        '--no-performance-crux'
+        '--no-performance-crux',
+        ...extraArgs
       ],
       cwd: '/mnt/c',
       stderr: 'inherit'
@@ -96,7 +101,7 @@ export function addBrowserTarget(tool) {
         [BROWSER_TARGET_FIELD]: {
           type: 'string',
           enum: ['windows', 'linux'],
-          description: 'Browser locality. Omit for normal Windows Chrome; use linux for WSLg Chrome.'
+          description: 'Browser locality. Omit for the dedicated persistent Windows MCP Chrome profile; use linux for WSLg Chrome.'
         }
       }
     }
@@ -112,8 +117,17 @@ export class ChromeChild {
     this.peerClosed = false;
   }
 
-  static async start({ target, env = process.env } = {}) {
-    const transport = new StdioClientTransport(childConfig(target, env));
+  static async start({ target, env = process.env, config, windowsChromeEnsure = ensureWindowsChrome } = {}) {
+    let resolvedConfig = config;
+    if (!resolvedConfig) {
+      if (target === 'windows') {
+        const chrome = await windowsChromeEnsure();
+        resolvedConfig = childConfig(target, env, [], { browserUrl: chrome.browserUrl });
+      } else {
+        resolvedConfig = childConfig(target, env);
+      }
+    }
+    const transport = new StdioClientTransport(resolvedConfig);
     const client = new Client({ name: `mcp-dev-bridge-browser-${target}`, version: '0.1.0' });
     const child = new ChromeChild({ target, transport, client });
     client.onclose = () => { child.peerClosed = true; };
@@ -240,7 +254,7 @@ export function createBrowserFacadeServer({ router } = {}) {
     { name: 'browser', version: '0.1.0' },
     {
       capabilities: { tools: {} },
-      instructions: 'One resource-local Chrome surface. Tools default to normal Windows Chrome; pass browser_target=linux for WSLg Chrome. Path arguments are OS-temp-only.'
+      instructions: 'One resource-local Chrome surface. Tools default to the dedicated persistent Windows MCP Chrome profile; pass browser_target=linux for WSLg Chrome. Path arguments are OS-temp-only.'
     }
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: await router.listTools() }));
