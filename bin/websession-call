@@ -65,32 +65,6 @@ async function request(url, options = undefined) {
   });
 }
 
-function lineValue(text, name) {
-  const match = text.match(new RegExp(`^${name}: (.*)$`, 'm'));
-  return match?.[1];
-}
-
-function blockValue(text, name) {
-  const marker = `\n${name}:`;
-  const index = text.indexOf(marker);
-  if (index < 0) return undefined;
-  const rest = text.slice(index + marker.length);
-  return rest.startsWith('\n') ? rest.slice(1) : '';
-}
-
-function parseTextSnapshot(text) {
-  const state = lineValue(text, 'state');
-  if (!state) throw new Error('invalid WebSession status response');
-  return {
-    state,
-    statusUrl: lineValue(text, 'status_url'),
-    chunkCount: Number(lineValue(text, 'chunk_count') || 0),
-    chunkBaseUrl: lineValue(text, 'chunk_base_url'),
-    result: blockValue(text, 'result'),
-    error: lineValue(text, 'error'),
-  };
-}
-
 async function readChunks(chunkBaseUrl, count) {
   if (!chunkBaseUrl || !Number.isInteger(count) || count < 1) {
     throw new Error('invalid WebSession chunk response');
@@ -99,10 +73,11 @@ async function readChunks(chunkBaseUrl, count) {
   for (let number = 1; number <= count; number += 1) {
     const response = await request(`${chunkBaseUrl}${number}`);
     if (!response.ok) throw new Error(`chunk ${number} failed with HTTP ${response.status}`);
-    const text = await response.text();
-    const content = blockValue(text, 'content');
-    if (content === undefined) throw new Error(`invalid WebSession chunk ${number}`);
-    output += content;
+    const chunk = await response.json();
+    if (chunk?.state !== 'chunk' || chunk.chunk_number !== number || chunk.chunk_count !== count || typeof chunk.content !== 'string') {
+      throw new Error(`invalid WebSession chunk ${number}`);
+    }
+    output += chunk.content;
   }
   return output;
 }
@@ -118,7 +93,7 @@ async function waitForTerminal(statusUrl) {
     await new Promise(resolve => setTimeout(resolve, POLL_MS));
     const response = await request(statusUrl);
     if (!response.ok) throw new Error(`status read failed with HTTP ${response.status}`);
-    const snapshot = parseTextSnapshot(await response.text());
+    const snapshot = await response.json();
     if (snapshot.state === 'queued' || snapshot.state === 'running') continue;
     return snapshot;
   }
@@ -177,8 +152,8 @@ async function main() {
     if (snapshot.state === 'completed') {
       revokeOnExit = true;
       output = await completedOutput({
-        chunkCount: Number(snapshot.chunk_count ?? snapshot.chunkCount ?? 0),
-        chunkBaseUrl: snapshot.chunk_base_url ?? snapshot.chunkBaseUrl,
+        chunkCount: Number(snapshot.chunk_count || 0),
+        chunkBaseUrl: snapshot.chunk_base_url,
         result: snapshot.result,
       });
     } else if (['tool_failed', 'unknown_outcome', 'rejected', 'expired'].includes(snapshot.state)) {

@@ -303,6 +303,10 @@ function enhancedSnapshot(operation, statusUrl, confirmation = undefined) {
   return value;
 }
 
+function enhancedStatusUrl(base, continuationToken, operationId) {
+  return `${base}/v1/operations/${continuationToken}/${operationId}`;
+}
+
 async function handleEnhancedCall(req, res) {
   const authorization = req.headers.authorization || '';
   if (typeof authorization !== 'string' || !authorization.startsWith('Bearer ')) {
@@ -361,7 +365,7 @@ async function handleEnhancedCall(req, res) {
   }
 
   const base = publicBase(req);
-  const statusUrl = `${base}/v1/s/${submitted.continuationToken}/op/${submitted.operation.id}`;
+  const statusUrl = enhancedStatusUrl(base, submitted.continuationToken, submitted.operation.id);
   const operation = submitted.operation.state === 'queued'
     ? await operationCore.waitForOperation(submitted.operation.id, 1900)
     : submitted.operation;
@@ -439,8 +443,52 @@ async function handleEnhancedConfirm(req, res, operationId) {
     ? await operationCore.waitForOperation(operationId, 1900)
     : confirmed.operation;
   const base = publicBase(req);
-  const statusUrl = `${base}/v1/s/${confirmed.continuationToken}/op/${operationId}`;
+  const statusUrl = enhancedStatusUrl(base, confirmed.continuationToken, operationId);
   sendJson(res, 200, enhancedSnapshot(operation, statusUrl));
+}
+
+function handleEnhancedStatus(req, res, parts) {
+  const continuation = parseCapabilityToken(parts[2]);
+  const operationId = parts[3];
+  if (!continuation || !operationId) {
+    sendJson(res, 404, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'not_found' });
+    return;
+  }
+
+  const operation = operationCore.readOperation(operationId, continuation);
+  if (!operation) {
+    sendJson(res, 404, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'not_found' });
+    return;
+  }
+
+  const base = publicBase(req);
+  sendJson(res, 200, enhancedSnapshot(operation, enhancedStatusUrl(base, continuation, operationId)));
+}
+
+function handleEnhancedChunk(req, res, parts) {
+  const continuation = parseCapabilityToken(parts[2]);
+  const operationId = parts[3];
+  const chunkNumber = Number(parts[5]);
+  if (!continuation || !operationId || !Number.isInteger(chunkNumber) || chunkNumber < 1) {
+    sendJson(res, 404, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'not_found' });
+    return;
+  }
+
+  const chunk = operationCore.readOperationChunk(operationId, continuation, chunkNumber);
+  if (!chunk) {
+    sendJson(res, 404, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'not_found' });
+    return;
+  }
+
+  sendJson(res, 200, {
+    protocol: 'WEBSESSION-MCP-BRIDGE/1',
+    state: 'chunk',
+    operation_id: operationId,
+    chunk_number: chunk.chunk_number,
+    chunk_count: chunk.chunk_count,
+    sha256: chunk.content_sha256,
+    content: chunk.content,
+  });
 }
 
 async function handleHttpProbe(req, res, url, noncePart) {
@@ -514,6 +562,16 @@ const server = createServer((req, res) => {
     handleEnhancedCall(req, res).catch(() => {
       sendJson(res, 500, { protocol: 'WEBSESSION-MCP-BRIDGE/1', state: 'rejected', code: 'internal_error' });
     });
+    return;
+  }
+
+  if (req.method === 'GET' && parts[0] === 'v1' && parts[1] === 'operations' && parts.length === 4) {
+    handleEnhancedStatus(req, res, parts);
+    return;
+  }
+
+  if (req.method === 'GET' && parts[0] === 'v1' && parts[1] === 'operations' && parts[4] === 'chunk' && parts.length === 6) {
+    handleEnhancedChunk(req, res, parts);
     return;
   }
 
