@@ -92,7 +92,7 @@ Good:
 
 Avoid:
 
-> Open `importer.ts`, add a try/catch around line 84, then create `importer-errors.test.ts` and run command X.
+> Open `importer.ts`, add a try/catch around line 84, then follow a prescribed sequence of incidental edits and commands.
 
 ### Use file paths for durable anchors, not guessed implementation
 
