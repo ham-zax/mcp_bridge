@@ -1,6 +1,6 @@
 interface:
   display_name: "Subagent Driven Development"
-  short_description: "Execute independent plan tasks with dedicated implementer and reviewer agents."
+  short_description: "Explicit high-process plan execution with dedicated implementer and reviewer agents."
 policy:
   products:
   - chatgpt

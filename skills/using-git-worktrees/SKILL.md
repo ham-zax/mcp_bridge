@@ -1,17 +1,15 @@
 ---
 name: using-git-worktrees
-description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists via native tools or git worktree fallback
+description: Use only when a software task actually needs workspace isolation: explicit user request, concurrent writable missions, conflicting unrelated local changes, material long-lived/risky work, or mandatory repository policy. Do not create a worktree merely because implementation or a plan exists.
 ---
 
 # Using Git Worktrees
 
 ## Overview
 
-Ensure work happens in an isolated workspace. Prefer your platform's native worktree tools. Fall back to manual git worktrees only when no native tool is available.
+Create or enter an isolated workspace only when isolation has a concrete reason. Prefer the platform's native worktree mechanism when available; otherwise use Git worktrees.
 
-**Core principle:** Detect existing isolation first. Then use native tools. Then fall back to git. Never fight the harness.
-
-**Announce at start:** "I'm using the using-git-worktrees skill to set up an isolated workspace."
+**Core principle:** justify isolation -> detect existing isolation -> reuse/native tool -> Git fallback. If isolation is not justified, stay in the current checkout.
 
 ## Step 0: Detect Existing Isolation
 
@@ -38,11 +36,15 @@ Report with branch state:
 
 **If `GIT_DIR == GIT_COMMON` (or in a submodule):** You are in a normal repo checkout.
 
-Has the user already indicated their worktree preference in your instructions? If not, ask for consent before creating a worktree:
+Before creating anything, establish a real isolation reason. Isolation is justified when at least one applies:
 
-> "Would you like me to set up an isolated worktree? It protects your current branch from changes."
+- the user explicitly requested a worktree/isolated workspace;
+- multiple writable missions need independent checkouts;
+- unrelated or conflicting local changes should not be mixed with this effort;
+- the work is materially risky or long-lived enough that isolation protects the active checkout;
+- repository policy specifically requires isolation.
 
-Honor any existing declared preference without asking. If the user declines consent, work in place and skip to Step 2.
+If none applies, continue in the current checkout and stop this Skill. Do not ask the user to choose a worktree merely because one is available.
 
 ## Step 1: Create Isolated Workspace
 
@@ -83,9 +85,9 @@ Follow this priority order. Explicit user preference always beats observed files
 git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null
 ```
 
-**If NOT ignored:** Add to .gitignore, commit the change, then proceed.
+**If NOT ignored:** Prefer a local-only rule in `.git/info/exclude` for adapter/workflow bookkeeping. Modify tracked `.gitignore` only when the repository intentionally wants a shared worktree-directory convention.
 
-**Why critical:** Prevents accidentally committing worktree contents to repository.
+**Why critical:** Prevent accidentally staging worktree contents without creating an unrelated tracked change merely to satisfy the workflow.
 
 #### Create the Worktree
 
@@ -132,7 +134,7 @@ Ready to implement <feature-name>
 | `worktrees/` exists | Use it (verify ignored) |
 | Both exist | Use `.worktrees/` |
 | Neither exists | Check instruction file, then default `.worktrees/` |
-| Directory not ignored | Add to .gitignore + commit |
+| Directory not ignored | Prefer `.git/info/exclude`; change tracked `.gitignore` only for an intentional shared convention |
 | Permission error on create | Use current checkout only if it still satisfies the required isolation boundary |
 | Testing explicitly required | Run only the required baseline test command and report its result |
 | No setup requirement | Do not install dependencies merely because the worktree is new |

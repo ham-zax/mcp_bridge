@@ -1,17 +1,15 @@
 ---
 name: executing-plans
-description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
+description: Use when the user asks to execute an existing written implementation plan. Load the exact plan, remove stale or unauthorized process steps, execute the authorized tasks in order, and preserve Causal Coding's scope/testing/stopping rules.
 ---
 
 # Executing Plans
 
 ## Overview
 
-Load plan, review critically, execute all tasks, report when complete.
+Load the exact plan, review it against the current request and repository state, execute the authorized tasks, and stop when the requested outcome is established.
 
-**Announce at start:** "I'm using the executing-plans skill to implement this plan."
-
-**Note:** Tell your human partner that Superpowers works much better with access to subagents (Claude Code, Codex CLI, Codex App, Copilot CLI, and Gemini CLI all qualify; see the per-platform tool refs in `../using-superpowers/references/`). If subagents are available, use superpowers:subagent-driven-development instead of this skill.
+Use `subagent-driven-development` only when the user explicitly requests that high-process delegated workflow. Do not introduce subagents merely because they are available or because a plan has several tasks.
 
 ## The Process
 
@@ -32,10 +30,10 @@ For each task:
 
 ### Step 3: Complete Development
 
-After all tasks complete and verified:
-- Announce: "I'm using the finishing-a-development-branch skill to complete this work."
-- **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch
-- Follow that skill to establish required completion evidence, present options, and execute the user's integration choice without introducing unauthorized tests
+After all tasks reach their authorized success conditions:
+- gather only the fresh completion evidence required for the final claims;
+- use `finishing-a-development-branch` only when branch/worktree integration, preservation, publication, or cleanup is actually the next decision;
+- otherwise report the completed result and stop.
 
 ## When to Stop and Ask for Help
 
@@ -57,8 +55,8 @@ After all tasks complete and verified:
 
 ## Remember
 - Review plan critically first
-- Follow plan steps exactly
+- Follow the plan after Step 1 normalization; do not resurrect removed unauthorized ceremony
 - Don't skip explicitly required validation, and don't invent additional test/verification work
 - Reference skills when plan says to
 - Stop when blocked, don't guess
-- Never start implementation on main/master branch without explicit user consent
+- Use the current checkout by default; branch/worktree policy comes from the task, repository, and justified isolation needs

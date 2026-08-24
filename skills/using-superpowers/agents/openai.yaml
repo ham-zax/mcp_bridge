@@ -1,6 +1,6 @@
 interface:
   display_name: "Using Superpowers"
-  short_description: "Select and invoke the relevant Superpowers workflow for a task."
+  short_description: "Route ambiguous engineering tasks to the right Superpowers workflow."
 policy:
   products:
   - chatgpt

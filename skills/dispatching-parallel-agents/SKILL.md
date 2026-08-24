@@ -1,6 +1,6 @@
 ---
 name: dispatching-parallel-agents
-description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+description: Use when the user explicitly asks for parallel agents, or when multiple genuinely independent tasks materially benefit from concurrent delegated work without shared writable state or sequential dependencies. Do not dispatch agents merely because several tasks exist.
 ---
 
 # Dispatching Parallel Agents
@@ -9,9 +9,9 @@ description: Use when facing 2+ independent tasks that can be worked on without 
 
 You delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed at their task. They should never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination work.
 
-When you have multiple unrelated failures (different test files, different subsystems, different bugs), investigating them sequentially wastes time. Each investigation is independent and can happen in parallel.
+Parallel delegation is worthwhile only when independence is real and the coordination cost is lower than doing the work sequentially.
 
-**Core principle:** Dispatch one agent per independent problem domain. Let them work concurrently.
+**Core principle:** dispatch one bounded agent per genuinely independent problem domain only when parallelism materially helps.
 
 Delegation does not expand testing scope. Each delegated mission inherits the original task's test authorization; do not tell agents to add, modify, or run tests unless the user/spec/repository policy already authorized testing for that mission.
 
@@ -36,15 +36,17 @@ digraph when_to_use {
 ```
 
 **Use when:**
-- 3+ test files failing with different root causes
-- Multiple subsystems broken independently
-- Each problem can be understood without context from others
-- No shared state between investigations
+- the user explicitly requests multiple/parallel agents;
+- several independent subsystems or failures can be investigated without shared writable state;
+- each mission can be specified self-containedly;
+- concurrency materially reduces elapsed work or protects coordinator context.
 
 **Don't use when:**
-- Failures are related (fix one might fix others)
-- Need to understand full system state
-- Agents would interfere with each other
+- tasks are related or one result can change another task;
+- a single agent needs the full system context;
+- agents would edit the same files/state or compete for the same resource;
+- delegation overhead exceeds the benefit;
+- the only reason is that there is more than one checklist item.
 
 ## The Pattern
 

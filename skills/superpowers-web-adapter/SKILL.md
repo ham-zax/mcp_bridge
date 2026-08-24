@@ -1,15 +1,15 @@
 ---
 name: superpowers-web-adapter
-description: Adapt legacy Superpowers software-development workflows to ChatGPT sessions using `wsl-web-harness`, especially when subagent, todo, worktree, reviewer, helper-file, or local-execution primitives differ from upstream. Keep Causal Coding authoritative for mutation scope, testing authorization, verification cadence, and stopping.
+description: Adapt the standalone Superpowers-derived engineering workflow set to ChatGPT sessions using `wsl-web-harness`, especially where subagent, progress-state, worktree, reviewer, browser, or local-execution primitives differ from legacy Superpowers runtimes. Keep Causal Coding authoritative for mutation scope, testing authorization, verification cadence, and stopping.
 ---
 
 # Superpowers Web Adapter
 
-Preserve upstream Superpowers behavior while bridging ChatGPT Web harness gaps. Do not replace or rewrite Superpowers workflows when the original skill is usable.
+Bridge the standalone Superpowers-derived Skills to ChatGPT/WSL execution without reintroducing legacy ceremony or pretending unavailable runtime primitives exist.
 
 ## Core rule
 
-At the start of software-development work, invoke the relevant standalone Superpowers-derived Skill before taking repository or implementation action. If `using-superpowers` is installed and has not been loaded yet, use it first to select the process Skill.
+When a standalone Superpowers-derived workflow is relevant, invoke the specific Skill that owns the task. Use `using-superpowers` only as a tie-breaker when several workflow Skills plausibly overlap; do not bootstrap every engineering turn through it.
 
 Treat this adapter as a compatibility layer only:
 
@@ -23,13 +23,14 @@ Treat this adapter as a compatibility layer only:
 
 Use the installed standalone Superpowers-derived Skills for the engineering workflow pieces that still apply:
 
-- New feature, component, behavior change, or other creative implementation work -> `brainstorming`.
+- Explicit ideation/design work, or implementation blocked by material product/architecture ambiguity -> `brainstorming`. Clear implementation work does not require a brainstorming gate.
 - Bug, failing test, unexpected behavior, or regression -> `systematic-debugging`.
 - Feature or bugfix implementation -> use the normal implementation workflow without introducing tests by default. Invoke `test-driven-development` only when the user explicitly requests TDD/testing, an authoritative user-approved specification requires it, or mandatory repository policy specifically requires it.
 - Requirements/spec for multi-step work -> `writing-plans`.
-- Existing implementation plan -> `executing-plans` when subagents are unavailable.
+- Existing implementation plan -> `executing-plans` by default. Use `subagent-driven-development` only when the user explicitly requests that delegated workflow.
 - Starting work that has already passed the isolation gate below -> `using-git-worktrees`. Never invoke it merely because an implementation plan exists.
 - Receiving review feedback -> `receiving-code-review`.
+- Explicitly requested or authoritatively required independent review -> `requesting-code-review`.
 - Before claiming completion -> `verification-before-completion`.
 - After implementation is verified and integration is next -> `finishing-a-development-branch`.
 
@@ -64,19 +65,17 @@ After writing an artifact, re-read enough of it from disk to verify the saved co
 
 When a plan is later executed, load the exact saved plan file from disk. Do not reconstruct it from conversation memory.
 
-## Progress when ChatGPT Web has no todo primitive
+## Durable progress only when needed
 
-If a Superpowers workflow asks for todos and this harness exposes no todo/task-state primitive, maintain execution state on disk instead of inventing one.
+Do not create progress ledgers merely because an upstream workflow mentions todos. Use ordinary conversation/task state for bounded work.
 
-Preferred fallback:
+Persist `.superpowers/web/<plan-basename>/progress.md` only when the mission genuinely needs durable cross-turn/restart recovery and no better persistent-agent/task-state primitive is available. When persistence is required:
 
-1. Create `.superpowers/web/<plan-basename>/progress.md` inside the repository.
-2. Ensure `.superpowers/` is ignored. Prefer an existing ignore rule; otherwise add a local-only rule to `.git/info/exclude` rather than modifying the tracked `.gitignore` solely for adapter bookkeeping.
-3. Record the plan path on the first line.
-4. Record each task as `pending`, `in_progress`, `complete`, or `blocked`, with relevant commit hashes and any explicitly required validation commands.
-5. After compaction, restart, or a long interruption, trust the persisted progress file plus `git log` and the saved plan over conversational recollection.
+1. keep the file local-only under `.superpowers/` and prefer `.git/info/exclude` for ignore bookkeeping;
+2. record only the plan path, task state, relevant commit hashes, and explicitly required validation results;
+3. recover from the saved plan, repository state, and progress file rather than conversational memory.
 
-Do not mark a task complete until its observable success conditions are established and any validation explicitly required by its plan has actually run. The adapter must not add tests or validation requirements that the plan did not authorize.
+Do not mark a task complete until its observable success conditions are established. The adapter must not add tests, review cycles, checkpoints, or validation requirements that the task did not authorize.
 
 ## Subagent fallback matrix
 
@@ -102,26 +101,13 @@ If no independent reviewer/subagent primitive exists:
 
 Do not manufacture a reviewer identity or review result.
 
-### `writing-skills`
+### Skill authoring
 
-Some Superpowers skill-authoring tests require fresh subagents. If no subagent primitive exists, do not claim those pressure tests were performed. Use the ChatGPT `skill-creator` workflow, validators, packaging checks, and scenario-based self-review that the current harness can actually execute, and state the limitation when independent fresh-context testing materially matters.
+For ChatGPT Skill creation/update, use `skill-creator` rather than the legacy Superpowers `writing-skills` workflow. Pressure-test/TDD-style skill authoring is opt-in only when the user explicitly requests it.
 
-## Missing Superpowers helper files
+## Missing helper files
 
-The Web plugin can expose a Superpowers `SKILL.md` while omitting a supporting file referenced by that skill. When a referenced helper is unavailable from the Web skill resources:
-
-1. Use `wsl-web-harness` to look for the corresponding helper in the user's local Superpowers installation, commonly under Codex, OpenCode, or cross-runtime skill caches.
-2. Prefer a copy whose Superpowers version or `SKILL.md` content matches the Web plugin as closely as can be verified.
-3. Use the local helper as procedural guidance only; do not claim it was bundled in the Web plugin.
-4. If version parity cannot be established, apply only stable, obviously compatible guidance and call out the uncertainty when it is material.
-
-A typical discovery pattern is to search the known local agent/plugin roots for:
-
-```text
-*/superpowers/skills/<skill-name>/<referenced-file>
-```
-
-This fallback is useful for reviewer templates, testing guidance, debugging references, and other support documents missing from the browser-exposed package.
+This bundle is intended to be self-contained. If a Skill references a helper that is not present in the installed bundle, do not silently borrow an unverified legacy copy from another runtime. Use a local matching copy only when its provenance/version is established; otherwise follow the stable contract described by the current Skill and state any material limitation.
 
 ## Task type and Causal-compatible validation
 

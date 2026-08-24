@@ -9,8 +9,6 @@ description: Use when implementation is complete and you need to decide how to i
 
 **Core principle:** Establish required completion evidence → Detect environment → Present options → Execute choice → Clean up.
 
-**Announce at start:** "I'm using the finishing-a-development-branch skill to complete this work."
-
 ## Step 1: Establish Required Completion Evidence
 
 Branch finishing does not authorize testing. Re-read the task/spec/repository requirements and determine what evidence is actually required before integration.

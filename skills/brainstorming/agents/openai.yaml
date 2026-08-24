@@ -1,6 +1,6 @@
 interface:
   display_name: "Brainstorming"
-  short_description: "Turn creative requests into approved designs before implementation."
+  short_description: "Resolve material design ambiguity and choose the simplest coherent approach."
 policy:
   products:
   - chatgpt
