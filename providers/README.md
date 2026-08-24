@@ -4,12 +4,12 @@ The bridge is organized around capability boundaries, not one tool per package.
 
 ## Dev — `providers/pi-dev/`
 
-Files, native Bash, patching, and durable local waits.
+Files, native Bash, regular-file topology operations, durable local waits, and personal Windows-host sleep.
 
 Personal surface:
 
 ```text
-read edit write wait apply_patch bash
+read edit write file_ops wait bash pc_sleep
 ```
 
 Public profiles expose a smaller subset according to their trust policy.

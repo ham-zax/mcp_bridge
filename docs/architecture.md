@@ -25,15 +25,15 @@ WebSession is not part of the normal bridge lifecycle: `bin/start`, `bin/stop`, 
 
 ### Dev
 
-Dev owns Files, Bash, patching, durable waits, and the personal Windows-host sleep boundary.
+Dev owns Files, native Bash, regular-file topology operations, durable waits, and the personal Windows-host sleep boundary.
 
 Personal surface:
 
 ```text
-read edit write wait apply_patch bash pc_sleep
+read edit write file_ops wait bash pc_sleep
 ```
 
-`edit` is for guarded exact known replacement across one or more existing text files. `apply_patch` is for contextual or structural mutation such as insertions, refactors, add/delete/move, or ambiguous anchors; file count alone is not the routing boundary. Native Bash remains the execution path.
+`edit` owns guarded exact mutation of existing text across one or more files; callers inspect with `read`, `rg`, Code, or ast-grep and widen `oldText` until unique when needed. `write` owns new text-file creation, and `file_ops` owns move/delete for existing regular files. Syntax-shaped discovery/codemods use ast-grep through Bash and normally feed guarded `edit`; an existing authoritative `.patch`/`.diff` artifact uses native `git apply --check -- "$patch" && git apply -- "$patch"`.
 
 `wait` owns durable named wait state and generic local readiness checks. Terminal-specific waits use private broker transcript/session observations, but `wait` is not a Terminal MCP action.
 
