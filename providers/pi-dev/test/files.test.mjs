@@ -166,12 +166,29 @@ test('edit v2 supports exact substring removal with empty newText', async () => 
 test('edit tolerates trailing whitespace and common Unicode punctuation differences', async () => {
   const workspaceRoot = await tempDir('pi-fuzzy-');
   const file = path.join(workspaceRoot, 'x.txt');
-  await fs.writeFile(file, 'const x = “hello”;   \nuntouched—line   \n');
+  await fs.writeFile(file, 'const label = “keep—this①”; const x = “hello”;   \nuntouched—line   \n');
   await runEdit({
     workspaceRoot,
-    targets: [{ path: 'x.txt', edits: [{ oldText: 'const x = "hello";', newText: 'const x = "bye";' }] }]
+    targets: [{ path: 'x.txt', edits: [{ oldText: 'const x = "hello";\n', newText: 'const x = "bye";\n' }] }]
   });
-  assert.equal(await fs.readFile(file, 'utf8'), 'const x = "bye";\nuntouched—line   \n');
+  assert.equal(
+    await fs.readFile(file, 'utf8'),
+    'const label = “keep—this①”; const x = "bye";\nuntouched—line   \n'
+  );
+});
+
+test('edit does not use broad NFKC compatibility matching', async () => {
+  const workspaceRoot = await tempDir('pi-no-nfkc-');
+  const file = path.join(workspaceRoot, 'x.txt');
+  await fs.writeFile(file, 'const marker = "Ａ①";\n');
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [{ path: 'x.txt', edits: [{ oldText: 'const marker = "A1";', newText: 'changed' }] }]
+    }),
+    /not found.*tolerant normalization/i
+  );
+  assert.equal(await fs.readFile(file, 'utf8'), 'const marker = "Ａ①";\n');
 });
 
 test('a unique exact anchor wins over a normalization-equivalent occurrence', async () => {
@@ -224,7 +241,7 @@ test('edit combines exact and tolerant anchors matched against one original snap
       { oldText: 'const b = "two";', newText: 'const b = "TWO";' }
     ] }]
   });
-  assert.equal(await fs.readFile(file, 'utf8'), 'const a = “one”;\nconst a = "ONE";\nconst b = "TWO";\n');
+  assert.equal(await fs.readFile(file, 'utf8'), 'const a = “one”;\nconst a = "ONE";\nconst b = "TWO";   \n');
 });
 
 test('edit rejects exact and tolerant anchors sharing a line', async () => {

@@ -2,7 +2,6 @@ import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import {
-  createEditTool,
   createReadTool,
   createWriteTool,
   generateDiffString
@@ -24,18 +23,38 @@ function normalizeExactText(text) {
   return normalizeLineEndings(text.startsWith('\uFEFF') ? text.slice(1) : text);
 }
 
-function normalizeTolerantText(text) {
-  // Keep this in sync with Pi's normalizeForFuzzyMatch: classification must
-  // predict the matcher used for the delegated tolerant subset.
+function normalizeTolerantCharacters(text) {
   return text
-    .normalize('NFKC')
-    .split('\n')
-    .map(line => line.trimEnd())
-    .join('\n')
     .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
     .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
     .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
     .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, ' ');
+}
+
+function normalizeTolerantText(text) {
+  return text
+    .split('\n')
+    .map(line => normalizeTolerantCharacters(line.trimEnd()))
+    .join('\n');
+}
+
+function tolerantMatchView(text) {
+  const sourceOffsets = [];
+  let sourceLineStart = 0;
+  const lines = text.split('\n');
+  const normalizedLines = lines.map((line, lineIndex) => {
+    const trimmedLine = line.trimEnd();
+    for (let index = 0; index < trimmedLine.length; index += 1) {
+      sourceOffsets.push(sourceLineStart + index);
+    }
+    sourceLineStart += line.length;
+    if (lineIndex < lines.length - 1) {
+      sourceOffsets.push(sourceLineStart);
+      sourceLineStart += 1;
+    }
+    return normalizeTolerantCharacters(trimmedLine);
+  });
+  return { content: normalizedLines.join('\n'), sourceOffsets };
 }
 
 function occurrenceMatch(content, needle) {
@@ -82,7 +101,8 @@ function matchedLineRange(content, index, length) {
 }
 
 function classifyEdits(content, edits, path) {
-  const tolerantContent = normalizeTolerantText(content);
+  const tolerantView = tolerantMatchView(content);
+  const tolerantContent = tolerantView.content;
   const matches = edits.map((edit, editIndex) => {
     const oldText = normalizeLineEndings(edit.oldText);
     const newText = normalizeLineEndings(edit.newText);
@@ -108,10 +128,13 @@ function classifyEdits(content, edits, path) {
     if (tolerantMatch.count > 1) {
       throw new Error(`edits[${editIndex}] tolerant text is not unique (${tolerantMatch.count} occurrences)`);
     }
-    const index = tolerantMatch.index;
+    const normalizedIndex = tolerantMatch.index;
+    const normalizedEnd = normalizedIndex + tolerantOldText.length;
+    const index = tolerantView.sourceOffsets[normalizedIndex];
+    const end = tolerantView.sourceOffsets[normalizedEnd - 1] + 1;
     return {
-      kind: 'tolerant', editIndex, oldText, newText,
-      lines: matchedLineRange(tolerantContent, index, tolerantOldText.length)
+      kind: 'tolerant', editIndex, index, length: end - index, newText,
+      lines: matchedLineRange(tolerantContent, normalizedIndex, tolerantOldText.length)
     };
   });
 
@@ -124,7 +147,14 @@ function classifyEdits(content, edits, path) {
     }
   }
 
-  const tolerant = matches.filter(match => match.kind === 'tolerant');
+  const tolerant = matches.filter(match => match.kind === 'tolerant').sort((a, b) => a.index - b.index);
+  for (let index = 1; index < tolerant.length; index += 1) {
+    const previous = tolerant[index - 1];
+    const current = tolerant[index];
+    if (previous.index + previous.length > current.index) {
+      throw new Error(`edits[${previous.editIndex}] and edits[${current.editIndex}] overlap in ${path}`);
+    }
+  }
   for (const exactMatch of exact) {
     for (const tolerantMatch of tolerant) {
       if (exactMatch.lines.start < tolerantMatch.lines.end && tolerantMatch.lines.start < exactMatch.lines.end) {
@@ -137,11 +167,17 @@ function classifyEdits(content, edits, path) {
   return { exact, tolerant };
 }
 
-function applyExactMatches(content, matches) {
+function applyMatchedEdits(content, matches) {
+  const replacements = [...matches.exact, ...matches.tolerant].map(match => ({
+    start: match.index,
+    end: match.index + match.length,
+    newText: match.newText
+  }));
+  replacements.sort((a, b) => a.start - b.start);
   let result = content;
-  for (let index = matches.length - 1; index >= 0; index -= 1) {
-    const match = matches[index];
-    result = result.slice(0, match.index) + match.newText + result.slice(match.index + match.length);
+  for (let index = replacements.length - 1; index >= 0; index -= 1) {
+    const replacement = replacements[index];
+    result = result.slice(0, replacement.start) + replacement.newText + result.slice(replacement.end);
   }
   return result;
 }
@@ -375,29 +411,7 @@ export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoo
         throw modelFacingPathError(error, target.canonicalPath, target.requestedPath);
       }
 
-      let newContent = applyExactMatches(baseContent, matches.exact);
-      if (matches.tolerant.length > 0) {
-        let tolerantProposal = null;
-        const tool = createEditTool(policy.root, {
-          operations: {
-            access: absolutePath => fs.access(absolutePath, constants.R_OK | constants.W_OK),
-            readFile: async () => Buffer.from(newContent, 'utf8'),
-            writeFile: async (_absolutePath, proposed) => { tolerantProposal = proposed; }
-          }
-        });
-        try {
-          await tool.execute(randomUUID(), {
-            path: target.canonicalPath,
-            edits: matches.tolerant.map(match => ({ oldText: match.oldText, newText: match.newText }))
-          }, signal);
-        } catch (error) {
-          throw modelFacingPathError(error, target.canonicalPath, target.requestedPath);
-        }
-        if (tolerantProposal === null) {
-          throw new Error(`edit planning produced no output for ${target.requestedPath}`);
-        }
-        newContent = tolerantProposal;
-      }
+      const newContent = applyMatchedEdits(baseContent, matches);
 
       if (newContent === baseContent) throw new Error(`edit produced no changes for ${target.requestedPath}`);
       const proposed = bom + restoreLineEndings(newContent, lineEnding);
