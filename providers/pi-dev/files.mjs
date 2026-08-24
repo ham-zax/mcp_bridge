@@ -19,6 +19,26 @@ function normalizeLineEndings(text) {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
+function normalizedLineEndingView(text) {
+  const sourceOffsets = [];
+  let normalized = '';
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === '\r' && text[index + 1] === '\n') {
+      normalized += '\n';
+      sourceOffsets.push(index);
+      index += 1;
+    } else if (text[index] === '\r') {
+      normalized += '\n';
+      sourceOffsets.push(index);
+    } else {
+      normalized += text[index];
+      sourceOffsets.push(index);
+    }
+  }
+  sourceOffsets.push(text.length);
+  return { content: normalized, sourceOffsets };
+}
+
 function normalizeExactText(text) {
   return normalizeLineEndings(text.startsWith('\uFEFF') ? text.slice(1) : text);
 }
@@ -100,9 +120,10 @@ function matchedLineRange(content, index, length) {
   return { start, end };
 }
 
-function classifyEdits(content, edits, path) {
+function classifyEdits(content, edits, path, sourceOffsets = null) {
   const tolerantView = tolerantMatchView(content);
   const tolerantContent = tolerantView.content;
+  const mapSourceOffset = index => sourceOffsets ? sourceOffsets[index] : index;
   const matches = edits.map((edit, editIndex) => {
     const oldText = normalizeLineEndings(edit.oldText);
     const newText = normalizeLineEndings(edit.newText);
@@ -113,10 +134,13 @@ function classifyEdits(content, edits, path) {
       throw new Error(`edits[${editIndex}] exact text is not unique (${exactMatch.count} occurrences)`);
     }
     if (exactMatch.count === 1) {
-      const index = exactMatch.index;
+      const normalizedIndex = exactMatch.index;
+      const normalizedEnd = normalizedIndex + oldText.length;
+      const index = mapSourceOffset(normalizedIndex);
+      const end = mapSourceOffset(normalizedEnd);
       return {
-        kind: 'exact', editIndex, index, length: oldText.length, newText,
-        lines: matchedLineRange(content, index, oldText.length)
+        kind: 'exact', editIndex, index, length: end - index, newText,
+        lines: matchedLineRange(content, normalizedIndex, oldText.length)
       };
     }
 
@@ -130,8 +154,10 @@ function classifyEdits(content, edits, path) {
     }
     const normalizedIndex = tolerantMatch.index;
     const normalizedEnd = normalizedIndex + tolerantOldText.length;
-    const index = tolerantView.sourceOffsets[normalizedIndex];
-    const end = tolerantView.sourceOffsets[normalizedEnd - 1] + 1;
+    const contentIndex = tolerantView.sourceOffsets[normalizedIndex];
+    const contentEnd = tolerantView.sourceOffsets[normalizedEnd - 1] + 1;
+    const index = mapSourceOffset(contentIndex);
+    const end = mapSourceOffset(contentEnd);
     return {
       kind: 'tolerant', editIndex, index, length: end - index, newText,
       lines: matchedLineRange(tolerantContent, normalizedIndex, tolerantOldText.length)
@@ -168,11 +194,14 @@ function classifyEdits(content, edits, path) {
 }
 
 function applyMatchedEdits(content, matches) {
-  const replacements = [...matches.exact, ...matches.tolerant].map(match => ({
-    start: match.index,
-    end: match.index + match.length,
-    newText: match.newText
-  }));
+  const replacements = [...matches.exact, ...matches.tolerant].map(match => {
+    const end = match.index + match.length;
+    return {
+      start: match.index,
+      end,
+      newText: restoreReplacementLineEndings(match.newText, content.slice(match.index, end))
+    };
+  });
   replacements.sort((a, b) => a.start - b.start);
   let result = content;
   for (let index = replacements.length - 1; index >= 0; index -= 1) {
@@ -182,14 +211,10 @@ function applyMatchedEdits(content, matches) {
   return result;
 }
 
-function detectLineEnding(content) {
-  const crlf = content.indexOf('\r\n');
-  const lf = content.indexOf('\n');
-  return lf !== -1 && crlf !== -1 && crlf < lf ? '\r\n' : '\n';
-}
-
-function restoreLineEndings(content, lineEnding) {
-  return lineEnding === '\r\n' ? content.replace(/\n/g, '\r\n') : content;
+function restoreReplacementLineEndings(text, source) {
+  const sourceLineEndings = source.match(/\r\n|\r|\n/g) ?? [];
+  let index = 0;
+  return text.replace(/\n/g, () => sourceLineEndings[index++] ?? sourceLineEndings.at(-1) ?? '\n');
 }
 
 function modelFacingPathMessage(error, absolutePath, relativePath) {
@@ -402,20 +427,20 @@ export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoo
 
       const bom = rawContent.startsWith('\uFEFF') ? '\uFEFF' : '';
       const content = bom ? rawContent.slice(1) : rawContent;
-      const lineEnding = detectLineEnding(content);
-      const baseContent = normalizeLineEndings(content);
+      const lineEndingView = normalizedLineEndingView(content);
+      const baseContent = lineEndingView.content;
       let matches;
       try {
-        matches = classifyEdits(baseContent, target.edits, target.canonicalPath);
+        matches = classifyEdits(baseContent, target.edits, target.canonicalPath, lineEndingView.sourceOffsets);
       } catch (error) {
         throw modelFacingPathError(error, target.canonicalPath, target.requestedPath);
       }
 
-      const newContent = applyMatchedEdits(baseContent, matches);
+      const newContent = applyMatchedEdits(content, matches);
 
-      if (newContent === baseContent) throw new Error(`edit produced no changes for ${target.requestedPath}`);
-      const proposed = bom + restoreLineEndings(newContent, lineEnding);
-      const diff = generateDiffString(baseContent, newContent).diff;
+      if (newContent === content) throw new Error(`edit produced no changes for ${target.requestedPath}`);
+      const proposed = bom + newContent;
+      const diff = generateDiffString(baseContent, normalizeLineEndings(newContent)).diff;
       plans.push({ ...target, identity: { dev: stat.dev, ino: stat.ino }, snapshot, proposed, diff });
     }
 
