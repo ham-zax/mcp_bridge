@@ -4,14 +4,15 @@
 **Source of truth:** `docs/superpowers/plans/2026-08-24-robust-agent-mutation-stack.md` and `docs/superpowers/plans/2026-08-24-terminal-presentation-frontends.md`
 **Foundation commit:** `43decaf` (clean Browser foundation)
 **Execution shape:** hybrid
-**Current wave:** 1
+**Current wave:** 2
 
 ## Current frontier
 
 | Mission | Type | Status | Can start | Workspace | Isolation reason | Blocked by |
 |---|---|---|---|---|---|---|
-| Agent A — Terminal presentation frontends | mixed | ready | now | `/home/hamza/repo/websession_mcp_bridge-agent-a-terminal` | concurrent writer; owns Terminal/config/docs/router files | none |
-| Agent B — Mutation provider migration | executable | ready | now | `/home/hamza/repo/websession_mcp_bridge-agent-b-mutation` | concurrent writer; owns Pi Dev provider/tests only | none |
+| Agent A — Terminal presentation frontends | mixed | integrated | complete | `/home/hamza/repo/websession_mcp_bridge-agent-a-terminal` | Wave 1 concurrent writer | none |
+| Agent B — Mutation provider migration | executable | integrated | complete | `/home/hamza/repo/websession_mcp_bridge-agent-b-mutation` | Wave 1 concurrent writer | none |
+| Agent B — Mutation surface migration | mixed | ready | now | `/home/hamza/repo/websession_mcp_bridge-agent-b-mutation` | single writer over shared docs/Skills after Wave 1 integration | integrated Wave 1 |
 
 ## Dependency map
 
@@ -25,11 +26,11 @@ Agent A: Terminal Tasks 1-3    Agent B: Mutation Task 1
         |                           |
         +------------+--------------+
                      v
-              planner integration
+          integrated on main
                      |
                      v
         Mutation Task 2 surface/docs/Skills
-        (materialize after integration; one writer)
+        (Wave 2; Agent B single writer)
                      |
                      v
       combined current docs/development.md gate
@@ -64,28 +65,29 @@ Agents must use their assigned worktree and must not create additional worktrees
 
 ## Integration policy
 
-The planner/user integrates both Wave 1 branches into `main` after both finish reports. Agent branches should commit only their owned mission work. The planner will inspect branch diffs and required focused validation before integration.
+Wave 1 is integrated on `main`: Agent A Terminal commit `68ef15a` and Agent B mutation commits `06892c9` + FIFO repair `11da94b` are present through planner merge commits.
 
-After both branches are integrated, the mutation plan's shared surface/docs/Skill migration becomes the next frontier. It will be assigned to one writer because it edits files already changed by Agent A (`skills/mcp-harness-router/SKILL.md`, `skills/SNAPSHOT_SHA256.txt`, `docs/architecture.md`, `docs/configuration.md`, `docs/personal/harness.md`).
+The mutation plan's shared surface/docs/Skill migration is now the active frontier and is assigned to one writer because it edits files already changed by Agent A (`skills/mcp-harness-router/SKILL.md`, `skills/SNAPSHOT_SHA256.txt`, `docs/architecture.md`, `docs/configuration.md`, `docs/personal/harness.md`). Integrate that mission before the combined repository Full verification gate.
 
-Do not run live activation or the final combined repository gate from Wave 1 branches.
+Do not run live activation or the final combined repository gate from the Wave 2 agent branch; the planner owns those after integration.
 
 ## Execution lifetime policy
 
-Both current missions are ordinary implementation sessions. Use bounded Bash for normal commands. If a required command becomes long-running, keep it durable in Terminal and observe it with the repository wait path rather than restarting it. No persistent-agent-loop is required unless the mission unexpectedly becomes wait-heavy or user-steered across long-lived processes.
+The current Wave 2 mission is an ordinary bounded implementation session. Use bounded Bash for normal commands. If a required command becomes long-running, keep it durable in Terminal and observe it with the repository wait path rather than restarting it. No persistent-agent-loop is required unless the mission unexpectedly becomes wait-heavy or user-steered across long-lived processes.
 
 ## Validation policy
 
 Testing is authorized only where the source plans explicitly require it.
 
-- Agent A: extend/run the existing Terminal frontend tests and renderer contract required by the Terminal plan. Do not run the repository-wide Full verification gate; integration owns that.
-- Agent B: replace/update the existing Pi Dev provider tests required by Mutation Task 1 and run the focused Pi Dev provider suite. Do not run the repository-wide Full verification gate; integration owns that.
+- Wave 1 required Terminal and Pi Dev tests are complete and integrated.
+- Wave 2 surface migration runs only the source-plan-required Skill/checksum validation plus `git diff --check`; it does not add or expand tests.
+- The planner owns the current repository-wide Full verification gate after Wave 2 integration.
 - No new test framework, broad cleanup suite, or duplicated coverage.
 
 ## Future / blocked work
 
-- Mutation surface/docs/Skill migration (Mutation Plan Task 2) — blocked by integration of Agent A and Agent B Wave 1.
-- Combined repository candidate verification — blocked by completion of mutation surface migration.
+- Mutation surface/docs/Skill migration (Mutation Plan Task 2) — ready now as Wave 2.
+- Combined repository candidate verification — blocked by completion and integration of Wave 2.
 - Terminal machine-local `windows-terminal` activation and live acceptance — blocked by green combined candidate.
 - Dev live `file_ops` activation/catalog acceptance — blocked by green combined candidate.
 - ChatGPT Skill installation/update and fresh-session acceptance for final router/superpowers bundles — blocked by final repository Skill state; may require user UI action.
@@ -94,3 +96,5 @@ Testing is authorized only where the source plans explicitly require it.
 
 - `2026-08-24` — Browser foundation confirmed clean at `43decaf`; both updated implementation plans read once and accepted as authoritative.
 - `2026-08-24` — Wave 1 split chosen: Terminal repository implementation in Agent A; Pi Dev provider migration in Agent B; shared mutation surface deferred until integration.
+- `2026-08-24` — Agent A commit `68ef15a` and Agent B commits `06892c9` + `11da94b` verified and integrated on `main`; FIFO regression independently rechecked 11/11.
+- `2026-08-24` — Wave 2 materialized as one Agent B shared-surface mission on the integrated repository.
