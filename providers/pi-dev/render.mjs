@@ -43,13 +43,30 @@ export function renderWriteText(relativePath) {
   return `Created ${relativePath}`;
 }
 
-export function renderPatchText(result) {
-  return result.changes.map(change => {
-    if (change.kind === 'add') return `A ${change.path} (+${change.additions})`;
-    if (change.kind === 'delete') return `D ${change.path} (-${change.deletions})`;
-    if (change.kind === 'move') {
-      return `R ${change.path} -> ${change.moveTo} (+${change.additions} -${change.deletions})`;
-    }
-    return `M ${change.path} (+${change.additions} -${change.deletions})`;
-  }).join('\n');
+function fileOpLabel(operation) {
+  return operation.kind === 'move'
+    ? `move ${operation.path} -> ${operation.to}`
+    : `delete ${operation.path}`;
+}
+
+export function renderFileOpsText(result) {
+  return result.operations.map(operation => operation.kind === 'move'
+    ? `R ${operation.path} -> ${operation.to}`
+    : `D ${operation.path}`
+  ).join('\n');
+}
+
+export function renderFileOpsPartial({ completed = [], failed = [], uncertain = [], unattempted = [], reason } = {}) {
+  const lines = ['FILE_OPS_PARTIAL'];
+  if (completed.length) lines.push(`completed: ${completed.map(fileOpLabel).join(', ')}`);
+  if (reason) lines.push(`reason: ${reason}`);
+  for (const item of failed) lines.push(`failed: ${fileOpLabel(item)}: ${item.message}`);
+  for (const item of uncertain) {
+    const sideEffects = item.sideEffects && Object.keys(item.sideEffects).length
+      ? ` [${Object.entries(item.sideEffects).map(([key, value]) => `${key}=${value}`).join(', ')}]`
+      : '';
+    lines.push(`uncertain: ${fileOpLabel(item)}: ${item.message}${sideEffects}`);
+  }
+  if (unattempted.length) lines.push(`unattempted: ${unattempted.map(fileOpLabel).join(', ')}`);
+  return lines.join('\n');
 }
