@@ -33,7 +33,7 @@ MCP_ONE_MCP_LOG_MAX_FILES=3
 ENV
   mkdir -p "$tmp/runtime" "$tmp/home"
   for profile in restricted trusted-dev personal; do
-    env -u MCP_DEV_MAX_SPOOL_BYTES -u MCP_DEV_SPOOL_TTL_SECONDS -u MCP_DEV_SPOOL_MAX_TOTAL_BYTES \
+    env -u MCP_DEV_MAX_SPOOL_BYTES -u MCP_DEV_SPOOL_TTL_SECONDS -u MCP_DEV_SPOOL_MAX_TOTAL_BYTES -u MCP_TERMINAL_FRONTEND \
       HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
       --profile "$profile" \
       --env-file "$tmp/deployment.env" \
@@ -82,6 +82,7 @@ if (personal.mcpServers.code.env.MCP_CODE_DEFAULT_CWD !== personalHome) process.
 if (personal.mcpServers.terminal.command !== 'node') process.exit(1);
 if (!personal.mcpServers.terminal.args.includes(root + '/providers/terminal/mcp-server.mjs')) process.exit(1);
 if (personal.mcpServers.terminal.env.MCP_TERMINAL_SOCKET !== runtimeDir + '/wsl-agent-terminal.sock') process.exit(1);
+if (personal.mcpServers.terminal.env.MCP_TERMINAL_FRONTEND !== 'kitty') process.exit(1);
 if (personal.mcpServers.terminal.env.MCP_TERMINAL_READ_MAX_BYTES !== '65536') process.exit(1);
 if (personal.mcpServers.browser.command !== 'node') process.exit(1);
 if (!personal.mcpServers.browser.args.includes(root + '/providers/browser/server.mjs')) process.exit(1);
@@ -207,6 +208,92 @@ EOF
   rm -rf "$tmp"
 }
 
+test_terminal_frontend_selector() {
+  local tmp value output rc profile
+  tmp="$(mktemp -d)" || return 1
+  mkdir -p "$tmp/workspace" "$tmp/runtime" "$tmp/home"
+
+  for value in kitty windows-terminal; do
+    cat > "$tmp/deployment.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TERMINAL_FRONTEND=$value
+EOF
+    env -u MCP_TERMINAL_FRONTEND HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+      --profile personal --env-file "$tmp/deployment.env" --state-dir "$tmp/personal-$value" --repo-root "$ROOT" >/dev/null || {
+        rm -rf "$tmp"
+        return 1
+      }
+    node - "$tmp/personal-$value/1mcp/mcp.json" "$value" <<'NODE'
+const fs = require('fs');
+const [configFile, expected] = process.argv.slice(2);
+const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+if (config.mcpServers.terminal.env.MCP_TERMINAL_FRONTEND !== expected) process.exit(1);
+NODE
+    rc=$?
+    [ "$rc" -eq 0 ] || { rm -rf "$tmp"; return "$rc"; }
+  done
+
+  cat > "$tmp/empty.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TERMINAL_FRONTEND=
+EOF
+  env -u MCP_TERMINAL_FRONTEND HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    --profile personal --env-file "$tmp/empty.env" --state-dir "$tmp/personal-empty" --repo-root "$ROOT" >/dev/null || {
+      rm -rf "$tmp"
+      return 1
+    }
+  node - "$tmp/personal-empty/1mcp/mcp.json" <<'NODE'
+const fs = require('fs');
+const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (config.mcpServers.terminal.env.MCP_TERMINAL_FRONTEND !== 'kitty') process.exit(1);
+NODE
+  rc=$?
+  [ "$rc" -eq 0 ] || { rm -rf "$tmp"; return "$rc"; }
+
+  cat > "$tmp/deployment.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TERMINAL_FRONTEND=kitty
+EOF
+  MCP_TERMINAL_FRONTEND=windows-terminal HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    --profile personal --env-file "$tmp/deployment.env" --state-dir "$tmp/process-override" --repo-root "$ROOT" >/dev/null || {
+      rm -rf "$tmp"
+      return 1
+    }
+  node - "$tmp/process-override/1mcp/mcp.json" <<'NODE'
+const fs = require('fs');
+const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (config.mcpServers.terminal.env.MCP_TERMINAL_FRONTEND !== 'windows-terminal') process.exit(1);
+NODE
+  rc=$?
+  [ "$rc" -eq 0 ] || { rm -rf "$tmp"; return "$rc"; }
+
+  cat > "$tmp/invalid.env" <<EOF
+MCP_WORKSPACE_ROOT=$tmp/workspace
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_TERMINAL_FRONTEND=invalid
+EOF
+  output="$(env -u MCP_TERMINAL_FRONTEND HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+    --profile personal --env-file "$tmp/invalid.env" --state-dir "$tmp/personal-invalid" --repo-root "$ROOT" 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 0 ] || ! grep -Fq 'MCP_TERMINAL_FRONTEND must be one of: kitty, windows-terminal' <<<"$output"; then
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  for profile in restricted trusted-dev; do
+    env -u MCP_TERMINAL_FRONTEND HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" node "$ROOT/scripts/render-config.mjs" \
+      --profile "$profile" --env-file "$tmp/invalid.env" --state-dir "$tmp/$profile-invalid" --repo-root "$ROOT" >/dev/null || {
+        rm -rf "$tmp"
+        return 1
+      }
+  done
+
+  rm -rf "$tmp"
+}
+
 test_personal_default_cwd_override() {
   local tmp output rc
   tmp="$(mktemp -d)" || return 1
@@ -320,6 +407,7 @@ run_test 'raw CodeDB surface stays removed from public composition' test_raw_cod
 run_test 'final rendered composition adds Browser, Code, and Terminal only to personal mode' test_final_rendered_composition
 run_test 'Dev spool deployment override rejects invalid values' test_dev_spool_limit_validation
 run_test '1MCP rotating log deployment policy rejects invalid values' test_one_mcp_log_policy_validation
+run_test 'personal Terminal frontend selector defaults, overrides, and validates in profile scope' test_terminal_frontend_selector
 run_test 'personal default cwd supports an absolute deployment override' test_personal_default_cwd_override
 run_test 'personal runtime files carry no machine-specific home path' test_personal_runtime_files_have_no_machine_home
 run_test 'personal smoke validation accepts the private provider contract' test_personal_smoke_validation

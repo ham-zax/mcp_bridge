@@ -106,7 +106,7 @@ Do not restart tmux merely to deploy broker/provider or frontend-launch code. tm
 
 ## Personal Terminal frontend
 
-The personal provider keeps Terminal sessions headless by default. When presentation is requested or a human handoff needs a visible client, it can launch Kitty attached to the exact tmux PTY through `wsl-term present <session>`.
+The personal provider keeps Terminal sessions headless by default. `MCP_TERMINAL_FRONTEND=kitty|windows-terminal` selects which presentation launcher is used only when a visible collaborative client must be created; `kitty` remains the compatibility default. An already attached designated frontend is reused regardless of this preference. Both launchers attach to the exact existing tmux PTY through `wsl-term present <session>`; neither owns PTY/process lifetime or broker authority.
 
 Kitty discovery order is:
 
@@ -114,15 +114,21 @@ Kitty discovery order is:
 2. `$HOME/.local/kitty.app/bin/kitty`;
 3. `kitty` found on `PATH`.
 
-The launcher inherits the explicit Terminal broker socket. If GUI variables are missing under WSL, it derives only the Kitty child environment from WSLg sockets: `/mnt/wslg/runtime-dir/wayland-0`, the WSLg X11 socket, and `/mnt/wslg/PulseServer`. It does not change the broker or tmux service environment.
+The Kitty launcher inherits the explicit Terminal broker socket. If GUI variables are missing under WSL, it derives only the Kitty child environment from WSLg sockets: `/mnt/wslg/runtime-dir/wayland-0`, the WSLg X11 socket, and `/mnt/wslg/PulseServer`. It does not change the broker or tmux service environment.
 
-If automatic presentation fails, the tmux session remains alive. Use an interactive WSL terminal and attach directly:
+Windows Terminal presentation requires `wt.exe`, WSL interoperability, and a resolvable current distribution. The launcher uses `WSL_DISTRO_NAME` when valid, otherwise parses the distro from the documented `\\wsl.localhost\<distro>` or `\\wsl$\<distro>` form returned by `wslpath -w /`. It uses the running Linux process account and propagates the provider's `process.execPath` as `TERMINAL_NODE_BIN`, so re-entry does not depend on login-shell/NVM `PATH`. `cmd.exe /d /c` starts with child cwd `/mnt/c` to avoid UNC-current-directory fallback.
+
+`cmd.exe /c` is a shell-parsing boundary even though Node supplies an argv array. The Windows launcher therefore builds one guarded command line: ordinary spaces are quoted, and unsupported CMD metacharacters/control characters in dynamic values fail closed before launch. It does not put the broker socket, passwords, MFA values, or other user-entered secrets on the Windows command line; human input travels directly from the local terminal client into the tmux PTY.
+
+Broker state remains readiness authority for Windows Terminal because `wt.exe` can hand off to an existing Windows Terminal host and exit before `wsl-term present` registers. A clean transient launcher exit does not mean presentation failed, and an observed attachment wins over launcher exit status. If `FRONTEND_NOT_READY` says the human attachment is still settling, re-list before retrying or manually attaching so a duplicate window is not created. Only when neither `humanLease` nor `humanAttached` remains should you attach immediately:
 
 ```bash
 wsl-term attach <session>
 ```
 
-Use `wsl-term present <session>` when you want a designated read-only collaborative viewport while the model keeps control; use `watch` for anonymous observation and `attach` for immediate writable human control.
+Automatic-presentation failure never destroys the tmux session. Kitty cleanup is limited to the exact detached Kitty process group it launched. The Windows path does not broadly terminate `wt.exe`, WindowsTerminal.exe, or unrelated terminal windows; a settling/inert presentation tab is safer than killing another user terminal.
+
+Use `wsl-term present <session>` when you want a designated read-only collaborative viewport while the model keeps control; use `watch` for anonymous observation and `attach` for immediate writable human control. `Ctrl-b T` or `wsl-term give <session>` returns the same designated client to read-only/model-owned mode for either frontend.
 
 ## User-systemd environment
 
