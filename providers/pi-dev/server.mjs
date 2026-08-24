@@ -4,9 +4,16 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { canonicalDefaultCwd, canonicalWorkspaceRoot } from './boundary.mjs';
 import { runRead, runEdit, runWrite } from './files.mjs';
-import { runPatch } from './patch.mjs';
+import { runFileOps } from './file-ops.mjs';
 import { pruneBashSpools, runBash } from './shell.mjs';
-import { renderBashText, renderEditPartial, renderEditText, renderPatchText, renderWriteText } from './render.mjs';
+import {
+  renderBashText,
+  renderEditPartial,
+  renderEditText,
+  renderFileOpsPartial,
+  renderFileOpsText,
+  renderWriteText,
+} from './render.mjs';
 import { WaitEngine } from './wait-engine.mjs';
 import { LocalWaitSources } from './wait-local.mjs';
 import { waitInputSchema } from './wait-schema.mjs';
@@ -125,7 +132,9 @@ async function invoke(fn) {
   } catch (error) {
     const text = error?.code === 'EDIT_PARTIAL' && error?.editPartial
       ? renderEditPartial(error.editPartial)
-      : (error instanceof Error ? error.message : String(error));
+      : error?.code === 'FILE_OPS_PARTIAL' && error?.fileOpsPartial
+        ? renderFileOpsPartial(error.fileOpsPartial)
+        : (error instanceof Error ? error.message : String(error));
     return {
       isError: true,
       content: [{ type: 'text', text }]
@@ -176,8 +185,8 @@ server.registerTool('read', {
 
 server.registerTool('edit', {
   description: pathMode === 'user'
-    ? 'Apply guarded exact, unique, disjoint replacements to one or more existing text files. Use edit when the exact old text is already known; use apply_patch for contextual/structural work, add/delete/move, or ambiguous anchors. Relative paths use the configured default cwd and absolute paths are accepted'
-    : 'Apply guarded exact, unique, disjoint replacements to one or more existing text files below the workspace root. Use edit when the exact old text is already known; use apply_patch for contextual/structural work or ambiguous anchors',
+    ? 'Apply guarded exact, unique, disjoint replacements to one or more existing text files. Use read/rg to locate exact anchors when needed; use write for creation and file_ops for regular-file move/delete. Relative paths use the configured default cwd and absolute paths are accepted'
+    : 'Apply guarded exact, unique, disjoint replacements to one or more existing text files below the workspace root. Use read/rg to locate exact anchors when needed',
   inputSchema: {
     targets: z.array(z.object({
       path: modelPath,
@@ -194,8 +203,8 @@ server.registerTool('edit', {
 
 server.registerTool('write', {
   description: pathMode === 'user'
-    ? 'Create-only: create a new WSL-user-accessible text file whose parent directory already exists; fails if the target exists. Use edit or apply_patch for existing files; relative paths use the configured default cwd and absolute paths are accepted'
-    : 'Create-only: create a new text file below the workspace root whose parent directory already exists; fails if the target exists',
+    ? 'Create-only: create a new WSL-user-accessible text file whose parent directory already exists; fails if the target exists. Use edit for existing text files and file_ops for regular-file move/delete. Relative paths use the configured default cwd and absolute paths are accepted'
+    : 'Create-only: create a new text file below the workspace root whose parent directory already exists; fails if the target exists. Use edit for existing text files',
   inputSchema: { path: modelPath, content: z.string() }
 }, async (args, extra) => invoke(async () => {
   await runWrite({ ...pathPolicy, ...args }, extra.signal);
@@ -235,15 +244,25 @@ if (pathMode === 'user') {
     return { content: [{ type: 'text', text: renderWaitResult(result) }] };
   }));
 
-  server.registerTool('apply_patch', {
-    description: 'Apply one exact-context Codex-style patch for coordinated multi-file or structural text changes, including add/delete/move; exact context must uniquely identify the intended edit. All targets are preflighted before mutation, but a later runtime failure can report partial application.',
+  server.registerTool('file_ops', {
+    description: 'Move or delete existing regular files without following final-component symlinks. Moves are same-filesystem hard-link plus guarded source unlink, never overwrite an existing destination, and do not fall back to copying across filesystems.',
     inputSchema: {
-      patch: z.string().min(1).describe('Patch text using *** Begin Patch, *** Update File:, optional *** Move to:, @@ hunks with space/-/+ lines, *** Add File:, *** Delete File:, and *** End Patch'),
-      cwd: cwdPath.optional()
-    }
+      operations: z.array(z.discriminatedUnion('kind', [
+        z.object({
+          kind: z.literal('move'),
+          path: modelPath,
+          to: modelPath.describe('Destination path; parent directory must already exist'),
+        }),
+        z.object({
+          kind: z.literal('delete'),
+          path: modelPath,
+        }),
+      ])).min(1),
+      cwd: cwdPath.optional(),
+    },
   }, async (args, extra) => invoke(async () => {
-    const result = await runPatch({ ...pathPolicy, ...args }, extra.signal);
-    return { content: [{ type: 'text', text: renderPatchText(result) }] };
+    const result = await runFileOps({ ...pathPolicy, ...args }, extra.signal);
+    return { content: [{ type: 'text', text: renderFileOpsText(result) }] };
   }));
 }
 

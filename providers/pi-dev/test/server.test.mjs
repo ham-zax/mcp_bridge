@@ -220,11 +220,11 @@ test('restricted omits unrestricted Pi bash', async () => {
   });
 });
 
-test('personal user mode exposes apply_patch alongside edit with user-path descriptions', async () => {
+test('personal user mode exposes file_ops alongside edit with user-path descriptions', async () => {
   const { env } = await userFixture();
   await withClient(env, async client => {
     const listed = await client.listTools();
-    assert.deepEqual(listed.tools.map(x => x.name).sort(), ['apply_patch', 'bash', 'edit', 'pc_sleep', 'read', 'wait', 'write']);
+    assert.deepEqual(listed.tools.map(x => x.name).sort(), ['bash', 'edit', 'file_ops', 'pc_sleep', 'read', 'wait', 'write']);
     const read = listed.tools.find(x => x.name === 'read');
     assert.match(read.description, /UTF-8|text/i);
     assert.match(read.description, /1-based/i);
@@ -241,7 +241,8 @@ test('personal user mode exposes apply_patch alongside edit with user-path descr
     assertEditV2Schema(edit);
     assert.match(edit.description, /exact.*one or more existing text files|one or more existing text files.*exact/i);
     assert.match(edit.description, /unique/i);
-    assert.match(edit.description, /apply_patch/i);
+    assert.match(edit.description, /file_ops/i);
+    assert.doesNotMatch(edit.description, /apply_patch/i);
     const write = listed.tools.find(x => x.name === 'write');
     assert.match(write.description, /create-only|create.*new/i);
     assert.match(write.description, /parent.*exist/i);
@@ -259,12 +260,15 @@ test('personal user mode exposes apply_patch alongside edit with user-path descr
     assert.deepEqual(pcSleep.inputSchema.required, ['confirm']);
     assert.equal(pcSleep.annotations.destructiveHint, true);
     assert.equal(pcSleep.annotations.idempotentHint, false);
-    const applyPatch = listed.tools.find(x => x.name === 'apply_patch');
-    assert.deepEqual(Object.keys(applyPatch.inputSchema.properties).sort(), ['cwd', 'patch']);
-    assert.match(applyPatch.description, /multi-file.*structural|structural.*multi-file/i);
-    assert.match(applyPatch.description, /partial/i);
-    assert.match(applyPatch.inputSchema.properties.patch.description, /\*\*\* Move to:/i);
-    assert.match(applyPatch.inputSchema.properties.cwd.description, /relative.*default.*absolute/i);
+    const fileOps = listed.tools.find(x => x.name === 'file_ops');
+    assert.deepEqual(Object.keys(fileOps.inputSchema.properties).sort(), ['cwd', 'operations']);
+    assert.match(fileOps.description, /move.*delete|delete.*move/i);
+    assert.match(fileOps.description, /hard-link/i);
+    assert.match(fileOps.description, /symlink/i);
+    assert.match(JSON.stringify(fileOps.inputSchema), /move/);
+    assert.match(JSON.stringify(fileOps.inputSchema), /delete/);
+    assert.match(JSON.stringify(fileOps.inputSchema), /to/);
+    assert.match(fileOps.inputSchema.properties.cwd.description, /relative.*default.*absolute/i);
   });
 });
 
@@ -764,55 +768,46 @@ test('personal bash uses stable default cwd and accepts relative or absolute cwd
   });
 });
 
-test('personal apply_patch mutates through explicit cwd and returns native summary text', async () => {
+test('personal file_ops mutates through explicit cwd and returns compact path summaries', async () => {
   const { defaultCwd, env } = await userFixture();
   const repo = path.join(defaultCwd, 'repo');
   await fs.mkdir(repo);
-  await fs.writeFile(path.join(repo, 'a.txt'), 'alpha\nbeta\n');
+  await fs.writeFile(path.join(repo, 'move.txt'), 'move\n');
+  await fs.writeFile(path.join(repo, 'delete.txt'), 'delete\n');
   await withClient(env, async client => {
     const result = await client.callTool({
-      name: 'apply_patch',
+      name: 'file_ops',
       arguments: {
         cwd: 'repo',
-        patch: [
-          '*** Begin Patch',
-          '*** Update File: a.txt',
-          '@@',
-          '-alpha',
-          '+ALPHA',
-          '*** Add File: b.txt',
-          '+new',
-          '*** End Patch'
-        ].join('\n')
-      }
+        operations: [
+          { kind: 'move', path: 'move.txt', to: 'moved.txt' },
+          { kind: 'delete', path: 'delete.txt' },
+        ],
+      },
     });
     assert.equal(result.isError, undefined);
-    assert.equal(textOf(result), 'M a.txt (+1 -1)\nA b.txt (+1)');
-    assert.equal(await fs.readFile(path.join(repo, 'a.txt'), 'utf8'), 'ALPHA\nbeta\n');
-    assert.equal(await fs.readFile(path.join(repo, 'b.txt'), 'utf8'), 'new\n');
+    assert.equal(textOf(result), 'R move.txt -> moved.txt\nD delete.txt');
+    assert.equal(await fs.readFile(path.join(repo, 'moved.txt'), 'utf8'), 'move\n');
+    await assert.rejects(() => fs.lstat(path.join(repo, 'move.txt')), error => error?.code === 'ENOENT');
+    await assert.rejects(() => fs.lstat(path.join(repo, 'delete.txt')), error => error?.code === 'ENOENT');
   });
 });
 
-test('personal apply_patch returns exact-context diagnostics without structured content', async () => {
+test('personal file_ops refuses an existing move destination without overwriting it', async () => {
   const { defaultCwd, env } = await userFixture();
-  await fs.writeFile(path.join(defaultCwd, 'x.txt'), 'same\nother\nsame\n');
+  await fs.writeFile(path.join(defaultCwd, 'source.txt'), 'source\n');
+  await fs.writeFile(path.join(defaultCwd, 'destination.txt'), 'external\n');
   await withClient(env, async client => {
     const result = await client.callTool({
-      name: 'apply_patch',
+      name: 'file_ops',
       arguments: {
-        patch: [
-          '*** Begin Patch',
-          '*** Update File: x.txt',
-          '@@',
-          '-same',
-          '+changed',
-          '*** End Patch'
-        ].join('\n')
-      }
+        operations: [{ kind: 'move', path: 'source.txt', to: 'destination.txt' }],
+      },
     });
     assert.equal(result.isError, true);
-    assert.match(textOf(result), /ambiguous \(2 matches\)/i);
-    assert.equal(await fs.readFile(path.join(defaultCwd, 'x.txt'), 'utf8'), 'same\nother\nsame\n');
+    assert.match(textOf(result), /destination.*already exists/i);
+    assert.equal(await fs.readFile(path.join(defaultCwd, 'source.txt'), 'utf8'), 'source\n');
+    assert.equal(await fs.readFile(path.join(defaultCwd, 'destination.txt'), 'utf8'), 'external\n');
   });
 });
 
