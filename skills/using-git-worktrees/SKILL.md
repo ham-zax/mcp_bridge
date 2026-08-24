@@ -1,6 +1,6 @@
 ---
 name: using-git-worktrees
-description: Use only when a software task actually needs workspace isolation: explicit user request, concurrent writable missions, conflicting unrelated local changes, material long-lived/risky work, or mandatory repository policy. Do not create a worktree merely because implementation or a plan exists.
+description: "Use only when a software task actually needs workspace isolation: explicit user request, concurrent writable missions, conflicting unrelated local changes, material long-lived/risky work, or mandatory repository policy. Do not create a worktree merely because implementation or a plan exists."
 ---
 
 # Using Git Worktrees
