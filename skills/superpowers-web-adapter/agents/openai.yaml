@@ -1,6 +1,6 @@
 interface:
   display_name: Superpowers Web Adapter
-  short_description: Run Superpowers reliably in ChatGPT Web with local execution
+  short_description: Adapt Superpowers workflows to ChatGPT with WSL execution
   icon_small: assets/icon.svg
   icon_large: assets/icon.svg
 policy:

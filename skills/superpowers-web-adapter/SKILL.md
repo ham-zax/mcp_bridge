@@ -1,6 +1,6 @@
 ---
 name: superpowers-web-adapter
-description: Use when applying Superpowers software-development workflows in ChatGPT Web with Hamza's local WSL connector, especially when expected subagent, todo, worktree, reviewer, or helper-file primitives are missing or need harness-specific adaptation.
+description: Adapt legacy Superpowers software-development workflows to ChatGPT sessions using `wsl-web-harness`, especially when subagent, todo, worktree, reviewer, helper-file, or local-execution primitives differ from upstream. Keep Causal Coding authoritative for mutation scope, testing authorization, verification cadence, and stopping.
 ---
 
 # Superpowers Web Adapter
@@ -9,28 +9,29 @@ Preserve upstream Superpowers behavior while bridging ChatGPT Web harness gaps. 
 
 ## Core rule
 
-At the start of software-development work, invoke the relevant Superpowers skill before taking repository or implementation action. If `superpowers:using-superpowers` has not been loaded yet, use it first to select the process skill.
+At the start of software-development work, invoke the relevant standalone Superpowers-derived Skill before taking repository or implementation action. If `using-superpowers` is installed and has not been loaded yet, use it first to select the process Skill.
 
 Treat this adapter as a compatibility layer only:
 
 1. Follow the user's explicit instructions and higher-level product rules.
-2. Follow the relevant Superpowers skill as written whenever the harness can support it.
-3. Apply the fallbacks below only where ChatGPT Web lacks the primitive that Superpowers expects.
-4. Never claim that a missing subagent, reviewer, todo system, worktree primitive, helper file, or local execution capability exists.
+2. For source mutation, let Causal Coding govern scope, testing authorization, verification cadence, and stopping. Superpowers must not broaden those boundaries.
+3. Follow the relevant Superpowers skill as written whenever the harness can support it and it does not conflict with the governing mutation policy.
+4. Apply the fallbacks below only where ChatGPT Web lacks the primitive that Superpowers expects.
+5. Never claim that a missing subagent, reviewer, todo system, worktree primitive, helper file, or local execution capability exists.
 
 ## Broad development routing
 
-Use the existing Superpowers plugin for the actual engineering discipline:
+Use the installed standalone Superpowers-derived Skills for the engineering workflow pieces that still apply:
 
-- New feature, component, behavior change, or other creative implementation work -> `superpowers:brainstorming`.
-- Bug, failing test, unexpected behavior, or regression -> `superpowers:systematic-debugging`.
-- Feature or bugfix implementation -> use the normal implementation workflow without introducing tests by default. Invoke `superpowers:test-driven-development` only when the user explicitly requests TDD/testing, an authoritative user-approved specification requires it, or mandatory repository policy specifically requires it.
-- Requirements/spec for multi-step work -> `superpowers:writing-plans`.
-- Existing implementation plan -> `superpowers:executing-plans` when subagents are unavailable.
-- Starting work that has already passed the isolation gate below -> `superpowers:using-git-worktrees`. Never invoke it merely because an implementation plan exists.
-- Receiving review feedback -> `superpowers:receiving-code-review`.
-- Before claiming completion -> `superpowers:verification-before-completion`.
-- After implementation is verified and integration is next -> `superpowers:finishing-a-development-branch`.
+- New feature, component, behavior change, or other creative implementation work -> `brainstorming`.
+- Bug, failing test, unexpected behavior, or regression -> `systematic-debugging`.
+- Feature or bugfix implementation -> use the normal implementation workflow without introducing tests by default. Invoke `test-driven-development` only when the user explicitly requests TDD/testing, an authoritative user-approved specification requires it, or mandatory repository policy specifically requires it.
+- Requirements/spec for multi-step work -> `writing-plans`.
+- Existing implementation plan -> `executing-plans` when subagents are unavailable.
+- Starting work that has already passed the isolation gate below -> `using-git-worktrees`. Never invoke it merely because an implementation plan exists.
+- Receiving review feedback -> `receiving-code-review`.
+- Before claiming completion -> `verification-before-completion`.
+- After implementation is verified and integration is next -> `finishing-a-development-branch`.
 
 Do not route to a subagent-dependent Superpowers skill merely because it exists. Use the fallback matrix below when this web session has no subagent dispatch primitive.
 
@@ -83,7 +84,7 @@ Do not mark a task complete until its observable success conditions are establis
 
 If no real subagent dispatch tool exists, do not simulate implementer/reviewer agents in prose.
 
-Use `superpowers:executing-plans` instead and execute the saved plan sequentially in this session. Preserve the plan, justified isolation, explicitly authorized testing/validation, progress persistence, blocker handling, and any branch-finishing discipline that actually applies.
+Use `executing-plans` instead and execute the saved plan sequentially in this session. Preserve the plan, justified isolation, explicitly authorized testing/validation, progress persistence, blocker handling, and any branch-finishing discipline that actually applies.
 
 ### `dispatching-parallel-agents`
 
@@ -149,7 +150,7 @@ A verification step must have a concrete failure or contract it is intended to d
 
 ## Worktrees and git
 
-Treat `superpowers:using-git-worktrees` as a conditional isolation sub-skill, not a default implementation phase. Evaluate this section first. Do not invoke the worktree skill merely because `superpowers:executing-plans` or another generic upstream workflow says to ensure isolation. If the conditions below do not justify isolation, satisfy that workflow by continuing safely in the current checkout.
+Treat `using-git-worktrees` as a conditional isolation sub-skill, not a default implementation phase. Evaluate this section first. Do not invoke the worktree Skill merely because `executing-plans` or another generic workflow says to ensure isolation. If the conditions below do not justify isolation, satisfy that workflow by continuing safely in the current checkout.
 
 Work in the user's current repository checkout by default.
 
@@ -171,7 +172,7 @@ Do not create a worktree merely because:
 
 Use one worktree for one coherent effort unless independent parallel work genuinely requires separate workspaces. Never create a new worktree per plan task by default.
 
-Only after isolation is justified, explicitly invoke `superpowers:using-git-worktrees` and follow its safety/setup procedure using the connected local tools. If isolation is not justified, do not invoke that skill; continue directly in the current checkout and do not perform worktree-specific dependency installation or baseline testing.
+Only after isolation is justified, explicitly invoke `using-git-worktrees` and follow its safety/setup procedure using the connected local tools. If isolation is not justified, do not invoke that skill; continue directly in the current checkout and do not perform worktree-specific dependency installation or baseline testing.
 
 Always preserve unrelated local changes. Do not merge, push, delete branches, discard work, or rewrite unrelated state without the appropriate user decision.
 
@@ -202,7 +203,7 @@ When the user asks to execute a saved plan:
 7. Apply the test authorization boundary. Use direct/artifact-appropriate non-test evidence when testing is not authorized.
 8. Establish each task's observable success conditions and run only explicitly required validation before marking it complete.
 9. Stop on a genuine blocker instead of guessing.
-10. After all tasks, gather fresh completion evidence proportional to the affected artifacts, without introducing unauthorized tests, and use `superpowers:finishing-a-development-branch` only when a branch-integration decision is actually relevant.
+10. After all tasks, gather fresh completion evidence proportional to the affected artifacts, without introducing unauthorized tests, and use `finishing-a-development-branch` only when a branch-integration decision is actually relevant.
 
 Never describe long-running implementation as background or asynchronous work. Continue in the active session until completion or a real stop condition.
 
@@ -210,24 +211,25 @@ Never describe long-running implementation as background or asynchronous work. C
 
 This adapter does not replace other installed development skills.
 
-### MCP Harness Router
+### Causal Coding and MCP Harness Router
 
-When MCP Harness Router also applies, keep the boundary explicit:
+When Causal Coding and/or MCP Harness Router also apply, keep the boundaries explicit:
 
-- **Superpowers Web Adapter controls engineering workflow**: brainstorming, planning, debugging, implementation discipline, test strategy, worktree/isolation decisions, verification, review, and branch finishing.
-- **MCP Harness Router controls local primitive selection only**: for example `read` versus `bash`, `edit` versus `write`/`file_ops`, CodeDB versus `rg`, Bash versus Terminal, or `wait` versus polling.
+- **Causal Coding controls mutation scope and stopping**: owner selection, smallest complete change, testing authorization, verification cadence, and when to stop.
+- **Superpowers Web Adapter controls only compatible workflow adaptation**: brainstorming, planning, debugging structure, worktree/isolation integration, review fallbacks, and branch-finishing compatibility inside the Causal Coding boundary.
+- **MCP Harness Router controls local primitive selection only**: for example `read` versus `bash`, `edit` versus `write`/`file_ops`, CodeDB versus `rg`, Bash versus Terminal, Local Browser routing, or `wait` versus polling.
 - Do not let MCP Harness Router prescribe Git workflow, worktree policy, planning, testing, review, or implementation methodology.
 - Do not invoke MCP Harness Router merely because a software-development task exists. Use it when choosing among available local Dev, Code, Terminal, or wait primitives is materially relevant.
 - If the router's preferred primitive is unavailable, preserve the Superpowers workflow and choose the best actually exposed local primitive rather than inventing a tool.
 
-In short: Superpowers decides **how the engineering work should proceed**; MCP Harness Router decides **which local primitive should perform a concrete operation inside that workflow**.
+In short: Causal Coding sets the mutation boundary; the standalone Superpowers-derived Skills supply compatible workflow structure; MCP Harness Router chooses the local primitive for each concrete operation.
 
 ### Other skills
 
-- If Agent Browser applies, it may use the local connector to run the installed browser CLI.
+- If Agent Browser applies, let it choose the browser action and route that action through the private logical Browser server exposed via Local on `wsl-web-harness`. Do not substitute a browser CLI unless that Skill explicitly calls for one in the active environment.
 - If Codebase Memory applies, use its graph workflow only when its required graph tools are actually connected; otherwise fall back to source inspection without pretending graph evidence exists.
 - Repository-specific instructions (`AGENTS.md`, `CLAUDE.md`, project docs, etc.) remain authoritative within their scope.
 
 ## Completion standard
 
-Before claiming work is complete, fixed, passing, persisted, committed, pushed, or merged, obtain fresh evidence for that exact claim. Match the evidence to the affected artifact rather than running unrelated checks. Use `superpowers:verification-before-completion` and the local connector outputs as the evidence source.
+Before claiming work is complete, fixed, passing, persisted, committed, pushed, or merged, obtain fresh evidence for that exact claim. Match the evidence to the affected artifact rather than running unrelated checks. Use `verification-before-completion` and the local connector outputs as the evidence source.
