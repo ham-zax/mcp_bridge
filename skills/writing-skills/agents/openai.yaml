@@ -1,10 +1,10 @@
 interface:
-  display_name: "Writing Skills"
-  short_description: "Create, edit, and verify reusable agent skills."
+  display_name: "Skill Pressure Testing"
+  short_description: "Pressure-test Skills with explicit TDD scenarios."
 policy:
   products:
   - chatgpt
   - codex
   - api
   - atlas
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

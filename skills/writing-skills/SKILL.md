@@ -13,13 +13,11 @@ The TDD/pressure-testing material below is an explicit opt-in mode. Use it only 
 
 **In explicit pressure-testing mode, writing skills uses Test-Driven Development ideas for process documentation.**
 
-**Personal skills live in your runtime's skills directory** (`~/.claude/skills/` on Claude Code) — see [codex-tools.md](../using-superpowers/references/codex-tools.md) or [gemini-tools.md](../using-superpowers/references/gemini-tools.md) for the path on those runtimes. Codex, Copilot CLI, and Gemini CLI all also recognize `~/.agents/skills/` as a cross-runtime alias.
-
 You write test cases (pressure scenarios with subagents), watch them fail (baseline behavior), write the skill (documentation), watch tests pass (agents comply), and refactor (close loopholes).
 
 **Core principle:** If you didn't watch an agent fail without the skill, you don't know if the skill teaches the right thing.
 
-**Pressure-testing background:** When explicit TDD/pressure-testing mode is authorized, understand `superpowers:test-driven-development` before applying the RED-GREEN-REFACTOR material below. Do not load or apply TDD merely because a Skill is being created or edited.
+**Pressure-testing background:** When explicit TDD/pressure-testing mode is authorized, use the standalone `test-driven-development` Skill if it is installed before applying the RED-GREEN-REFACTOR material below. Do not load or apply TDD merely because a Skill is being created or edited.
 
 **Official guidance:** For Anthropic's official skill authoring best practices, see anthropic-best-practices.md. This document provides additional patterns and guidelines that complement the TDD-focused approach in this skill.
 
@@ -284,8 +282,8 @@ wc -w skills/path/SKILL.md
 **When writing documentation that references other skills:**
 
 Use skill name only, with explicit requirement markers:
-- ✅ Good: `**REQUIRED SUB-SKILL:** Use superpowers:test-driven-development`
-- ✅ Good: `**REQUIRED BACKGROUND:** You MUST understand superpowers:systematic-debugging`
+- ✅ Good: `**REQUIRED SUB-SKILL:** Use test-driven-development`
+- ✅ Good: `**REQUIRED BACKGROUND:** You MUST understand systematic-debugging`
 - ❌ Bad: `See skills/testing/test-driven-development` (unclear if required)
 - ❌ Bad: `@skills/testing/test-driven-development/SKILL.md` (force-loads, burns context)
 
@@ -394,7 +392,7 @@ Edit skill without testing? Same violation.
 - Don't "adapt" while running tests
 - Delete means delete
 
-**REQUIRED BACKGROUND:** The superpowers:test-driven-development skill explains why this matters. Same principles apply to documentation.
+**REQUIRED BACKGROUND:** When pressure testing is explicitly authorized, the standalone `test-driven-development` Skill explains why this matters. The same principles apply to documentation.
 
 ## Testing All Skill Types
 
