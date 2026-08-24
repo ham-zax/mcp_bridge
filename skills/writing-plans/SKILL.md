@@ -1,6 +1,6 @@
 ---
 name: writing-plans
-description: Use when you have a spec or requirements for a multi-step task, before touching code
+description: Create detailed implementation plans for multi-step software work before editing code. Use when requirements or a specification must become concrete file-level tasks, interfaces, acceptance criteria, risks, rollout, or explicitly required validation. Default to no test creation, test modification, test execution, TDD, regression-test, or coverage work unless the user, authoritative specification, or mandatory repository policy explicitly requires testing.
 ---
 
 # Writing Plans
