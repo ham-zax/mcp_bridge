@@ -22,6 +22,7 @@ When Superpowers Web Adapter also applies, let Superpowers control engineering w
 - Persistent or interactive PTY/process work -> Terminal.
 - Human visibility or input in a durable PTY, including sudo/password/MFA or manual TUI interaction -> Terminal collaborative presentation/handoff. If the human should watch from the start, use `terminal_open(..., present:true)`. When human input is needed later, use `terminal_yield`: it reuses an attached designated frontend or launches Kitty on the exact tmux PTY, then gives the human control. If frontend launch fails, give the installed `wsl-term attach <session>` fallback; never ask the user to send a secret through chat.
 - Readiness, output, process exit, file/HTTP/systemd condition, or elapsed/absolute wakeup -> `wait`; use its native `timer` condition for time-based wakeups and do not implement polling/sleep loops in Bash.
+- Explicitly confirmed Windows-host sleep, optionally with a timezone-qualified scheduled wake -> `pc_sleep`; use it only after a direct user request and do not substitute Bash or ad hoc PowerShell.
 
 ## Authority and observability
 

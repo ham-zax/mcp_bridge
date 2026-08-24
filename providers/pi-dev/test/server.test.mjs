@@ -224,7 +224,7 @@ test('personal user mode exposes apply_patch alongside edit with user-path descr
   const { env } = await userFixture();
   await withClient(env, async client => {
     const listed = await client.listTools();
-    assert.deepEqual(listed.tools.map(x => x.name).sort(), ['apply_patch', 'bash', 'edit', 'read', 'wait', 'write']);
+    assert.deepEqual(listed.tools.map(x => x.name).sort(), ['apply_patch', 'bash', 'edit', 'pc_sleep', 'read', 'wait', 'write']);
     const read = listed.tools.find(x => x.name === 'read');
     assert.match(read.description, /UTF-8|text/i);
     assert.match(read.description, /1-based/i);
@@ -253,6 +253,12 @@ test('personal user mode exposes apply_patch alongside edit with user-path descr
     assert.match(wait.description, /timeout_seconds.*durable.*deadline/i);
     assert.match(wait.description, /hold_seconds.*invocation/i);
     assert.match(wait.description, /polling|sleep/i);
+    const pcSleep = listed.tools.find(x => x.name === 'pc_sleep');
+    assert.match(pcSleep.description, /Windows host.*sleep|sleep.*Windows host/i);
+    assert.deepEqual(Object.keys(pcSleep.inputSchema.properties).sort(), ['confirm', 'wake_at']);
+    assert.deepEqual(pcSleep.inputSchema.required, ['confirm']);
+    assert.equal(pcSleep.annotations.destructiveHint, true);
+    assert.equal(pcSleep.annotations.idempotentHint, false);
     const applyPatch = listed.tools.find(x => x.name === 'apply_patch');
     assert.deepEqual(Object.keys(applyPatch.inputSchema.properties).sort(), ['cwd', 'patch']);
     assert.match(applyPatch.description, /multi-file.*structural|structural.*multi-file/i);

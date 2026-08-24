@@ -24,17 +24,19 @@ WebSession is not part of the normal bridge lifecycle: `bin/start`, `bin/stop`, 
 
 ### Dev
 
-Dev owns Files, Bash, patching, and durable waits.
+Dev owns Files, Bash, patching, durable waits, and the personal Windows-host sleep boundary.
 
 Personal surface:
 
 ```text
-read edit write wait apply_patch bash
+read edit write wait apply_patch bash pc_sleep
 ```
 
 `edit` is for guarded exact known replacement across one or more existing text files. `apply_patch` is for contextual or structural mutation such as insertions, refactors, add/delete/move, or ambiguous anchors; file count alone is not the routing boundary. Native Bash remains the execution path.
 
 `wait` owns durable named wait state and generic local readiness checks. Terminal-specific waits use private broker transcript/session observations, but `wait` is not a Terminal MCP action.
+
+`pc_sleep` is personal-only. It requires explicit confirmation, optionally registers one replaceable Windows Task Scheduler `WakeToRun` task, returns an acknowledgement, and then asks Windows to enter sleep after a short grace period. It does not provide on-demand wake while the host is already asleep.
 
 ### Code
 

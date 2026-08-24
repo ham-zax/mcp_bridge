@@ -12,6 +12,7 @@ import { LocalWaitSources } from './wait-local.mjs';
 import { waitInputSchema } from './wait-schema.mjs';
 import { WaitStore } from './wait-state.mjs';
 import { TerminalWaitSource } from './wait-terminal.mjs';
+import { runWindowsSleep } from './windows-power.mjs';
 
 const mode = process.env.MCP_DEV_SHELL_MODE;
 if (!['allowlist', 'unrestricted'].includes(mode)) {
@@ -202,6 +203,24 @@ server.registerTool('write', {
 }));
 
 if (pathMode === 'user') {
+  server.registerTool('pc_sleep', {
+    title: 'Sleep Windows PC',
+    description: 'Put the Windows host into sleep after a 10-second grace period. Optionally schedule one Windows Task Scheduler wake time first. This personal-only destructive action requires confirm=true from a direct user request. wake_at must be an ISO 8601 timestamp with Z or an explicit UTC offset and must be at least two minutes in the future. Omitting wake_at clears the previous MCP wake task before sleeping.',
+    inputSchema: {
+      confirm: z.literal(true).describe('Must be true only after the user directly requests that the PC sleep'),
+      wake_at: z.string().min(1).optional().describe('Optional ISO 8601 wake timestamp ending in Z or an explicit UTC offset'),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  }, async (args, extra) => invoke(async () => {
+    const text = await runWindowsSleep({ wakeAt: args.wake_at, signal: extra.signal });
+    return { content: [{ type: 'text', text }] };
+  }));
+
   server.registerTool('wait', {
     description: 'Create, resume, or cancel one durable named condition/timer wait; prefer this over Bash polling/sleep loops. Arm with name+condition and resume later with name only. A pending result leaves the same wait durable, so other reasoning/tool work may happen before resuming it. timeout_seconds is the durable safety deadline (max 24h); hold_seconds only bounds this invocation (max 15s). Use timer.after_seconds or timezone-qualified timer.at for wakeups and keep the safety deadline later than the timer target. Event conditions cover Terminal output/exit, process exit, TCP listen, file exists/change, HTTP readiness, and user-systemd state. Terminal-output waits match only output produced after arming and do not consume the Terminal model cursor.',
     inputSchema: waitInputSchema,

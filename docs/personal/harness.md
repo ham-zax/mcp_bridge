@@ -5,14 +5,14 @@ The `personal` profile is the private Codex-like development surface. It runs wi
 ## Mental model
 
 ```text
-Dev       read edit write wait apply_patch bash
+Dev       read edit write wait apply_patch bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 ```
 
-Think in three domains, not 16 unrelated tools:
+Think in three domains, not 17 unrelated tools:
 
-- **Dev** handles focused text/file work, bounded execution, and durable waits.
+- **Dev** handles focused text/file work, bounded execution, durable waits, and explicit Windows-host sleep.
 - **Code** provides rooted indexed repository intelligence without exposing raw CodeDB mechanics; first use may create or update heavyweight persistent index state.
 - **Terminal** owns durable PTY/process lifetime and human/model terminal ownership.
 
@@ -130,6 +130,12 @@ Important semantics:
 - Terminal output waits observe only new transcript output after arming;
 - the wait cursor is independent from normal `terminal_read` unread state;
 - explicit Terminal destruction and same-name replacement remain explicit (`WAIT_SOURCE_ENDED`, `WAIT_SOURCE_REPLACED`).
+
+### `pc_sleep`
+
+Sleeps the Windows host after a 10-second grace period. The call requires `confirm: true` from a direct user request. Supply an optional timezone-qualified `wake_at` value, such as `2026-08-22T07:00:00+05:30`, to register one replaceable Windows Task Scheduler wake task before sleeping. The wake time must be at least two minutes in the future. Omitting `wake_at` clears the previous MCP wake task before sleep.
+
+This action only schedules a wake before the host sleeps; it cannot receive a new on-demand MCP call while Windows, WSL, and the bridge are already asleep.
 
 ## Code
 

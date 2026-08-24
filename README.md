@@ -35,10 +35,10 @@ Not every profile enables every provider. Public/general installations use the s
 
 ## Personal harness surface
 
-The accepted private surface is 16 actions grouped into three obvious domains:
+The accepted private surface is 17 actions grouped into three obvious domains:
 
 ```text
-Dev       read edit write wait apply_patch bash
+Dev       read edit write wait apply_patch bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 ```
@@ -48,6 +48,7 @@ A few important design choices:
 - `edit` is the guarded single-file primitive; `apply_patch` is for multi-file or structural changes.
 - Bash is native Bash; it is direct, native command execution.
 - `wait` is a Dev action. It provides durable named waits for Terminal output/exit and local readiness conditions without consuming the normal Terminal read cursor.
+- `pc_sleep` is personal-only and sleeps the Windows host after explicit confirmation, with an optional Task Scheduler wake time.
 - Terminal PTYs are owned by tmux, so they survive provider, broker, and 1MCP restarts.
 - Code requests are routed to the nearest canonical Git root; the raw CodeDB tool catalog is hidden behind three small actions.
 
@@ -111,7 +112,7 @@ For Terminal lifetime and broker operations, recovery, logs, safe restarts, and 
 - [Documentation index](docs/README.md) — choose the right guide quickly
 - [Getting started](docs/getting-started.md) — install and connect
 - [Operations](docs/operations.md) — run, inspect, restart, and recover
-- [Personal WSL harness](docs/personal/harness.md) — use the private 15-action coding surface
+- [Personal WSL harness](docs/personal/harness.md) — use the private 17-action coding surface
 - [Engineering history](docs/history/README.md) — preserved benchmarks, plans, specs, and acceptance evidence
 
 ## Current status
