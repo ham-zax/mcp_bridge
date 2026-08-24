@@ -42,7 +42,7 @@ Private stable tool-broker surface:
 tool_list tool_schema tool_call
 ```
 
-The Local provider connects over stdio to one private inner 1MCP in direct mode. It exposes logical `{server, tool}` identities, bounded live discovery, exact schema lookup, and raw downstream `CallToolResult` forwarding. V1 has no catalog/schema cache. The initial inner composition contains only Browser and the outer Local provider remains tagged only `browser`.
+The Local provider connects over stdio to one private inner 1MCP in direct mode. It exposes logical `{server, tool}` identities, bounded live discovery, exact schema lookup, and raw downstream `CallToolResult` forwarding. V1 has no catalog/schema cache. The initial inner composition contains only Browser and the outer Local provider remains tagged only `local`.
 
 ## Browser — `providers/browser/`
 

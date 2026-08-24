@@ -1,18 +1,18 @@
 ---
 name: mcp-harness-router
-description: Use when a request involves inspecting, changing, cleaning up, building, debugging, running, or waiting on something on the connected personal WSL/Linux machine, including repository/file/process work or interactive human terminal input such as sudo/password prompts.
+description: Use when a request involves inspecting, changing, cleaning up, building, debugging, running, waiting, or invoking a private logical MCP server on the connected personal WSL/Linux machine, including repository/file/process work or interactive human terminal input such as sudo/password prompts.
 ---
 
 # MCP Harness Router
 
 Route by the information or mutation semantics, not by file count, connector-call count, or habit. Keep this skill limited to tool selection; do not prescribe Git, planning, testing, review, or implementation methodology.
 
-When Superpowers Web Adapter also applies, let Superpowers control engineering workflow and use this skill only to choose the Dev, Code, Terminal, or wait primitive.
+When Superpowers Web Adapter also applies, let Superpowers control engineering workflow and use this skill only to choose the Dev, Code, Terminal, Local, or wait primitive. When Agent Browser also applies, let it choose the browser surface and use this skill only to route the selected private Browser action through Local.
 
 ## Route the task
 
 - Focused contents of a known file/range -> `read`.
-- Existing-text mutation in one or more files -> `edit`. If exact `oldText` is not yet known, inspect with `read`, `rg`, Code, or ast-grep and widen the exact block until it is unique.
+- Existing-text mutation in one or more files -> `edit`. If `oldText` is not yet known, inspect with `read`, `rg`, Code, or ast-grep and widen the anchor until it remains unique under the tolerant matcher.
 - Syntax-shaped discovery or codemod -> ast-grep through `bash`. Inspect bounded matches and normally perform the final mutation through guarded `edit`; use ast-grep bulk rewrite only when the transformation is deterministic and every bounded match is intentionally changed.
 - New standalone text file -> `write`.
 - Move or delete an existing regular file -> `file_ops`.
@@ -20,6 +20,7 @@ When Superpowers Web Adapter also applies, let Superpowers control engineering w
 - Literal search or ordinary repository inspection -> `bash`; prefer `rg`, then focused `read`. For broad/noisy matches, prefer `rg -l` before reading selected files. Use `fd` for simple filename lookup, `find` for complex filesystem predicates, and `jq` for JSON.
 - Known or guessable symbol definition -> `code_symbol` when CodeDB-backed intelligence is worth invoking.
 - Semantic repository exploration -> `code_search` or `code_context`. On a large or unfamiliar repository with unknown CodeDB state, start with `bash` + `rg` + focused `read` instead of automatically starting CodeDB.
+- Private logical MCP capability -> Local: use selective `tool_list(server=...)` discovery when the action is unknown, load an exact `tool_schema(server=..., tool=...)` when needed, then invoke `tool_call(server=..., tool=..., arguments=...)`. Reuse schemas already loaded in the conversation. Browser is logical `server="browser"`; omit `arguments.browser_target` for normal Windows Chrome or set it to `"linux"` for WSLg Chrome.
 - Short bounded noninteractive command, build, test, Git, or inspection -> `bash`.
 - Persistent or interactive PTY/process work -> Terminal.
 - Human visibility or input in a durable PTY, including sudo/password/MFA or manual TUI interaction -> Terminal collaborative presentation/handoff. If the human should watch from the start, use `terminal_open(..., present:true)`. When human input is needed later, use `terminal_yield`: it reuses an attached designated frontend or launches the configured personal frontend on the exact tmux PTY, then gives the human control. If frontend launch fails with no attachment attempt still settling, give the installed `wsl-term attach <session>` fallback; never ask the user to send a secret through chat.

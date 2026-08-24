@@ -185,8 +185,8 @@ server.registerTool('read', {
 
 server.registerTool('edit', {
   description: pathMode === 'user'
-    ? 'Apply guarded, unique, disjoint replacements to one or more existing text files. Exact oldText is preferred; fallback matching tolerates line endings, trailing whitespace, and common Unicode punctuation/space differences. If oldText is not yet known, locate it with read/rg, Code, or ast-grep and include enough context to remain unique. Use write for creation and file_ops for regular-file move/delete. Relative paths use the configured default cwd and absolute paths are accepted'
-    : 'Apply guarded, unique, disjoint replacements to one or more existing text files below the workspace root. Exact oldText is preferred; fallback matching tolerates line endings, trailing whitespace, and common Unicode punctuation/space differences. If oldText is not yet known, locate it with read/rg and include enough context to remain unique',
+    ? 'Apply guarded, unique, disjoint replacements to one or more existing text files. Exact oldText is preferred; fallback matching tolerates line endings, trailing whitespace, and common Unicode punctuation/space differences. Multi-file batches are preflighted together but are not transactional; a later failure may leave earlier targets applied and is reported as partial or uncertain. If oldText is not yet known, locate it with read/rg, Code, or ast-grep and include enough context to remain unique. Use write for creation and file_ops for regular-file move/delete. Relative paths use the configured default cwd and absolute paths are accepted'
+    : 'Apply guarded, unique, disjoint replacements to one or more existing text files below the workspace root. Exact oldText is preferred; fallback matching tolerates line endings, trailing whitespace, and common Unicode punctuation/space differences. Multi-file batches are preflighted together but are not transactional; a later failure may leave earlier targets applied and is reported as partial or uncertain. If oldText is not yet known, locate it with read/rg and include enough context to remain unique',
   inputSchema: {
     targets: z.array(z.object({
       path: modelPath,
@@ -231,7 +231,7 @@ if (pathMode === 'user') {
   }));
 
   server.registerTool('wait', {
-    description: 'Create, resume, or cancel one durable named condition/timer wait; prefer this over Bash polling/sleep loops. Arm with name+condition and resume later with name only. A pending result leaves the same wait durable, so other reasoning/tool work may happen before resuming it. timeout_seconds is the durable safety deadline (max 24h); hold_seconds only bounds this invocation (max 15s). Use timer.after_seconds or timezone-qualified timer.at for wakeups and keep the safety deadline later than the timer target. Event conditions cover Terminal output/exit, process exit, TCP listen, file exists/change, HTTP readiness, and user-systemd state. Terminal-output waits match only output produced after arming and do not consume the Terminal model cursor.',
+    description: 'Create, resume, or cancel one durable named condition/timer wait; prefer this over Bash polling/sleep loops. Arm with name+condition and resume later with name only. A pending result leaves the same wait durable, so other reasoning/tool work may happen before resuming it. timeout_seconds is the durable safety deadline (default 300s, max 24h); hold_seconds only bounds this invocation (default 10s, max 15s). Use timer.after_seconds or timezone-qualified timer.at for wakeups and keep the safety deadline later than the timer target. Event conditions cover Terminal output/exit, process exit, TCP listen, file exists/change, HTTP readiness, and user-systemd state. Terminal-output waits match only output produced after arming and do not consume the Terminal model cursor.',
     inputSchema: waitInputSchema,
   }, async (args, extra) => invokeWait(async () => {
     const result = await waitEngine.run(args, extra.signal);
@@ -245,7 +245,7 @@ if (pathMode === 'user') {
   }));
 
   server.registerTool('file_ops', {
-    description: 'Move or delete existing regular files without following final-component symlinks. Moves are same-filesystem hard-link plus guarded source unlink, never overwrite an existing destination, and do not fall back to copying across filesystems.',
+    description: 'Move or delete existing regular files without following final-component symlinks. Batches are preflighted together but are not transactional; a later failure may leave earlier operations applied and is reported as partial or uncertain. Moves are same-filesystem hard-link plus guarded source unlink, never overwrite an existing destination, and do not fall back to copying across filesystems.',
     inputSchema: {
       operations: z.array(z.discriminatedUnion('kind', [
         z.object({

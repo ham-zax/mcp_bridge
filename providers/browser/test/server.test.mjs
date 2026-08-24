@@ -2,13 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BrowserRouter, addBrowserTarget, childConfig } from '../server.mjs';
 
-test('browser facade adds one locality selector without changing upstream tool metadata', () => {
+test('browser facade adds locality and deployment path guidance without changing unrelated upstream metadata', () => {
   const upstream = {
     name: 'take_screenshot',
     description: 'Capture a screenshot',
     inputSchema: {
       type: 'object',
-      properties: { format: { type: 'string', enum: ['png', 'jpeg'] } },
+      properties: {
+        format: { type: 'string', enum: ['png', 'jpeg'] },
+        filePath: { type: 'string', description: 'Path to save the screenshot to.' }
+      },
       required: ['format']
     },
     annotations: { readOnlyHint: true }
@@ -19,8 +22,11 @@ test('browser facade adds one locality selector without changing upstream tool m
   assert.equal(tool.description, upstream.description);
   assert.deepEqual(tool.annotations, upstream.annotations);
   assert.deepEqual(tool.inputSchema.required, ['format']);
+  assert.deepEqual(tool.inputSchema.properties.format, upstream.inputSchema.properties.format);
+  assert.match(tool.inputSchema.properties.filePath.description, /selected target.*OS temporary directory/i);
   assert.deepEqual(tool.inputSchema.properties.browser_target.enum, ['windows', 'linux']);
   assert.equal(upstream.inputSchema.properties.browser_target, undefined);
+  assert.equal(upstream.inputSchema.properties.filePath.description, 'Path to save the screenshot to.');
 });
 
 test('browser router defaults to Windows, supports explicit Linux, and forwards native results unchanged', async () => {

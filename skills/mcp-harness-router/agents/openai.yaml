@@ -1,6 +1,6 @@
 interface:
   display_name: MCP Harness Router
-  short_description: Route local WSL work across Dev, Code, Terminal, and wait.
+  short_description: Route local WSL work across Dev, Code, Terminal, Local, and wait.
   icon_small: assets/icon.svg
   icon_large: assets/icon.svg
 policy:

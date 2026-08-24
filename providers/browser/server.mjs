@@ -8,6 +8,14 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 export const CHROME_DEVTOOLS_MCP_VERSION = '1.7.0';
 export const BROWSER_TARGET_FIELD = 'browser_target';
 
+const OS_TEMP_PATH_FIELDS = new Set([
+  'filePath',
+  'requestFilePath',
+  'responseFilePath',
+  'outputDirPath'
+]);
+const OS_TEMP_PATH_GUIDANCE = 'In this deployment, explicit paths must be inside the selected target\'s OS temporary directory.';
+
 const BASE_CHROME_ARGS = [
   '-y',
   `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`,
@@ -67,13 +75,24 @@ export function addBrowserTarget(tool) {
   if (Object.prototype.hasOwnProperty.call(inputSchema.properties ?? {}, BROWSER_TARGET_FIELD)) {
     throw browserError('TOOL_SCHEMA_COLLISION', `${tool.name} already defines ${BROWSER_TARGET_FIELD}`);
   }
+  const properties = Object.fromEntries(
+    Object.entries(inputSchema.properties ?? {}).map(([name, property]) => [
+      name,
+      OS_TEMP_PATH_FIELDS.has(name)
+        ? {
+            ...property,
+            description: [property.description, OS_TEMP_PATH_GUIDANCE].filter(Boolean).join(' ')
+          }
+        : property
+    ])
+  );
   return {
     ...tool,
     inputSchema: {
       ...inputSchema,
       type: 'object',
       properties: {
-        ...(inputSchema.properties ?? {}),
+        ...properties,
         [BROWSER_TARGET_FIELD]: {
           type: 'string',
           enum: ['windows', 'linux'],

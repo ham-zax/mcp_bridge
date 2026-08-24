@@ -242,6 +242,7 @@ test('personal user mode exposes file_ops alongside edit with user-path descript
     assert.match(edit.description, /tolerat/i);
     assert.match(edit.description, /unique/i);
     assert.match(edit.description, /file_ops/i);
+    assert.match(edit.description, /not transactional.*partial|partial.*not transactional/i);
     assert.doesNotMatch(edit.description, /apply_patch/i);
     const write = listed.tools.find(x => x.name === 'write');
     assert.match(write.description, /create-only|create.*new/i);
@@ -253,6 +254,8 @@ test('personal user mode exposes file_ops alongside edit with user-path descript
     assert.match(wait.description, /other.*work.*resum|resum.*other.*work/i);
     assert.match(wait.description, /timeout_seconds.*durable.*deadline/i);
     assert.match(wait.description, /hold_seconds.*invocation/i);
+    assert.match(wait.description, /timeout_seconds.*default 300/i);
+    assert.match(wait.description, /hold_seconds.*default 10/i);
     assert.match(wait.description, /polling|sleep/i);
     const pcSleep = listed.tools.find(x => x.name === 'pc_sleep');
     assert.match(pcSleep.description, /Windows host.*sleep|sleep.*Windows host/i);
@@ -265,6 +268,7 @@ test('personal user mode exposes file_ops alongside edit with user-path descript
     assert.match(fileOps.description, /move.*delete|delete.*move/i);
     assert.match(fileOps.description, /hard-link/i);
     assert.match(fileOps.description, /symlink/i);
+    assert.match(fileOps.description, /not transactional.*partial|partial.*not transactional/i);
     assert.match(JSON.stringify(fileOps.inputSchema), /move/);
     assert.match(JSON.stringify(fileOps.inputSchema), /delete/);
     assert.match(JSON.stringify(fileOps.inputSchema), /to/);
