@@ -91,7 +91,7 @@ if (personal.mcpServers.local.command !== 'node') process.exit(1);
 if (!personal.mcpServers.local.args.includes(root + '/providers/local-tools/server.mjs')) process.exit(1);
 if (personal.mcpServers.local.env.MCP_LOCAL_INNER_CONFIG !== personalLocalFile) process.exit(1);
 if (!personal.mcpServers.local.env.MCP_LOCAL_ONE_MCP_ENTRY.endsWith('/@1mcp/agent/build/index.js')) process.exit(1);
-if (JSON.stringify(personal.mcpServers.local.tags) !== JSON.stringify(['browser'])) process.exit(1);
+if (JSON.stringify(personal.mcpServers.local.tags) !== JSON.stringify(['local'])) process.exit(1);
 if (personalLocal.mcpServers.browser.command !== 'node') process.exit(1);
 if (!personalLocal.mcpServers.browser.args.includes(root + '/providers/browser/server.mjs')) process.exit(1);
 if (personalLocal.mcpServers.browser.env.XDG_RUNTIME_DIR !== runtimeDir) process.exit(1);

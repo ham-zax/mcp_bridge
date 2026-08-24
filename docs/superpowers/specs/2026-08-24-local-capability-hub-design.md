@@ -340,10 +340,10 @@ The direct outer `browser` provider is removed after successful cutover.
 The `local` provider starts the repository's Local Tool Broker and is initially tagged only:
 
 ```json
-["browser"]
+["local"]
 ```
 
-so the migration stays inside the existing Browser authorization domain.
+Browser is the first logical server behind this generic Local authorization domain.
 
 ### Inner configuration
 
@@ -376,7 +376,7 @@ Therefore one Local broker instance must contain only MCPs that legitimately sha
 Initial migration:
 
 ```text
-tag:browser
+tag:local
     |
     v
 Local Tool Broker
@@ -385,13 +385,13 @@ Local Tool Broker
 browser
 ```
 
-A future provider may join this instance only if granting `tag:browser` authority to it is an intentional and accurate security statement.
+A future provider may join this instance only if granting `tag:local` authority to it is an intentional and accurate security statement.
 
 For a genuinely different trust domain, create another broker instance/scope rather than smuggling it behind `server=`. For example:
 
 ```text
-local-browser -> tag:browser
-local-cloud   -> tag:cloud
+local       -> tag:local
+local-cloud -> tag:cloud
 ```
 
 Each broker may still hide a large number of tools behind its own three stable metatools.
@@ -536,7 +536,7 @@ The Browser migration is complete only when all of the following are true:
 6. `tool_call` reaches both the default Windows target and explicit Linux target through the existing Browser facade.
 7. `tool_call` for `take_screenshot` returns native top-level MCP image content rather than JSON-wrapped image data.
 8. Adding/removing a downstream Browser tool changes Local discovery results without changing the outer three-tool broker catalog.
-9. The Local provider remains in the `browser` security domain for this migration.
+9. The Local provider is authorized through the `local` security domain.
 10. Required generated-config/model-surface tests and the repository full verification gate pass.
 
 ## Relationship to the existing Browser design
@@ -550,6 +550,6 @@ It preserves:
 - Windows/WSLg locality selection;
 - resource-local Chrome child ownership;
 - native downstream `CallToolResult` forwarding;
-- the existing `tag:browser` authorization domain.
+- the separation of Local capability authority from Dev/Code/Terminal through `tag:local`.
 
 If the Local Broker cannot preserve those properties, the existing direct Browser architecture remains the fallback and the cutover must not proceed.

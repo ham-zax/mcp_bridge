@@ -1,6 +1,6 @@
 # Local Tool Broker Implementation Plan
 
-**Goal:** Replace the direct model-facing Browser tool catalog with a stable three-tool Local Tool Broker while preserving the existing Browser facade, full Chrome DevTools MCP capability, Windows/WSLg routing, native rich `CallToolResult` content, and current Browser authorization domain. Establish the same broker boundary for future compatible tool-centric MCPs without claiming universal MCP transparency.
+**Goal:** Replace the direct model-facing Browser tool catalog with a stable three-tool Local Tool Broker while preserving the existing Browser facade, full Chrome DevTools MCP capability, Windows/WSLg routing, and native rich `CallToolResult` content, while establishing `tag:local` as the broker's generic authorization domain. Establish the same broker boundary for future compatible tool-centric MCPs without claiming universal MCP transparency.
 
 **Architecture:** Keep the authenticated outer 1MCP and direct Dev/Code/Terminal surfaces. Add one repository-owned Local Tool Broker exposing `tool_list`, `tool_schema`, and `tool_call`. The broker owns an MCP client connected over stdio to a private inner 1MCP running in normal direct mode. The inner 1MCP initially aggregates only the existing Browser facade and namespaces its tools as `browser_1mcp_<tool>`. The broker presents stable logical `{server,tool}` identities to Skills, resolves them to inner qualified names, and returns successful downstream `CallToolResult` values unchanged. Stock 1MCP lazy `tool_invoke` is not used.
 
@@ -20,8 +20,8 @@
 - Keep Skills on stable logical server names such as `browser`. Skills must not know generated config paths, provider process paths, or `_1mcp_` qualified names.
 - Keep `browser_target` inside the selected Browser tool's downstream `arguments`; the generic broker must not acquire Browser-specific parameters.
 - Do not expose inner 1MCP internal `1mcp_1mcp_*` tools through the broker.
-- One Local broker instance represents one OAuth/security domain. Do not add unrelated future MCPs to the Browser-authorized broker solely for convenience.
-- The initial migration keeps the existing Browser authority: outer `local` is tagged only `browser`.
+- One Local broker instance represents one OAuth/security domain. Do not add unrelated future MCPs to the Local-authorized broker solely for convenience.
+- The outer `local` provider is tagged only `local`; Browser remains a logical server behind that generic Local authorization boundary.
 - Public/restricted profiles remain single-layer and must not gain Browser/Local personal authority.
 - Treat the broker as a tools-only abstraction. Do not add generic Resources, Prompts, subscriptions, elicitation, sampling, or other MCP-protocol emulation in this wave.
 - Do not create a second generic MCP supervisor. Reuse inner direct 1MCP for downstream provider lifecycle, transport, namespacing, and config reload.
@@ -202,7 +202,7 @@ Update `tests/harness.sh`, `tests/publication.sh`, and `scripts/smoke-local.sh` 
 
 - [ ] personal outer provider inventory is exactly `local`, `code`, `dev`, `terminal`;
 - [ ] direct outer `browser` is absent after cutover;
-- [ ] outer `local` points to the Local broker and has exactly `tags: ["browser"]`;
+- [ ] outer `local` points to the Local broker and has exactly `tags: ["local"]`;
 - [ ] Local is configured with the expected generated inner config path and qualified pinned inner 1MCP runtime contract;
 - [ ] generated inner config exists in private state and contains exactly the Browser facade as the downstream provider initially;
 - [ ] Browser's current WSLg/runtime environment moved intact to the inner Browser entry;
@@ -270,7 +270,7 @@ Historical files under `docs/history/**` remain historical.
 - [ ] Local broker is tools-only, not universal MCP transparency.
 - [ ] Successful `tool_call` forwards rich downstream `CallToolResult` content unchanged.
 - [ ] Per-downstream-tool host annotations are no longer first-class; `tool_call` is conservatively classified.
-- [ ] Outer `local` remains in `tag:browser` for this migration.
+- [ ] Outer `local` uses the generic `tag:local` authorization boundary.
 - [ ] Future MCPs may join only if they are tool-compatible and belong to the same authorization domain; otherwise use direct exposure or a separate broker/security domain.
 - [ ] Adding/removing downstream tools inside an existing broker domain does not change the outer three-tool catalog and should not require a ChatGPT tool-catalog refresh solely for that reason.
 - [ ] Adding a new OAuth/security domain remains an outer authorization change and may require reauthorization.
@@ -314,7 +314,7 @@ Do not activate before Task 5 is green.
 - [ ] Re-render the personal deployment through the normal renderer so outer and inner configs are generated together.
 - [ ] Let the qualified 1MCP config watcher apply ordinary provider-definition changes when it can do so safely; use the narrow documented restart fallback only when source activation requires it or reload failure is observed.
 - [ ] Do not restart the Terminal broker or tmux lifetime merely for this Browser catalog migration.
-- [ ] Preserve existing OAuth/session state. The outer authorization domain remains `tag:browser`.
+- [ ] Do not silently widen existing OAuth/session state. The outer authorization domain is `tag:local`; clients that need Local must explicitly authorize that scope.
 
 ### Live acceptance
 
@@ -335,7 +335,7 @@ From a fresh MCP client/product session, verify:
 
 This migration intentionally stabilizes future **downstream tool-catalog** changes. The one-time outer cutover from direct Browser actions to three Local tools still changes ChatGPT's outer MCP catalog and therefore requires one connector refresh/re-discovery after deployment.
 
-The migration does not by itself repair an existing ChatGPT OAuth authorization request that omits `tag:browser`. If the client lacks Browser authority, fix that outer authorization separately; do not weaken server-side scope validation.
+The migration does not by itself repair an existing ChatGPT OAuth authorization request that omits `tag:local`. If the client lacks Local authority, fix that outer authorization separately; do not weaken server-side scope validation.
 
 ---
 
@@ -376,7 +376,7 @@ The migration is complete when:
 - successful downstream rich results, especially screenshots, remain native top-level MCP content;
 - Windows default and explicit Linux Browser locality still work through the existing facade;
 - direct Dev/Code/Terminal surfaces remain unchanged;
-- outer `local` remains within the existing Browser authorization domain for this migration;
+- outer `local` is authorized through the generic `tag:local` domain;
 - required generated-config/model-surface tests cover outer and inner composition;
 - downstream Browser tool additions/removals no longer change the outer model-facing tool catalog;
 - the design is documented as tools-only and does not claim universal MCP compatibility;

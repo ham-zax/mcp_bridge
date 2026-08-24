@@ -14,7 +14,7 @@ Choose the browser boundary before acting. Browser state is a resource-local cap
 - Isolated/fresh browser automation, CLI-specific workflows, or Electron automation that does not need either resource-local Chrome profile -> use the installed `agent-browser` CLI.
 - Public information lookup with no real browser interaction or authenticated/local state -> normal web research may be more appropriate.
 
-The outer Local broker is tagged only `browser` for this domain; the private Browser facade and both Chrome children remain behind that authorization boundary. If Browser is not authorized or the requested target is unavailable, report that boundary; do not silently substitute Dev shell commands that launch or control another browser profile.
+The outer Local broker is authorized through `tag:local`; the private Browser facade and both Chrome children remain behind that Local authorization boundary. If Local is not authorized or the requested target is unavailable, report that boundary; do not silently substitute Dev shell commands that launch or control another browser profile.
 
 ## Chrome MCP workflow
 

@@ -29,13 +29,13 @@ Private Codex-like WSL authority.
 - Code can inspect Git repositories reachable by that user.
 - Terminal can create and control persistent tmux-backed PTYs.
 - Durable waits can observe local process/port/file/HTTP/systemd state and private Terminal state.
-- Local Browser access can control the normal authenticated native Windows Chrome profile or the separate managed WSLg Chrome profile after explicit `tag:browser` authorization.
+- Local Browser access can control the normal authenticated native Windows Chrome profile or the separate managed WSLg Chrome profile after explicit `tag:local` authorization.
 
-This profile is intentionally powerful. Treat it like giving a coding agent an interactive shell as your WSL user plus, when `tag:browser` is granted, control of authenticated browser state.
+This profile is intentionally powerful. Treat it like giving a coding agent an interactive shell as your WSL user plus, when `tag:local` is granted, access to the local capability domain, which currently includes authenticated browser control.
 
-The outer `local` provider is the `tag:browser` authorization boundary for this migration. Its generic `tool_call(server, tool, arguments)` means every downstream MCP admitted to that broker instance shares that authority, so the private inner config initially contains only Browser. A future MCP may join only when sharing Browser's trust domain is an intentional security statement; otherwise it needs a separate broker/scope or direct exposure.
+The outer `local` provider is the `tag:local` authorization boundary. Its generic `tool_call(server, tool, arguments)` means every downstream MCP admitted to that broker instance shares that authority. Browser is the first logical server behind Local; future MCPs may join only when sharing the same local trust domain is an intentional security statement. A genuinely different trust domain needs a separate broker/scope or direct exposure.
 
-The Browser facade intentionally does not advertise MCP filesystem roots to its internal Chrome DevTools MCP clients. Upstream path-bearing browser tools therefore remain restricted to the relevant OS temp directory; `tag:browser` does not grant arbitrary repository or Windows filesystem access through those path arguments.
+The Browser facade intentionally does not advertise MCP filesystem roots to its internal Chrome DevTools MCP clients. Upstream path-bearing browser tools therefore remain restricted to the relevant OS temp directory; `tag:local` does not grant arbitrary repository or Windows filesystem access through those path arguments.
 
 ## CodeDB resource guidance
 
@@ -82,7 +82,7 @@ Human keystrokes are never copied into a separate broker-side input log. Sudo/pa
 
 1MCP listens on loopback `:3050`. Cloudflare exposes HTTPS and OAuth remains required for the public MCP origin. The optional WebSession adapter listens separately on loopback `:3051`; only explicitly configured `/probe/*` and `/v1/*` paths may be routed to it, while `/mcp`, OAuth, discovery, and all other paths remain on 1MCP.
 
-WebSession does not bypass 1MCP. It uses a dedicated dynamically registered authorization-code/PKCE client and stores that credential only in private adapter state. The adapter does not request a narrower scope; the MCP SDK resolves scope from live 1MCP protected-resource/authorization metadata, the same authority that governs the main bridge. Its existing grant remains `tag:code tag:dev tag:terminal` unless separately reauthorized; adding `tag:browser` to ChatGPT must not silently widen WebSession. 1MCP remains the authorization and tool-surface owner; WebSession adds no narrower or broader tool permission layer. Pinned 1MCP 0.36.0 supports rotating refresh tokens for clients that register that grant type, but no client may fall back to unauthenticated provider access when OAuth restoration fails.
+WebSession does not bypass 1MCP. It uses a dedicated dynamically registered authorization-code/PKCE client and stores that credential only in private adapter state. The adapter does not request a narrower scope; the MCP SDK resolves scope from live 1MCP protected-resource/authorization metadata, the same authority that governs the main bridge. Its existing grant remains `tag:code tag:dev tag:terminal` unless separately reauthorized; adding `tag:local` to ChatGPT must not silently widen WebSession. 1MCP remains the authorization and tool-surface owner; WebSession adds no narrower or broader tool permission layer. Pinned 1MCP 0.36.0 supports rotating refresh tokens for clients that register that grant type, but no client may fall back to unauthenticated provider access when OAuth restoration fails.
 
 Universal WebSession capabilities are high-entropy bearer values carried in URL paths because the compatibility profile cannot require headers; richer clients send the same capability in the `Authorization` header instead. The adapter stores only capability hashes, applies expiry and explicit operator revocation, returns `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, and uses a different operation-scoped continuation token for later status/result reads. Revoking submission authority blocks discovery/new operations but intentionally does not invalidate already-issued read-only operation continuations. Raw submission capabilities and OAuth credentials must not enter ordinary logs, SQLite operation records, docs, or Git. Both universal GET and enhanced POST require durable nonce idempotency because duplicate origin delivery was observed during client probing. Large text results are bounded, split on UTF-8-safe boundaries, and persisted as immutable numbered chunks with per-chunk hashes.
 
@@ -92,7 +92,7 @@ The adapter capability is only a transport bearer for the adapter's existing 1MC
 
 Dispatch intent is durably recorded immediately before every MCP tool call. If the call produces a normal MCP result, that result determines `completed` or `tool_failed`. If the worker loses the result after dispatch may have begun, the operation becomes terminal `unknown_outcome` and is never automatically retried. This avoids inferring which upstream tools are safe to repeat.
 
-Pinned 1MCP 0.36.0 generates OAuth-consent CSP from a validated registered callback origin, so the former 0.34.4 source patch is intentionally removed. Browser authority is separate from Dev/Code/Terminal: `tag:browser` exposes the three-tool Local broker, whose private inner 1MCP currently contains only the Browser facade. The facade can reach either resource-local Chrome child only after explicit client authorization at that outer domain.
+Pinned 1MCP 0.36.0 generates OAuth-consent CSP from a validated registered callback origin, so the former 0.34.4 source patch is intentionally removed. Local capability authority is separate from Dev/Code/Terminal: `tag:local` exposes the three-tool Local broker, whose private inner 1MCP currently contains only the Browser facade. The facade can reach either resource-local Chrome child only after explicit client authorization at that outer domain.
 
 ## Sensitive state
 

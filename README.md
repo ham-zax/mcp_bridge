@@ -55,7 +55,7 @@ A few important design choices:
 - `pc_sleep` is personal-only and sleeps the Windows host after explicit confirmation, with an optional Task Scheduler wake time.
 - Terminal PTYs are owned by tmux, so they survive provider, broker, and 1MCP restarts.
 - Code requests are routed to the nearest canonical Git root; the raw CodeDB tool catalog is hidden behind three small actions.
-- Browser control is model-facing through exactly three Local broker tools. Agents discover/call the stable logical server `browser`; `browser_target=linux` stays inside the selected Browser tool arguments. The private Browser facade starts the corresponding resource-local Chrome DevTools MCP child internally, and the outer Local provider remains in the separate `tag:browser` OAuth domain.
+- Browser control is model-facing through exactly three Local broker tools. Agents discover/call the stable logical server `browser`; `browser_target=linux` stays inside the selected Browser tool arguments. The private Browser facade starts the corresponding resource-local Chrome DevTools MCP child internally, while the outer Local provider is authorized by the generic `tag:local` OAuth domain.
 
 See [Personal harness](docs/personal/harness.md) for the practical workflow.
 

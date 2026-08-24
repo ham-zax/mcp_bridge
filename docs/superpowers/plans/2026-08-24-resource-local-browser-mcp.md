@@ -4,6 +4,8 @@
 
 **Status:** Repository/runtime implementation is live on 1MCP 0.36.0. Completion is intentionally pending the two ChatGPT-owned steps that the repository cannot perform silently: install the tracked `agent-browser` replacement and reauthorize the MCP connection with `tag:browser`, then run Tasks 6-7 through the ChatGPT product path.
 
+**Superseded authorization note:** The later Local Tool Broker migration replaces the model-facing Browser provider and its `tag:browser` grant with outer `local` under `tag:local`. The `tag:browser` references below document this plan's original direct-Browser rollout and are no longer current authorization instructions.
+
 **Architecture:** Expose one `browser` MCP facade in the personal 1MCP composition. The facade publishes the Chrome DevTools MCP tool catalog once, defaults calls to the normal native Windows Chrome profile, and routes `browser_target=linux` calls to a managed WSLg Chrome child. Both resource-local children stay internal to the facade and the outward provider uses the single 1MCP authorization tag `browser`. ChatGPT continues to reach direct MCP tools through `mcp-harness-local`/`api_tool`, loading only selected schemas on demand; 1MCP lazy/metatool mode remains disabled.
 
 **Tech Stack:** 1MCP 0.36.0, Chrome DevTools MCP 1.7.0, Node.js/npm/npx on WSL and Windows, WSLg, Windows interop, existing Cloudflare/OAuth bridge, existing personal configuration renderer.

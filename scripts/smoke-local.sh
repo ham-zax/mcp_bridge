@@ -34,7 +34,7 @@ if (local) {
   if (!path.isAbsolute(env.MCP_LOCAL_INNER_CONFIG ?? '')) throw new Error('Local inner config path must be absolute');
   if (!path.isAbsolute(env.MCP_LOCAL_ONE_MCP_ENTRY ?? '')) throw new Error('Local inner 1MCP entry path must be absolute');
   if (!env.MCP_LOCAL_ONE_MCP_ENTRY.endsWith('/@1mcp/agent/build/index.js')) throw new Error('unexpected Local inner 1MCP entry path');
-  if (JSON.stringify(local.tags ?? []) !== JSON.stringify(['browser'])) throw new Error('Local broker must use only the browser tag in this migration');
+  if (JSON.stringify(local.tags ?? []) !== JSON.stringify(['local'])) throw new Error('Local broker must use only the local tag');
   const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'local-tools', 'package.json'), 'utf8'));
   if (pkg.dependencies?.['@modelcontextprotocol/sdk'] !== '1.30.0') throw new Error('unexpected Local broker MCP SDK pin');
   const installedSdk = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'local-tools', 'node_modules', '@modelcontextprotocol', 'sdk', 'package.json'), 'utf8'));

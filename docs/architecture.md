@@ -11,7 +11,7 @@ Cloudflare Tunnel
   -> Dev
   -> Code       (personal only)
   -> Terminal   (personal only)
-  -> Local      (personal only, tag:browser)
+  -> Local      (personal only, tag:local)
        -> private inner 1MCP -> Browser
 Linux / WSL host
 ```
@@ -107,7 +107,7 @@ Restart the broker without restarting tmux when only broker/provider code change
 
 ### Local tool broker
 
-Personal Browser capability is model-facing through one `local` provider under `tag:browser`. It exposes exactly:
+Personal local capabilities are model-facing through one `local` provider under `tag:local`. Browser is the first private logical server behind it. The provider exposes exactly:
 
 ```text
 tool_list tool_schema tool_call

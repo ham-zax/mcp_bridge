@@ -59,7 +59,7 @@
         "MCP_LOCAL_ONE_MCP_ENTRY": "__ONE_MCP_ENTRY__"
       },
       "tags": [
-        "browser"
+        "local"
       ]
     }
   }
