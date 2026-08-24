@@ -1,0 +1,96 @@
+# Dual Mutation + Terminal Implementation — Agent Coordination
+
+**Repository:** `/home/hamza/repo/websession_mcp_bridge`
+**Source of truth:** `docs/superpowers/plans/2026-08-24-robust-agent-mutation-stack.md` and `docs/superpowers/plans/2026-08-24-terminal-presentation-frontends.md`
+**Foundation commit:** `43decaf` (clean Browser foundation)
+**Execution shape:** hybrid
+**Current wave:** 1
+
+## Current frontier
+
+| Mission | Type | Status | Can start | Workspace | Isolation reason | Blocked by |
+|---|---|---|---|---|---|---|
+| Agent A — Terminal presentation frontends | mixed | ready | now | `/home/hamza/repo/websession_mcp_bridge-agent-a-terminal` | concurrent writer; owns Terminal/config/docs/router files | none |
+| Agent B — Mutation provider migration | executable | ready | now | `/home/hamza/repo/websession_mcp_bridge-agent-b-mutation` | concurrent writer; owns Pi Dev provider/tests only | none |
+
+## Dependency map
+
+```text
+Browser foundation 43decaf
+        |
+        +---------------------------+
+        |                           |
+        v                           v
+Agent A: Terminal Tasks 1-3    Agent B: Mutation Task 1
+        |                           |
+        +------------+--------------+
+                     v
+              planner integration
+                     |
+                     v
+        Mutation Task 2 surface/docs/Skills
+        (materialize after integration; one writer)
+                     |
+                     v
+      combined current docs/development.md gate
+                     |
+          +----------+-----------+
+          |                      |
+          v                      v
+ Terminal runtime activation   Dev runtime activation
+ / live acceptance            / live catalog check
+          |                      |
+          +----------+-----------+
+                     v
+         final ChatGPT Skill activation
+          + fresh-session acceptance
+```
+
+## Shared contracts
+
+- The two authoritative plans are current requirements. Do not expand them with speculative abstractions or adjacent cleanup.
+- Agent A owns the Terminal presentation edge and its repository-facing config/docs/router changes. Agent B Wave 1 must not edit those shared surface files.
+- Agent B Wave 1 owns only the Pi Dev provider migration described by Mutation Plan Task 1. It must not edit routing Skills or normative docs yet.
+- `providers/terminal/broker.mjs`, tmux lifetime, broker ownership, and Terminal MCP schemas remain unchanged unless the Terminal plan stop conditions are reached.
+- Edit V2 and `withMutationPaths` remain authoritative for existing-text mutations/cooperating Dev serialization; Mutation Wave 1 must not redesign them.
+- Tests explicitly required by the source plans are authorized. Do not add test frameworks or unrelated cases.
+- Live activation is serialized after source integration and the current repository Full verification gate; neither Wave 1 agent should mutate live machine preference or restart production services.
+
+## Workspace policy
+
+Two separate worktrees are justified because Agents A and B will write concurrently. Their Wave 1 file ownership is intentionally disjoint to avoid shared-state coordination. Both worktrees start from one coordination commit on top of clean foundation `43decaf`.
+
+Agents must use their assigned worktree and must not create additional worktrees. Do not edit the main checkout from an agent worktree mission.
+
+## Integration policy
+
+The planner/user integrates both Wave 1 branches into `main` after both finish reports. Agent branches should commit only their owned mission work. The planner will inspect branch diffs and required focused validation before integration.
+
+After both branches are integrated, the mutation plan's shared surface/docs/Skill migration becomes the next frontier. It will be assigned to one writer because it edits files already changed by Agent A (`skills/mcp-harness-router/SKILL.md`, `skills/SNAPSHOT_SHA256.txt`, `docs/architecture.md`, `docs/configuration.md`, `docs/personal/harness.md`).
+
+Do not run live activation or the final combined repository gate from Wave 1 branches.
+
+## Execution lifetime policy
+
+Both current missions are ordinary implementation sessions. Use bounded Bash for normal commands. If a required command becomes long-running, keep it durable in Terminal and observe it with the repository wait path rather than restarting it. No persistent-agent-loop is required unless the mission unexpectedly becomes wait-heavy or user-steered across long-lived processes.
+
+## Validation policy
+
+Testing is authorized only where the source plans explicitly require it.
+
+- Agent A: extend/run the existing Terminal frontend tests and renderer contract required by the Terminal plan. Do not run the repository-wide Full verification gate; integration owns that.
+- Agent B: replace/update the existing Pi Dev provider tests required by Mutation Task 1 and run the focused Pi Dev provider suite. Do not run the repository-wide Full verification gate; integration owns that.
+- No new test framework, broad cleanup suite, or duplicated coverage.
+
+## Future / blocked work
+
+- Mutation surface/docs/Skill migration (Mutation Plan Task 2) — blocked by integration of Agent A and Agent B Wave 1.
+- Combined repository candidate verification — blocked by completion of mutation surface migration.
+- Terminal machine-local `windows-terminal` activation and live acceptance — blocked by green combined candidate.
+- Dev live `file_ops` activation/catalog acceptance — blocked by green combined candidate.
+- ChatGPT Skill installation/update and fresh-session acceptance for final router/superpowers bundles — blocked by final repository Skill state; may require user UI action.
+
+## Status log
+
+- `2026-08-24` — Browser foundation confirmed clean at `43decaf`; both updated implementation plans read once and accepted as authoritative.
+- `2026-08-24` — Wave 1 split chosen: Terminal repository implementation in Agent A; Pi Dev provider migration in Agent B; shared mutation surface deferred until integration.
