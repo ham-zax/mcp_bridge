@@ -47,6 +47,14 @@ test_native_1mcp_rotation_capability_is_guarded() {
   contains "$helper" 'native log rotation'
 }
 
+test_1mcp_https_callback_csp_compatibility_is_guarded() {
+  local helper="$ROOT/scripts/install-bridge-runtime.sh"
+  contains "$helper" 'auth/sdkOAuthServerProvider\.js' &&
+  contains "$helper" "requested\.protocol === 'https:'" &&
+  contains "$helper" 'registeredRedirectUris\.includes\(requestedRedirectUri\)' &&
+  contains "$helper" 'refusing an unsafe patch'
+}
+
 test_shared_bridge_runtime_installer_is_used() {
   local helper="$ROOT/scripts/install-bridge-runtime.sh"
   [ -x "$helper" ] && \
@@ -148,6 +156,7 @@ run_test 'lifecycle entrypoint scripts remain executable' test_scripts_are_execu
 run_test 'no global pkill/pgrep lifecycle management' test_no_global_process_matching
 run_test 'privileged MCP dependencies are pinned' test_dependencies_are_pinned
 run_test 'pinned 1MCP native rotation capability is guarded' test_native_1mcp_rotation_capability_is_guarded
+run_test 'pinned 1MCP permits its exact registered HTTPS OAuth callback' test_1mcp_https_callback_csp_compatibility_is_guarded
 run_test 'public and personal setup share the pinned bridge runtime installer' test_shared_bridge_runtime_installer_is_used
 run_test 'Cloudflare OAuth Bridge is the only canonical stack' test_cloudflare_oauth_is_canonical
 run_test 'start.sh is the canonical Cloudflare OAuth entrypoint' test_start_is_canonical_entrypoint

@@ -92,7 +92,7 @@ The adapter capability is only a transport bearer for the adapter's existing 1MC
 
 Dispatch intent is durably recorded immediately before every MCP tool call. If the call produces a normal MCP result, that result determines `completed` or `tool_failed`. If the worker loses the result after dispatch may have begun, the operation becomes terminal `unknown_outcome` and is never automatically retried. This avoids inferring which upstream tools are safe to repeat.
 
-Pinned 1MCP 0.36.0 generates OAuth-consent CSP from a validated registered callback origin, so the former 0.34.4 source patch is intentionally removed. Local capability authority is separate from Dev/Code/Terminal: `tag:local` exposes the three-tool Local broker, whose private inner 1MCP currently contains only the Browser facade. The facade can reach either resource-local Chrome child only after explicit client authorization at that outer domain.
+Pinned 1MCP 0.36.0 permits only loopback OAuth callback origins in its consent-page CSP. The installer applies a fail-closed compatibility patch that also permits the exact registered HTTPS callback origin; it does not permit arbitrary HTTPS form destinations. Local capability authority is separate from Dev/Code/Terminal: `tag:local` exposes the three-tool Local broker, whose private inner 1MCP currently contains only the Browser facade. The facade can reach either resource-local Chrome child only after explicit client authorization at that outer domain.
 
 ## Sensitive state
 

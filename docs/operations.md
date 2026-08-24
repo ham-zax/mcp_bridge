@@ -207,7 +207,7 @@ This project intentionally:
 
 - supervises the real 1MCP Node entrypoint instead of relying on `serve --background`;
 - verifies that the pinned runtime supports structured native `logging.maxSize` / `logging.maxFiles` rotation before relying on it;
-- relies on upstream validated callback-origin CSP handling rather than patching installed 1MCP source;
+- patches 1MCP's consent-page CSP to permit an exact registered HTTPS callback origin; upstream 0.36.0 permits only registered loopback callbacks, which blocks ChatGPT's HTTPS callback after consent;
 - uses built-in `mcp.json` hot reload for provider-only changes, including atomic renderer replacements; restart the bridge only when the 1MCP executable itself changes or when observed reload failure requires it.
 
 These are pinned-version compatibility behaviors. Requalify them when upgrading 1MCP.
