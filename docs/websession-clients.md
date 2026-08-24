@@ -69,7 +69,7 @@ Provide either `<MASTER_BEARER>` or an already-issued `<CAPABILITY>`. Prefer the
 ```text
 Use Python `requests` to connect to my WSL through WebSession. Use the documented routes exactly; do not probe or guess authentication endpoints.
 
-Base: https://mcp.hamza.my.id
+Base: https://mcp.example.com
 Master bearer: <MASTER_BEARER_IF_PROVIDED>
 Capability: <CAPABILITY_IF_PROVIDED>
 
@@ -80,7 +80,7 @@ Keep both credentials secret. Never echo them, log them, or write them to disk. 
 3. GET `/v1/s/<CAPABILITY>/tools` to discover tools. Inspect an unfamiliar tool at `/v1/s/<CAPABILITY>/tool/<tool-name-b64>`.
 4. Call tools with:
 
-POST https://mcp.hamza.my.id/v1/calls
+POST https://mcp.example.com/v1/calls
 Authorization: Bearer <CAPABILITY>
 Content-Type: application/json
 Idempotency-Key: <fresh nonce>
@@ -137,19 +137,19 @@ Replace `<CAPABILITY>` with a freshly issued ordinary capability. A GET-only cli
 ```text
 Use your `open` tool as the HTTPS GET transport to connect to my WSL through WebSession. Do not decide that `open` is unsuitable before trying it.
 
-Base: https://mcp.hamza.my.id
+Base: https://mcp.example.com
 Capability: <CAPABILITY>
 
 Keep the capability secret. WebSession is transport only; use exact live 1MCP tool names and schemas. Do not guess routes or request fields.
 
-1. `open` `https://mcp.hamza.my.id/v1/about`. Continue if the returned content contains `WEBSESSION-MCP-BRIDGE/1`. Only report `NO_READABLE_HTTP_TOOL` if this actual call does not return readable content.
-2. `open` `https://mcp.hamza.my.id/v1/s/<CAPABILITY>/tools` to discover tools. Inspect an unfamiliar tool at `/v1/s/<CAPABILITY>/tool/<tool-name-b64>`.
+1. `open` `https://mcp.example.com/v1/about`. Continue if the returned content contains `WEBSESSION-MCP-BRIDGE/1`. Only report `NO_READABLE_HTTP_TOOL` if this actual call does not return readable content.
+2. `open` `https://mcp.example.com/v1/s/<CAPABILITY>/tools` to discover tools. Inspect an unfamiliar tool at `/v1/s/<CAPABILITY>/tool/<tool-name-b64>`.
 3. For a call, the JSON fields must be exactly `version`, `tool`, and `arguments`: `{"version":1,"tool":"<exact tool name>","arguments":{...}}`. Do not use `args`, `params`, or a top-level `command` field. Compact-JSON encode it, base64url encode it without `=` padding, and keep the encoded request <=256 chars. Use an actual encoder when one is available; do not manually calculate Base64 character-by-character.
 4. With a fresh nonce, `open` `/v1/s/<CAPABILITY>/call/<nonce>/<request-b64>`. Read `confirmation_base` and `challenge`, concatenate them exactly, and `open` that URL. Follow `status_url` if queued/running; fetch numbered chunks if returned. Never retry `unknown_outcome` automatically.
 
 Connection test: confirm `dev_1mcp_bash` exists, then use this pre-encoded `{"command":"pwd"}` request with a fresh nonce:
 
-https://mcp.hamza.my.id/v1/s/<CAPABILITY>/call/<nonce>/eyJ2ZXJzaW9uIjoxLCJ0b29sIjoiZGV2XzFtY3BfYmFzaCIsImFyZ3VtZW50cyI6eyJjb21tYW5kIjoicHdkIn19
+https://mcp.example.com/v1/s/<CAPABILITY>/call/<nonce>/eyJ2ZXJzaW9uIjoxLCJ0b29sIjoiZGV2XzFtY3BfYmFzaCIsImFyZ3VtZW50cyI6eyJjb21tYW5kIjoicHdkIn19
 
 Complete confirmation/polling, then report only:
 
