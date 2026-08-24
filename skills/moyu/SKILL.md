@@ -1,6 +1,6 @@
 ---
 name: moyu
-description: Use when an implementation or workflow is at risk of over-engineering, scope drift, unnecessary abstraction, redundant process, excessive testing ceremony, or permission-seeking inside an otherwise clear mission boundary.
+description: Use when implementing or reviewing engineering work where the agent should stay autonomous inside a bounded mission while avoiding scope creep, speculative abstractions, redundant tests, unnecessary worktrees, excessive setup, or disproportionate verification.
 ---
 
 # Moyu: Mission-Bounded Simplicity
