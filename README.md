@@ -46,7 +46,7 @@ Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_lis
 A few important design choices:
 
 - `edit` is the guarded single-file primitive; `apply_patch` is for multi-file or structural changes.
-- Bash is native Bash. RTK is optional when invoked explicitly; it is not an automatic execution layer.
+- Bash is native Bash; it is direct, native command execution.
 - `wait` is a Dev action. It provides durable named waits for Terminal output/exit and local readiness conditions without consuming the normal Terminal read cursor.
 - Terminal PTYs are owned by tmux, so they survive provider, broker, and 1MCP restarts.
 - Code requests are routed to the nearest canonical Git root; the raw CodeDB tool catalog is hidden behind three small actions.

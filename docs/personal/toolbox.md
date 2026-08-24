@@ -43,14 +43,6 @@ fd package.json
 
 Do not add a new MCP action merely because a useful CLI exists.
 
-RTK is not an automatic wrapper. It may be used explicitly when useful:
-
-```bash
-rtk test
-rtk err
-```
-
-If compressed output becomes unclear, return to the native command/output.
 
 ## Installation policy
 

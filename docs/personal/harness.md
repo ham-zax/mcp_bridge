@@ -92,7 +92,7 @@ Create-only. It refuses to overwrite an existing path.
 
 Runs one bounded, noninteractive native Bash command string. Use it for Git, builds, tests, `rg`, repository inspection, and ordinary short execution; use Terminal when work must persist or needs a PTY/interactive workflow. For a large or unfamiliar repository with unknown CodeDB state, Bash/`rg` plus focused `read` is the lower-cost discovery path before invoking Code. There is no hidden mutable global cwd; use `cwd` explicitly when needed.
 
-RTK is optional only when explicitly invoked, for example `rtk test` or `rtk err`; native Bash/output remains the source of truth.
+Native Bash/output remains the source of truth.
 
 ### `wait`
 
