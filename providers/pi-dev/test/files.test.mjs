@@ -174,10 +174,35 @@ test('edit tolerates trailing whitespace and common Unicode punctuation differen
   assert.equal(await fs.readFile(file, 'utf8'), 'const x = "bye";\nuntouched—line   \n');
 });
 
-test('edit rejects anchors that become ambiguous after tolerant normalization', async () => {
-  const workspaceRoot = await tempDir('pi-fuzzy-ambiguous-');
+test('a unique exact anchor wins over a normalization-equivalent occurrence', async () => {
+  const workspaceRoot = await tempDir('pi-exact-first-');
   const file = path.join(workspaceRoot, 'x.txt');
   await fs.writeFile(file, 'const x = “hello”;\nconst x = "hello";\n');
+  await runEdit({
+    workspaceRoot,
+    targets: [{ path: 'x.txt', edits: [{ oldText: 'const x = "hello";', newText: 'const x = "bye";' }] }]
+  });
+  assert.equal(await fs.readFile(file, 'utf8'), 'const x = “hello”;\nconst x = "bye";\n');
+});
+
+test('edit rejects multiple exact anchors without trying tolerant matching', async () => {
+  const workspaceRoot = await tempDir('pi-exact-ambiguous-');
+  const file = path.join(workspaceRoot, 'x.txt');
+  await fs.writeFile(file, 'same\nsame\n');
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [{ path: 'x.txt', edits: [{ oldText: 'same', newText: 'changed' }] }]
+    }),
+    /exact text is not unique.*2 occurrences/i
+  );
+  assert.equal(await fs.readFile(file, 'utf8'), 'same\nsame\n');
+});
+
+test('edit rejects a fallback anchor that is ambiguous after tolerant normalization', async () => {
+  const workspaceRoot = await tempDir('pi-fuzzy-ambiguous-');
+  const file = path.join(workspaceRoot, 'x.txt');
+  await fs.writeFile(file, 'const x = “hello”;\nconst x = “hello”;\n');
   await assert.rejects(
     () => runEdit({
       workspaceRoot,
@@ -185,7 +210,38 @@ test('edit rejects anchors that become ambiguous after tolerant normalization', 
     }),
     /2 occurrences|must be unique/i
   );
-  assert.equal(await fs.readFile(file, 'utf8'), 'const x = “hello”;\nconst x = "hello";\n');
+  assert.equal(await fs.readFile(file, 'utf8'), 'const x = “hello”;\nconst x = “hello”;\n');
+});
+
+test('edit combines exact and tolerant anchors matched against one original snapshot', async () => {
+  const workspaceRoot = await tempDir('pi-exact-fuzzy-mixed-');
+  const file = path.join(workspaceRoot, 'x.txt');
+  await fs.writeFile(file, 'const a = “one”;\nconst a = "one";\nconst b = “two”;   \n');
+  await runEdit({
+    workspaceRoot,
+    targets: [{ path: 'x.txt', edits: [
+      { oldText: 'const a = "one";', newText: 'const a = "ONE";' },
+      { oldText: 'const b = "two";', newText: 'const b = "TWO";' }
+    ] }]
+  });
+  assert.equal(await fs.readFile(file, 'utf8'), 'const a = “one”;\nconst a = "ONE";\nconst b = "TWO";\n');
+});
+
+test('edit rejects exact and tolerant anchors sharing a line', async () => {
+  const workspaceRoot = await tempDir('pi-exact-fuzzy-line-');
+  const file = path.join(workspaceRoot, 'x.txt');
+  await fs.writeFile(file, 'alpha “beta”\n');
+  await assert.rejects(
+    () => runEdit({
+      workspaceRoot,
+      targets: [{ path: 'x.txt', edits: [
+        { oldText: 'alpha', newText: 'ALPHA' },
+        { oldText: '"beta"', newText: '"BETA"' }
+      ] }]
+    }),
+    /share lines.*merge/i
+  );
+  assert.equal(await fs.readFile(file, 'utf8'), 'alpha “beta”\n');
 });
 
 test('CRLF file accepts LF oldText and preserves CRLF', async () => {
@@ -197,6 +253,17 @@ test('CRLF file accepts LF oldText and preserves CRLF', async () => {
     targets: [{ path: 'x.txt', edits: [{ oldText: 'alpha\nbeta', newText: 'ALPHA\nbeta' }] }]
   });
   assert.equal(await fs.readFile(file, 'utf8'), 'ALPHA\r\nbeta\r\n');
+});
+
+test('exact-first edit preserves a UTF-8 BOM', async () => {
+  const workspaceRoot = await tempDir('pi-bom-');
+  const file = path.join(workspaceRoot, 'x.txt');
+  await fs.writeFile(file, '\uFEFFalpha\n');
+  await runEdit({
+    workspaceRoot,
+    targets: [{ path: 'x.txt', edits: [{ oldText: 'alpha', newText: 'ALPHA' }] }]
+  });
+  assert.equal(await fs.readFile(file, 'utf8'), '\uFEFFALPHA\n');
 });
 
 test('edit operation detects a changed snapshot before write', async () => {

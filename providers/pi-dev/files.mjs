@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import {
   createEditTool,
   createReadTool,
-  createWriteTool
+  createWriteTool,
+  generateDiffString
 } from '@earendil-works/pi-coding-agent';
 import {
   canonicalDefaultCwd,
@@ -15,21 +16,44 @@ import {
 } from './boundary.mjs';
 import { withMutationPath, withMutationPaths } from './mutation-coordinator.mjs';
 
-function normalizeExactText(text) {
-  const withoutBom = text.startsWith('\uFEFF') ? text.slice(1) : text;
-  return withoutBom.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+function normalizeLineEndings(text) {
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
-function exactOccurrenceCount(content, needle) {
-  if (!needle) return 0;
+function normalizeExactText(text) {
+  return normalizeLineEndings(text.startsWith('\uFEFF') ? text.slice(1) : text);
+}
+
+function normalizeTolerantText(text) {
+  // Keep this in sync with Pi's normalizeForFuzzyMatch: classification must
+  // predict the matcher used for the delegated tolerant subset.
+  return text
+    .normalize('NFKC')
+    .split('\n')
+    .map(line => line.trimEnd())
+    .join('\n')
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
+    .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, ' ');
+}
+
+function occurrenceMatch(content, needle) {
+  if (!needle) return { count: 0, index: -1 };
   let count = 0;
+  let firstIndex = -1;
   let from = 0;
   while (true) {
     const index = content.indexOf(needle, from);
-    if (index === -1) return count;
+    if (index === -1) return { count, index: firstIndex };
+    if (count === 0) firstIndex = index;
     count += 1;
     from = index + 1;
   }
+}
+
+function exactOccurrenceCount(content, needle) {
+  return occurrenceMatch(content, needle).count;
 }
 
 function decodeValidUtf8(buffer) {
@@ -49,6 +73,87 @@ function validateExactEdits(buffer, edits) {
     if (count === 0) throw new Error(`edits[${i}] exact text was not found; fuzzy matching is disabled`);
     if (count > 1) throw new Error(`edits[${i}] exact text is not unique (${count} occurrences)`);
   }
+}
+
+function matchedLineRange(content, index, length) {
+  const start = content.slice(0, index).split('\n').length - 1;
+  const end = content.slice(0, index + length - 1).split('\n').length;
+  return { start, end };
+}
+
+function classifyEdits(content, edits, path) {
+  const tolerantContent = normalizeTolerantText(content);
+  const matches = edits.map((edit, editIndex) => {
+    const oldText = normalizeLineEndings(edit.oldText);
+    const newText = normalizeLineEndings(edit.newText);
+    if (!oldText) throw new Error(`edits[${editIndex}].oldText must not be empty`);
+
+    const exactMatch = occurrenceMatch(content, oldText);
+    if (exactMatch.count > 1) {
+      throw new Error(`edits[${editIndex}] exact text is not unique (${exactMatch.count} occurrences)`);
+    }
+    if (exactMatch.count === 1) {
+      const index = exactMatch.index;
+      return {
+        kind: 'exact', editIndex, index, length: oldText.length, newText,
+        lines: matchedLineRange(content, index, oldText.length)
+      };
+    }
+
+    const tolerantOldText = normalizeTolerantText(oldText);
+    const tolerantMatch = occurrenceMatch(tolerantContent, tolerantOldText);
+    if (tolerantMatch.count === 0) {
+      throw new Error(`edits[${editIndex}] text was not found, including tolerant normalization`);
+    }
+    if (tolerantMatch.count > 1) {
+      throw new Error(`edits[${editIndex}] tolerant text is not unique (${tolerantMatch.count} occurrences)`);
+    }
+    const index = tolerantMatch.index;
+    return {
+      kind: 'tolerant', editIndex, oldText, newText,
+      lines: matchedLineRange(tolerantContent, index, tolerantOldText.length)
+    };
+  });
+
+  const exact = matches.filter(match => match.kind === 'exact').sort((a, b) => a.index - b.index);
+  for (let index = 1; index < exact.length; index += 1) {
+    const previous = exact[index - 1];
+    const current = exact[index];
+    if (previous.index + previous.length > current.index) {
+      throw new Error(`edits[${previous.editIndex}] and edits[${current.editIndex}] overlap in ${path}`);
+    }
+  }
+
+  const tolerant = matches.filter(match => match.kind === 'tolerant');
+  for (const exactMatch of exact) {
+    for (const tolerantMatch of tolerant) {
+      if (exactMatch.lines.start < tolerantMatch.lines.end && tolerantMatch.lines.start < exactMatch.lines.end) {
+        throw new Error(
+          `edits[${exactMatch.editIndex}] and edits[${tolerantMatch.editIndex}] share lines across exact and tolerant matching; merge them into one edit`
+        );
+      }
+    }
+  }
+  return { exact, tolerant };
+}
+
+function applyExactMatches(content, matches) {
+  let result = content;
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const match = matches[index];
+    result = result.slice(0, match.index) + match.newText + result.slice(match.index + match.length);
+  }
+  return result;
+}
+
+function detectLineEnding(content) {
+  const crlf = content.indexOf('\r\n');
+  const lf = content.indexOf('\n');
+  return lf !== -1 && crlf !== -1 && crlf < lf ? '\r\n' : '\n';
+}
+
+function restoreLineEndings(content, lineEnding) {
+  return lineEnding === '\r\n' ? content.replace(/\n/g, '\r\n') : content;
 }
 
 function modelFacingPathMessage(error, absolutePath, relativePath) {
@@ -251,26 +356,53 @@ export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoo
       const stat = await fs.stat(target.canonicalPath);
       if (!stat.isFile()) throw new Error(`${target.requestedPath} must resolve to a regular file`);
       const snapshot = await fs.readFile(target.canonicalPath);
-      decodeValidUtf8(snapshot);
-      let proposed = null;
-      const tool = createEditTool(policy.root, {
-        operations: {
-          access: absolutePath => fs.access(absolutePath, constants.R_OK | constants.W_OK),
-          readFile: async () => Buffer.from(snapshot),
-          writeFile: async (_absolutePath, content) => { proposed = content; }
-        }
-      });
-      let result;
+      const rawContent = decodeValidUtf8(snapshot);
       try {
-        result = await tool.execute(randomUUID(), {
-          path: target.canonicalPath,
-          edits: target.edits
-        }, signal);
+        await fs.access(target.canonicalPath, constants.R_OK | constants.W_OK);
       } catch (error) {
         throw modelFacingPathError(error, target.canonicalPath, target.requestedPath);
       }
-      if (proposed === null) throw new Error(`edit planning produced no output for ${target.requestedPath}`);
-      plans.push({ ...target, identity: { dev: stat.dev, ino: stat.ino }, snapshot, proposed, diff: result.details?.diff ?? '' });
+      throwIfAborted(signal);
+
+      const bom = rawContent.startsWith('\uFEFF') ? '\uFEFF' : '';
+      const content = bom ? rawContent.slice(1) : rawContent;
+      const lineEnding = detectLineEnding(content);
+      const baseContent = normalizeLineEndings(content);
+      let matches;
+      try {
+        matches = classifyEdits(baseContent, target.edits, target.canonicalPath);
+      } catch (error) {
+        throw modelFacingPathError(error, target.canonicalPath, target.requestedPath);
+      }
+
+      let newContent = applyExactMatches(baseContent, matches.exact);
+      if (matches.tolerant.length > 0) {
+        let tolerantProposal = null;
+        const tool = createEditTool(policy.root, {
+          operations: {
+            access: absolutePath => fs.access(absolutePath, constants.R_OK | constants.W_OK),
+            readFile: async () => Buffer.from(newContent, 'utf8'),
+            writeFile: async (_absolutePath, proposed) => { tolerantProposal = proposed; }
+          }
+        });
+        try {
+          await tool.execute(randomUUID(), {
+            path: target.canonicalPath,
+            edits: matches.tolerant.map(match => ({ oldText: match.oldText, newText: match.newText }))
+          }, signal);
+        } catch (error) {
+          throw modelFacingPathError(error, target.canonicalPath, target.requestedPath);
+        }
+        if (tolerantProposal === null) {
+          throw new Error(`edit planning produced no output for ${target.requestedPath}`);
+        }
+        newContent = tolerantProposal;
+      }
+
+      if (newContent === baseContent) throw new Error(`edit produced no changes for ${target.requestedPath}`);
+      const proposed = bom + restoreLineEndings(newContent, lineEnding);
+      const diff = generateDiffString(baseContent, newContent).diff;
+      plans.push({ ...target, identity: { dev: stat.dev, ino: stat.ino }, snapshot, proposed, diff });
     }
 
     const applied = [];
