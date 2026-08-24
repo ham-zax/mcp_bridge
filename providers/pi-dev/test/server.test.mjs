@@ -239,7 +239,7 @@ test('personal user mode exposes file_ops alongside edit with user-path descript
     assert.match(bash.inputSchema.properties.cwd.description, /relative.*default.*absolute/i);
     const edit = listed.tools.find(x => x.name === 'edit');
     assertEditV2Schema(edit);
-    assert.match(edit.description, /exact.*one or more existing text files|one or more existing text files.*exact/i);
+    assert.match(edit.description, /tolerat/i);
     assert.match(edit.description, /unique/i);
     assert.match(edit.description, /file_ops/i);
     assert.doesNotMatch(edit.description, /apply_patch/i);

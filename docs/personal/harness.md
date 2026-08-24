@@ -68,7 +68,7 @@ Use for focused text/source reads. Relative paths resolve from the personal defa
 
 ### `edit`
 
-Use for existing-text mutation across one or more files. If exact `oldText` is not yet known, inspect with `read`, `rg`, Code, or ast-grep and widen the exact block until it is unique. `edit` rejects missing, ambiguous, overlapping, stale, non-text, or duplicate-alias targets; all targets are planned before the first mutation, and partial post-mutation failures are reported explicitly. File count or a structural label does not change this route.
+Use for existing-text mutation across one or more files. Exact `oldText` is preferred; when it does not match, `edit` tolerates line-ending, trailing-whitespace, and common Unicode punctuation or space differences. Matching must still be unique, so inspect with `read`, `rg`, Code, or ast-grep and include enough context when needed. `edit` rejects missing, ambiguous, overlapping, stale, non-text, or duplicate-alias targets; all targets are planned before the first mutation, and partial post-mutation failures are reported explicitly. File count or a structural label does not change this route.
 
 The canonical request is always grouped, including one-file edits:
 

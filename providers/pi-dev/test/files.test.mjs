@@ -35,7 +35,7 @@ test('user read resolves relative paths from default cwd and accepts harmless ab
   assert.match(absoluteText, /(NAME|PRETTY_NAME)=/);
 });
 
-test('user edit and write keep exact-edit and create-only mutation safety', async () => {
+test('user edit and write keep guarded-edit and create-only mutation safety', async () => {
   const defaultCwd = await tempDir('pi-user-mutate-');
   const existing = path.join(defaultCwd, 'existing.txt');
   await fs.writeFile(existing, 'alpha\nbeta\n');
@@ -107,7 +107,7 @@ test('edit v2 preflights every target before mutating any file', async () => {
         { path: 'b.txt', edits: [{ oldText: 'missing', newText: 'BETA' }] }
       ]
     }),
-    /exact text.*not found/i
+    /could not find|not found/i
   );
   assert.equal(await fs.readFile(a, 'utf8'), 'alpha\n');
   assert.equal(await fs.readFile(b, 'utf8'), 'beta\n');
@@ -163,16 +163,29 @@ test('edit v2 supports exact substring removal with empty newText', async () => 
   assert.equal(await fs.readFile(file, 'utf8'), 'alpha gamma\n');
 });
 
-test('fuzzy-only Unicode quote match is rejected', async () => {
+test('edit tolerates trailing whitespace and common Unicode punctuation differences', async () => {
   const workspaceRoot = await tempDir('pi-fuzzy-');
-  await fs.writeFile(path.join(workspaceRoot, 'x.txt'), 'const x = “hello”;\n');
+  const file = path.join(workspaceRoot, 'x.txt');
+  await fs.writeFile(file, 'const x = “hello”;   \nuntouched—line   \n');
+  await runEdit({
+    workspaceRoot,
+    targets: [{ path: 'x.txt', edits: [{ oldText: 'const x = "hello";', newText: 'const x = "bye";' }] }]
+  });
+  assert.equal(await fs.readFile(file, 'utf8'), 'const x = "bye";\nuntouched—line   \n');
+});
+
+test('edit rejects anchors that become ambiguous after tolerant normalization', async () => {
+  const workspaceRoot = await tempDir('pi-fuzzy-ambiguous-');
+  const file = path.join(workspaceRoot, 'x.txt');
+  await fs.writeFile(file, 'const x = “hello”;\nconst x = "hello";\n');
   await assert.rejects(
     () => runEdit({
       workspaceRoot,
       targets: [{ path: 'x.txt', edits: [{ oldText: 'const x = "hello";', newText: 'const x = "bye";' }] }]
     }),
-    /exact text.*not found/i
+    /2 occurrences|must be unique/i
   );
+  assert.equal(await fs.readFile(file, 'utf8'), 'const x = “hello”;\nconst x = "hello";\n');
 });
 
 test('CRLF file accepts LF oldText and preserves CRLF', async () => {
@@ -510,7 +523,7 @@ test('a stale exact edit rejects after another actor changes the observed region
       defaultCwd,
       targets: [{ path: 'x.txt', edits: [{ oldText: 'alpha', newText: 'ACTOR_A' }] }]
     }),
-    /exact text.*not found|changed during edit/i
+    /could not find|not found|changed during edit/i
   );
   assert.equal(await fs.readFile(file, 'utf8'), 'ACTOR_B\nbeta\n');
 });

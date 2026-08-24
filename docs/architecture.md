@@ -34,7 +34,7 @@ Personal surface:
 read edit write file_ops wait bash pc_sleep
 ```
 
-`edit` owns guarded exact mutation of existing text across one or more files; callers inspect with `read`, `rg`, Code, or ast-grep and widen `oldText` until unique when needed. `write` owns new text-file creation, and `file_ops` owns move/delete for existing regular files. Syntax-shaped discovery/codemods use ast-grep through Bash and normally feed guarded `edit`; an existing authoritative `.patch`/`.diff` artifact uses native `git apply --check -- "$patch" && git apply -- "$patch"`.
+`edit` owns guarded mutation of existing text across one or more files. It prefers exact `oldText`, then tolerates line-ending, trailing-whitespace, and common Unicode punctuation or space differences while still requiring a unique match. Callers inspect with `read`, `rg`, Code, or ast-grep and include enough context when needed. `write` owns new text-file creation, and `file_ops` owns move/delete for existing regular files. Syntax-shaped discovery/codemods use ast-grep through Bash and normally feed guarded `edit`; an existing authoritative `.patch`/`.diff` artifact uses native `git apply --check -- "$patch" && git apply -- "$patch"`.
 
 `wait` owns durable named wait state and generic local readiness checks. Terminal-specific waits use private broker transcript/session observations, but `wait` is not a Terminal MCP action.
 

@@ -252,7 +252,6 @@ export async function runEdit({ pathMode = 'workspace', defaultCwd, workspaceRoo
       if (!stat.isFile()) throw new Error(`${target.requestedPath} must resolve to a regular file`);
       const snapshot = await fs.readFile(target.canonicalPath);
       decodeValidUtf8(snapshot);
-      validateExactEdits(snapshot, target.edits);
       let proposed = null;
       const tool = createEditTool(policy.root, {
         operations: {
