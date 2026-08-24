@@ -46,6 +46,14 @@ There is no repository-size preflight, threshold, cgroup, or approval database i
 
 Edit V2 coordinates all requested canonical paths through the existing in-process mutation coordinator, plans every target before the first edit mutation, and revalidates file identity plus exact snapshot bytes through the same open file descriptor used for write/truncate. This reduces stale-path and cooperating-writer races but is not a cross-file transaction, rollback system, fsync durability guarantee, or compare-and-swap against arbitrary Bash/Python/editor processes. A post-mutation failure may therefore be reported as an explicit partial or uncertain state that requires rereading before retrying.
 
+## File topology mutation guarantees
+
+Personal `file_ops` operates only on existing regular-file directory entries. It canonicalizes and authorizes the parent while preserving the requested final entry identity, opens the source without following the final component, and rejects symbolic links and other non-regular entries. Delete revalidates the requested entry before guarded unlink. Move is same-filesystem only: it creates a no-overwrite hard link to the same inode, verifies source/destination identity, then removes the source name; `EXDEV` is explicit and there is no copy fallback.
+
+All affected entry paths participate in the same in-process mutation coordinator used by cooperating Dev mutations, and sources are revalidated after the lease is acquired. Once a move has created the destination link, cancellation does not deliberately interrupt the guarded link-to-unlink sequence. A later failure is reported as structured `FILE_OPS_PARTIAL` state with completed, failed, uncertain, and unattempted operations plus confirmed side effects where known.
+
+These guarantees do not provide kernel compare-and-swap or serialization against arbitrary Bash, Python, editors, or other external filesystem actors. Path-based unlink has an unavoidable final race if an external actor replaces the directory entry after the last guard and before unlink. Treat `file_ops` as cooperative Dev serialization plus stale-state detection, not as a general filesystem transaction boundary.
+
 ## Sudo
 
 Sudo is never an automated credential feature.

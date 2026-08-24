@@ -39,7 +39,7 @@ Not every profile enables every provider. Public/general installations use the s
 The private personal harness is grouped into four capability domains:
 
 ```text
-Dev       read edit write wait apply_patch bash pc_sleep
+Dev       read edit write file_ops wait bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 Browser   one Chrome DevTools MCP facade with resource-local Windows/Linux routing
@@ -47,8 +47,8 @@ Browser   one Chrome DevTools MCP facade with resource-local Windows/Linux routi
 
 A few important design choices:
 
-- `edit` is the guarded single-file primitive; `apply_patch` is for multi-file or structural changes.
-- Bash is native Bash; it is direct, native command execution.
+- `edit` is the guarded existing-text primitive across one or many files; `write` creates new text files; `file_ops` moves or deletes existing regular files.
+- Bash is native Bash. Syntax-shaped discovery/codemods use ast-grep through Bash and normally feed guarded `edit`; an existing authoritative `.patch`/`.diff` artifact uses `git apply --check -- "$patch" && git apply -- "$patch"`.
 - `wait` is a Dev action. It provides durable named waits for Terminal output/exit and local readiness conditions without consuming the normal Terminal read cursor.
 - `pc_sleep` is personal-only and sleeps the Windows host after explicit confirmation, with an optional Task Scheduler wake time.
 - Terminal PTYs are owned by tmux, so they survive provider, broker, and 1MCP restarts.

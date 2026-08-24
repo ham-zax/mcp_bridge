@@ -185,8 +185,8 @@ server.registerTool('read', {
 
 server.registerTool('edit', {
   description: pathMode === 'user'
-    ? 'Apply guarded exact, unique, disjoint replacements to one or more existing text files. Use read/rg to locate exact anchors when needed; use write for creation and file_ops for regular-file move/delete. Relative paths use the configured default cwd and absolute paths are accepted'
-    : 'Apply guarded exact, unique, disjoint replacements to one or more existing text files below the workspace root. Use read/rg to locate exact anchors when needed',
+    ? 'Apply guarded exact, unique, disjoint replacements to one or more existing text files. If oldText is not yet known, locate it with read/rg, Code, or ast-grep and widen the exact block until unique. Use write for creation and file_ops for regular-file move/delete. Relative paths use the configured default cwd and absolute paths are accepted'
+    : 'Apply guarded exact, unique, disjoint replacements to one or more existing text files below the workspace root. If oldText is not yet known, locate it with read/rg and widen the exact block until unique',
   inputSchema: {
     targets: z.array(z.object({
       path: modelPath,

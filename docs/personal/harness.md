@@ -5,7 +5,7 @@ The `personal` profile is the private Codex-like development surface. It runs wi
 ## Mental model
 
 ```text
-Dev       read edit write wait apply_patch bash pc_sleep
+Dev       read edit write file_ops wait bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 Browser   one Chrome surface; Windows by default, WSLg Linux when requested
@@ -67,8 +67,7 @@ Use for focused text/source reads. Relative paths resolve from the personal defa
 
 ### `edit`
 
-Use when the exact old text is already known, across one or more existing files. `edit` rejects missing, ambiguous, overlapping, stale, non-text, or duplicate-alias targets; all targets are planned before the first mutation, and partial post-mutation failures are reported explicitly. File count alone is not a reason to switch to `apply_patch`.
-
+Use for existing-text mutation across one or more files. If exact `oldText` is not yet known, inspect with `read`, `rg`, Code, or ast-grep and widen the exact block until it is unique. `edit` rejects missing, ambiguous, overlapping, stale, non-text, or duplicate-alias targets; all targets are planned before the first mutation, and partial post-mutation failures are reported explicitly. File count or a structural label does not change this route.
 
 The canonical request is always grouped, including one-file edits:
 
@@ -80,19 +79,29 @@ edit({
 })
 ```
 
-For multiple exact-known files, add more target records to the same request rather than switching tools only because the file count increased.
-
-### `apply_patch`
-
-Use for contextual or structural changes: insertions, refactors, add/delete/move operations, ambiguous anchors, or coordinated hunks where exact old substrings are not already known. It supports one or many files, preflights all targets before mutation, and can report explicit partial application; it is not selected merely because multiple files are involved.
+For multiple existing text files, add more target records to the same request rather than switching tools only because the file count increased.
 
 ### `write`
 
-Create-only. It refuses to overwrite an existing path.
+Use only for new text-file creation. It refuses to overwrite an existing path.
+
+### `file_ops`
+
+Use only to move or delete existing regular files. Final-component symlinks are rejected. A move stays on one filesystem, creates a no-overwrite hard link to the same inode, then removes the source name under stale-state guards; there is no copy fallback. See [Security](../security.md) for the cooperative serialization and final-path race boundary.
 
 ### `bash`
 
 Runs one bounded, noninteractive native Bash command string. Use it for Git, builds, tests, `rg`, repository inspection, and ordinary short execution; use Terminal when work must persist or needs a PTY/interactive workflow. For a large or unfamiliar repository with unknown CodeDB state, Bash/`rg` plus focused `read` is the lower-cost discovery path before invoking Code. There is no hidden mutable global cwd; use `cwd` explicitly when needed.
+
+For syntax-shaped discovery or codemods, use ast-grep through Bash. Inspect bounded matches and normally perform the final mutation through guarded `edit`; use ast-grep bulk rewrite only when the transformation is deterministic and every bounded match is intentionally changed.
+
+For an existing authoritative `.patch`/`.diff` artifact, use native Git:
+
+```bash
+git apply --check -- "$patch" && git apply -- "$patch"
+```
+
+Use `--3way` only when the user explicitly requests merge-style recovery. Do not automatically add fuzzy patch recovery.
 
 Native Bash/output remains the source of truth.
 
@@ -238,7 +247,8 @@ Manual `wsl-term new`, `watch`, `present`, and writable `attach` require an inte
 ```text
 Code      locate a symbol or implementation
 Dev       read focused source
-Dev       edit or apply_patch
+Dev       bash/ast-grep for syntax-shaped discovery when needed
+Dev       edit existing text; write new text; file_ops regular-file move/delete
 Dev       bash focused tests + git diff
 Terminal  start a watch/dev server if work must persist
 Dev wait  wait for readiness/output/exit without polling the full transcript

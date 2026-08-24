@@ -48,7 +48,7 @@ MCP_TERMINAL_FRONTEND=kitty
 Private-only profile:
 
 ```text
-Dev       read edit write wait apply_patch bash pc_sleep
+Dev       read edit write file_ops wait bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 Browser   one facade over resource-local Chrome DevTools MCP 1.7.0 children

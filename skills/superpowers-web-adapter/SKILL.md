@@ -222,7 +222,7 @@ This adapter does not replace other installed development skills.
 When MCP Harness Router also applies, keep the boundary explicit:
 
 - **Superpowers Web Adapter controls engineering workflow**: brainstorming, planning, debugging, implementation discipline, test strategy, worktree/isolation decisions, verification, review, and branch finishing.
-- **MCP Harness Router controls local primitive selection only**: for example `read` versus `bash`, `edit` versus `apply_patch`, CodeDB versus `rg`, Bash versus Terminal, or `wait` versus polling.
+- **MCP Harness Router controls local primitive selection only**: for example `read` versus `bash`, `edit` versus `write`/`file_ops`, CodeDB versus `rg`, Bash versus Terminal, or `wait` versus polling.
 - Do not let MCP Harness Router prescribe Git workflow, worktree policy, planning, testing, review, or implementation methodology.
 - Do not invoke MCP Harness Router merely because a software-development task exists. Use it when choosing among available local Dev, Code, Terminal, or wait primitives is materially relevant.
 - If the router's preferred primitive is unavailable, preserve the Superpowers workflow and choose the best actually exposed local primitive rather than inventing a tool.
