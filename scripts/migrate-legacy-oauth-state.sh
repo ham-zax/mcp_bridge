@@ -75,8 +75,8 @@ case "$STATE_DIR/" in
     ;;
 esac
 
-# 1MCP 0.34.4 derives sessionStoragePath=<config-dir>/sessions and its
-# FileStorageService then stores server records under sessions/server, yielding
+# The qualified 1MCP runtime derives sessionStoragePath=<config-dir>/sessions and
+# FileStorageService stores server records under sessions/server, yielding
 # <config-dir>/sessions/sessions/server. Accept the preceding layout as a
 # compatibility fallback for an older/explicit session-storage arrangement.
 SOURCE_SERVER=""

@@ -1,0 +1,10 @@
+interface:
+  display_name: Agent Browser
+  short_description: Route local browser work to Chrome MCP or agent-browser CLI.
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true

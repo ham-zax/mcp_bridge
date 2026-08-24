@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ONE_MCP_VERSION="0.34.4"
+ONE_MCP_VERSION="0.36.0"
 SHELL_MCP_VERSION="1.1.8"
 
 echo "== installing pinned 1MCP aggregator =="
@@ -25,26 +25,6 @@ if (!loggerSource.includes('maxsize: options.maxSize') || !loggerSource.includes
 }
 NODE
 echo "  verified native log rotation (structured maxSize/maxFiles)"
-
-echo "== applying verified upstream 1MCP patch =="
-SDK_PROVIDER="$(npm root -g)/@1mcp/agent/build/auth/sdkOAuthServerProvider.js"
-if [ ! -f "$SDK_PROVIDER" ]; then
-  echo "expected 1MCP OAuth provider missing: $SDK_PROVIDER" >&2
-  exit 1
-fi
-if grep -Fq "form-action 'self' https:" "$SDK_PROVIDER"; then
-  echo "  OAuth consent CSP patch already applied"
-elif grep -Fq "form-action 'self'" "$SDK_PROVIDER"; then
-  sed -i "s/form-action 'self'/form-action 'self' https:/g" "$SDK_PROVIDER"
-  grep -Fq "form-action 'self' https:" "$SDK_PROVIDER" || {
-    echo "failed to verify OAuth consent CSP patch" >&2
-    exit 1
-  }
-  echo "  patched OAuth consent CSP (form-action https:) in $SDK_PROVIDER"
-else
-  echo "unexpected 1MCP $ONE_MCP_VERSION OAuth provider contents; refusing blind patch" >&2
-  exit 1
-fi
 
 echo "== verifying WebSession MCP Bridge prerequisites =="
 for cmd in node npm npx uv uvx cloudflared curl flock; do

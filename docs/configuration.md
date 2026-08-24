@@ -50,9 +50,10 @@ Private-only profile:
 Dev       read edit write wait apply_patch bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
+Browser   one facade over resource-local Chrome DevTools MCP 1.7.0 children
 ```
 
-The renderer resolves one absolute personal default cwd from `MCP_PERSONAL_DEFAULT_CWD` when supplied, otherwise from the actual WSL user's `$HOME`, and uses it for both Dev and Code. No tracked personal profile/template carries a machine-specific home path. Terminal communicates through the private broker socket. `pc_sleep` is registered only in this personal user-path mode and uses Windows Task Scheduler for an optional wake time. Code has no repository-size preflight or threshold: first use may start a persistent CodeDB child and create or update substantial on-disk index state, potentially consuming significant disk and RAM. Tool descriptions steer large or unfamiliar repository discovery toward Dev Bash/`rg` and focused `read` first; that guidance is not runtime enforcement.
+The renderer resolves one absolute personal default cwd from `MCP_PERSONAL_DEFAULT_CWD` when supplied, otherwise from the actual WSL user's `$HOME`, and uses it for both Dev and Code. No tracked personal profile/template carries a machine-specific home path. Terminal communicates through the private broker socket. Browser is private-only and appears in 1MCP as one `browser` provider tagged only `browser`. Its tools default to the normal Windows Chrome profile; `browser_target=linux` selects the WSLg-managed Chrome child. The facade owns the pinned Linux/Windows Chrome DevTools MCP 1.7.0 launch definitions internally and advertises no filesystem roots to them, so upstream path-bearing browser tools remain OS-temp-only. `pc_sleep` is registered only in this personal user-path mode and uses Windows Task Scheduler for an optional wake time. Code has no repository-size preflight or threshold: first use may start a persistent CodeDB child and create or update substantial on-disk index state, potentially consuming significant disk and RAM. Tool descriptions steer large or unfamiliar repository discovery toward Dev Bash/`rg` and focused `read` first; that guidance is not runtime enforcement.
 
 ## Rendering
 

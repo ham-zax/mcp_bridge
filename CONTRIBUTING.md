@@ -23,6 +23,7 @@ bash tests/lifecycle.sh
 (cd providers/pi-dev && npm test)
 (cd providers/terminal && npm test)
 (cd providers/code-router && npm test)
+(cd providers/browser && npm test)
 bash scripts/check-personal-toolbox.sh
 git diff --check
 ```

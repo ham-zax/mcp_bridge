@@ -118,7 +118,7 @@ mcp-harness-local connector known
         -> direct MCP invocation
 ```
 
-The router should favor capability-specific discovery terms such as `screenshot`, `navigate`, `page`, `network`, or another known tool concept. It should not habitually query `chrome`/`browser` merely to enumerate the whole upstream catalog, because provider-prefixed names can make such a broad query load many schemas at once.
+The router should prefer exact known action names such as `list_pages`, `navigate_page`, `take_screenshot`, or `list_network_requests`. When the exact action is not known, use genuinely selective terms such as `navigate`, `screenshot`, `network`, or `upload`; do not use broad `page`, `chrome`, or `browser` discovery merely to enumerate the upstream catalog.
 
 Known stable browser actions may be reused after discovery within the same session/profile. Do not rediscover the entire Chrome catalog before every browser call.
 
@@ -290,7 +290,7 @@ Do not add another browser proxy, daemon, or launcher layer around the thin Brow
 - Produces: end-to-end Linux/WSLg browser-control evidence.
 
 **Steps:**
-- [ ] In a fresh ChatGPT session/profile, discover only the needed browser schema using a capability-specific query such as `page`, `navigate`, or `screenshot`; do not enumerate all Chrome schemas first.
+- [ ] In a fresh ChatGPT session/profile, discover only the needed browser schema by exact action name when known (for example `navigate_page` or `take_screenshot`), otherwise use a selective term such as `navigate` or `screenshot`; do not enumerate all Chrome schemas first.
 - [ ] Invoke a Browser tool with `browser_target=linux` and confirm Chrome DevTools MCP launches a visible Linux Chrome window through WSLg.
 - [ ] Navigate an innocuous page and confirm the user can manually interact with the same visible Linux browser.
 - [ ] Invoke `take_screenshot` and require ChatGPT to receive/render an actual image result through the direct 1MCP path.
@@ -352,15 +352,15 @@ node --check scripts/*.mjs providers/pi-dev/*.mjs providers/terminal/*.mjs provi
 git diff --check
 ```
 
-- [x] Verify `tests/publication.sh` still fails only on the already-known personal deployment identity in `docs/websession-clients.md`; it remains 19 tests / 1 unchanged failure.
+- [x] Verify `tests/publication.sh`; after the concurrent generic-domain cleanup in `docs/websession-clients.md`, it now passes 19/19.
 - [x] Inspect the final diff for accidental public-profile changes, personal paths, extra OAuth widening, wrappers, 1MCP lazy-mode changes, or unrelated cleanup; none were introduced.
 - [x] Define runtime rollback as restoring the previous known-good source revision, re-rendering the personal composition, and restarting only `mcp-dev-bridge.service`; preserve OAuth/session state and Terminal/tmux lifetime.
 - [x] Define browser-authorization rollback as removing/revoking `tag:browser` from the affected client authorization rather than deleting unrelated provider state.
 
 **Verification evidence (2026-08-24):**
-- `tests/harness.sh`, `tests/lifecycle.sh`, Terminal tests, Code tests, Browser facade tests, personal toolbox, doc links, shell syntax, Node syntax, and `git diff --check` passed.
+- `tests/harness.sh`, `tests/lifecycle.sh`, Terminal tests, Code tests, Browser facade tests, personal toolbox, doc links, shell syntax, Node syntax, and `git diff --check` passed. The Browser suite is now 4/4, including the shutdown-versus-dead-child-replacement race reported by independent review.
 - Direct Browser facade acceptance exposed 29 tools exactly once, added `browser_target` to all 29 schemas, and returned native `image/png` screenshots from both the default Windows target and explicit Linux target.
-- `tests/publication.sh` has only the unchanged pre-existing personal-domain failure in `docs/websession-clients.md`.
+- `tests/publication.sh` passes 19/19 after the separate concurrent generic-domain cleanup in `docs/websession-clients.md`.
 - The Pi suite is independently timing-flaky under full parallel execution: successive full runs failed on different wait-race timing assertions, while each focused failing assertion passed immediately without a code change. No Browser/1MCP change touches those wait-engine/retained-pane paths, so this mission does not rewrite them merely to force a green unrelated suite.
 
 **Acceptance criteria:**

@@ -11,6 +11,7 @@ Cloudflare Tunnel
   -> Dev
   -> Code       (personal only)
   -> Terminal   (personal only)
+  -> Browser    (personal only)
 Linux / WSL host
 ```
 
@@ -100,6 +101,18 @@ wsl-agent-terminal-broker.service  broker/transcript/control state
 
 Restart the broker without restarting tmux when only broker/provider code changes.
 
+### Browser
+
+Browser is one private personal MCP provider under `tag:browser`. It exposes the Chrome DevTools MCP tool catalog once and dispatches each call to the resource-local child selected by `browser_target`:
+
+```text
+browser facade
+  +-- windows (default) -> Windows cmd/npx -> normal native Windows Chrome profile
+  `-- linux             -> Linux npx -> managed visible Chrome through WSLg
+```
+
+The facade inherits the WSLg display/runtime environment needed by its Linux child. Its Windows child uses `%LOCALAPPDATA%\\Google\\Chrome\\User Data` so normal-profile discovery remains username-independent in tracked source. The facade returns downstream `CallToolResult` objects unchanged, so screenshots remain native image content rather than wrapper JSON/text.
+
 ## Trust/profile separation
 
-Public `restricted` and `trusted-dev` configurations do not gain private Code, Terminal, `wait`, or personal Terminal-socket dependencies. The private `personal` profile is an explicit separate composition.
+Public `restricted` and `trusted-dev` configurations do not gain private Code, Terminal, Browser, `wait`, or personal Terminal-socket dependencies. The private `personal` profile is an explicit separate composition.

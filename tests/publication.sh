@@ -30,6 +30,7 @@ is_public_path() {
     systemd/wsl-agent-tmux.service.in | \
     systemd/wsl-agent-terminal-broker.service.in | \
     providers/code-router/* | \
+    providers/browser/* | \
     scripts/bootstrap-personal.sh | \
     skills/* | \
     bin/wsl-term)
@@ -104,6 +105,7 @@ test_private_only_paths_are_not_public() {
     systemd/wsl-agent-tmux.service.in \
     systemd/wsl-agent-terminal-broker.service.in \
     providers/code-router/example \
+    providers/browser/example \
     scripts/bootstrap-personal.sh \
     skills/example \
     bin/wsl-term; do

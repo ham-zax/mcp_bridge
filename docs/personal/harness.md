@@ -8,13 +8,15 @@ The `personal` profile is the private Codex-like development surface. It runs wi
 Dev       read edit write wait apply_patch bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
+Browser   one Chrome surface; Windows by default, WSLg Linux when requested
 ```
 
-Think in three domains, not 17 unrelated tools:
+Think in four domains:
 
 - **Dev** handles focused text/file work, bounded execution, durable waits, and explicit Windows-host sleep.
 - **Code** provides rooted indexed repository intelligence without exposing raw CodeDB mechanics; first use may create or update heavyweight persistent index state.
 - **Terminal** owns durable PTY/process lifetime and human/model terminal ownership.
+- **Browser** exposes the Chrome tool catalog once. Omit `browser_target` for the normal native Windows Chrome profile; use `browser_target=linux` for the WSLg-managed Chrome instance. The facade keeps those profiles separate internally.
 
 ## Private setup
 
@@ -30,7 +32,7 @@ scripts/bootstrap-personal.sh --enable-startup
 
 `--enable-startup` is explicit consent to install the user-systemd units, enable user linger, enable the services, and start them now. After that, the services start automatically whenever this WSL user's systemd manager starts. The bootstrap does **not** configure Windows to launch WSL.
 
-The same command also qualifies the personal CLI toolbox, installs/verifies the pinned 1MCP runtime and OAuth compatibility patch through the repository's shared runtime installer, installs all three pinned provider dependency trees, renders the personal 1MCP composition, and installs:
+The same command also qualifies the personal CLI toolbox, installs/verifies the pinned 1MCP runtime through the repository's shared runtime installer, installs all four pinned in-repo provider dependency trees, renders the personal 1MCP composition including the Browser facade, and installs:
 
 ```text
 ~/.local/bin/wsl-term -> <this checkout>/bin/wsl-term

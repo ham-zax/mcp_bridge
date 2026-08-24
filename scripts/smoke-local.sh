@@ -14,14 +14,28 @@ const cfg = JSON.parse(fs.readFileSync(configFile, 'utf8'));
 const dev = cfg.mcpServers?.dev;
 const code = cfg.mcpServers?.code;
 const terminal = cfg.mcpServers?.terminal;
+const browser = cfg.mcpServers?.browser;
 if (cfg.mcpServers?.filesystem) throw new Error('filesystem provider must be absent after Pi cutover');
 if (cfg.mcpServers?.codedb) throw new Error('raw codedb provider must remain hidden behind the Code facade');
 if (profile) {
   const actual = Object.keys(cfg.mcpServers ?? {}).sort();
-  const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : profile === 'personal' ? ['code', 'dev', 'terminal'] : null;
+  const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : profile === 'personal' ? ['browser', 'code', 'dev', 'terminal'] : null;
   if (!expected || JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`unexpected final provider set for ${profile || 'unknown'}: ${actual.join(',')}`);
   }
+}
+if (browser) {
+  if (profile !== 'personal') throw new Error('Browser provider is private to the personal profile');
+  if (browser.command !== 'node') throw new Error('Browser facade must run with node');
+  const expectedServer = path.join(repoRoot, 'providers', 'browser', 'server.mjs');
+  if (JSON.stringify(browser.args ?? []) !== JSON.stringify([expectedServer])) throw new Error('unexpected Browser facade server path');
+  const env = browser.env ?? {};
+  if (!path.isAbsolute(env.XDG_RUNTIME_DIR ?? '')) throw new Error('Browser XDG_RUNTIME_DIR must be absolute');
+  if (env.WAYLAND_DISPLAY !== 'wayland-0' || env.DISPLAY !== ':0' || env.PULSE_SERVER !== 'unix:/mnt/wslg/PulseServer') throw new Error('unexpected Browser WSLg environment');
+  if (JSON.stringify(browser.tags ?? []) !== JSON.stringify(['browser'])) throw new Error('Browser facade must use only the browser tag');
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'providers', 'browser', 'package.json'), 'utf8'));
+  if (pkg.dependencies?.['@modelcontextprotocol/sdk'] !== '1.30.0') throw new Error('unexpected Browser MCP SDK pin');
+  if (pkg.dependencies?.zod !== '4.4.3') throw new Error('unexpected Browser zod pin');
 }
 if (terminal) {
   if (profile !== 'personal') throw new Error('Terminal provider is private to the personal profile');

@@ -8,6 +8,7 @@ lib/bridge/          lifecycle/process supervision internals
 providers/pi-dev/    Dev Files/Bash/patch/wait provider
 providers/code-router/ Code facade + rooted CodeDB router
 providers/terminal/  Terminal MCP, broker, tmux/transcript logic
+providers/browser/   Browser facade + resource-local Chrome child routing
 providers/legacy-shell/ restricted-profile legacy shell
 config/              tracked templates and trust profiles
 scripts/             setup, rendering, migration, toolbox, installers
@@ -25,6 +26,7 @@ Fresh linked worktrees do not inherit ignored `node_modules`. Install pinned dep
 npm --prefix providers/pi-dev ci --omit=dev
 npm --prefix providers/terminal ci --omit=dev
 npm --prefix providers/code-router ci --omit=dev
+npm --prefix providers/browser ci --omit=dev
 ```
 
 ## Full verification
@@ -36,10 +38,11 @@ bash tests/lifecycle.sh
 (cd providers/pi-dev && npm test)
 (cd providers/terminal && npm test)
 (cd providers/code-router && npm test)
+(cd providers/browser && npm test)
 bash scripts/check-personal-toolbox.sh
 node scripts/check-doc-links.mjs
 bash -n bin/* lib/bridge/*.sh scripts/*.sh tests/*.sh
-node --check scripts/*.mjs providers/pi-dev/*.mjs providers/terminal/*.mjs providers/code-router/*.mjs
+node --check scripts/*.mjs providers/pi-dev/*.mjs providers/terminal/*.mjs providers/code-router/*.mjs providers/browser/*.mjs
 git diff --check
 ```
 

@@ -33,7 +33,7 @@ test_no_global_process_matching() {
 }
 
 test_dependencies_are_pinned() {
-  contains "$ROOT/scripts/install-bridge-runtime.sh" 'ONE_MCP_VERSION="0\.34\.4"' && \
+  contains "$ROOT/scripts/install-bridge-runtime.sh" 'ONE_MCP_VERSION="0\.36\.0"' && \
   contains "$ROOT/providers/pi-dev/package.json" '"@earendil-works/pi-coding-agent"[[:space:]]*:[[:space:]]*"0\.84\.1"' && \
   contains "$ROOT/config/templates/mcp.json" 'mcp-shell-server==1\.1\.8'
 }
@@ -45,12 +45,6 @@ test_native_1mcp_rotation_capability_is_guarded() {
   contains "$helper" 'maxSize' &&
   contains "$helper" 'maxFiles' &&
   contains "$helper" 'native log rotation'
-}
-
-test_oauth_csp_patch_is_preserved() {
-  contains "$ROOT/scripts/install-bridge-runtime.sh" "form-action 'self' https:" && \
-  contains "$ROOT/scripts/install-bridge-runtime.sh" "form-action 'self'" && \
-  contains "$ROOT/scripts/install-bridge-runtime.sh" 'unexpected 1MCP .* OAuth provider contents; refusing blind patch'
 }
 
 test_shared_bridge_runtime_installer_is_used() {
@@ -154,7 +148,6 @@ run_test 'lifecycle entrypoint scripts remain executable' test_scripts_are_execu
 run_test 'no global pkill/pgrep lifecycle management' test_no_global_process_matching
 run_test 'privileged MCP dependencies are pinned' test_dependencies_are_pinned
 run_test 'pinned 1MCP native rotation capability is guarded' test_native_1mcp_rotation_capability_is_guarded
-run_test '1MCP OAuth consent CSP compatibility patch is preserved' test_oauth_csp_patch_is_preserved
 run_test 'public and personal setup share the pinned bridge runtime installer' test_shared_bridge_runtime_installer_is_used
 run_test 'Cloudflare OAuth Bridge is the only canonical stack' test_cloudflare_oauth_is_canonical
 run_test 'start.sh is the canonical Cloudflare OAuth entrypoint' test_start_is_canonical_entrypoint

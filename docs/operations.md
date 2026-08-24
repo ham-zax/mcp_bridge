@@ -195,12 +195,15 @@ A tmux-owned Terminal shell is suitable as an external control process because t
 
 The superseded migration procedure is preserved under [engineering history](history/acceptance/migration-from-local-bridge.md).
 
-## 1MCP 0.34.4 compatibility
+## 1MCP 0.36.0 compatibility
 
 This project intentionally:
 
 - supervises the real 1MCP Node entrypoint instead of relying on `serve --background`;
 - verifies that the pinned runtime supports structured native `logging.maxSize` / `logging.maxFiles` rotation before relying on it;
-- verifies/applies the narrow OAuth consent CSP adjustment needed for the HTTPS ChatGPT callback.
+- relies on upstream validated callback-origin CSP handling rather than patching installed 1MCP source;
+- uses built-in `mcp.json` hot reload for provider-only changes, including atomic renderer replacements; restart the bridge only when the 1MCP executable itself changes or when observed reload failure requires it.
 
 These are pinned-version compatibility behaviors. Requalify them when upgrading 1MCP.
+
+For the personal Browser domain, Chrome remote debugging must be enabled in the normal Windows Chrome profile before the Browser facade can dispatch Windows-targeted calls. Internally that child uses `--autoConnect` plus `--user-data-dir=%LOCALAPPDATA%\\Google\\Chrome\\User Data`; this was selected after bare `--autoConnect` timed out in qualification. Do not expose a public debugging port. Browser tools default to this Windows target; `browser_target=linux` selects a separate managed Chrome profile through WSLg.
