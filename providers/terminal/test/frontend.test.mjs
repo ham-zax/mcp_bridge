@@ -61,6 +61,7 @@ test('ensurePresented reuses an existing designated frontend without spawning', 
   let spawnCount = 0;
   const controller = createFrontendController({
     client,
+    env: { MCP_TERMINAL_FRONTEND: 'windows-terminal' },
     repoRoot: REPO_ROOT,
     spawnFn() { spawnCount += 1; throw new Error('must not spawn'); },
   });
@@ -234,6 +235,216 @@ test('concurrent ensurePresented calls for one session are single-flight', async
   assert.deepEqual(first, second);
   assert.equal(first.status, 'launch-attempted');
   assert.equal(spawnCount, 1);
+});
+
+test('Windows launcher derives both documented WSL UNC forms and quotes ordinary spaces', async (t) => {
+  for (const windowsRoot of [
+    '\\\\wsl.localhost\\Ubuntu Test',
+    '\\\\wsl$\\Ubuntu Test',
+  ]) {
+    await t.test(windowsRoot, async () => {
+      const { client } = stateClient([
+        { name: 'demo', humanLease: false, humanAttached: false },
+        { name: 'demo', humanLease: false, humanAttached: true },
+      ]);
+      const execCalls = [];
+      const spawns = [];
+      const child = fakeChild();
+      const controller = createFrontendController({
+        client,
+        env: { MCP_TERMINAL_FRONTEND: 'windows-terminal', USER: 'wrong-user' },
+        repoRoot: '/home/test repo',
+        execFileFn: async (command, args, options) => {
+          execCalls.push({ command, args, options });
+          return { stdout: windowsRoot };
+        },
+        userInfoFn: () => ({ username: 'right user' }),
+        spawnFn(command, args, options) {
+          spawns.push({ command, args, options });
+          return child;
+        },
+        ...fakeClock(),
+      });
+
+      const result = await controller.ensurePresented('demo');
+      assert.equal(result.status, 'launch-attempted');
+      assert.deepEqual(execCalls, [{
+        command: 'wslpath',
+        args: ['-w', '/'],
+        options: { encoding: 'utf8' },
+      }]);
+      assert.equal(spawns.length, 1);
+      assert.equal(spawns[0].command, 'cmd.exe');
+      assert.deepEqual(spawns[0].args.slice(0, 2), ['/d', '/c']);
+      assert.equal(spawns[0].options.cwd, '/mnt/c');
+      assert.equal(spawns[0].options.detached, true);
+      assert.equal(spawns[0].options.stdio, 'ignore');
+      const command = spawns[0].args[2];
+      assert.match(command, /^wt\.exe -w new new-tab --title "Terminal: demo" --suppressApplicationTitle wsl\.exe /);
+      assert.ok(command.includes('-d "Ubuntu Test"'));
+      assert.ok(command.includes('-u "right user"'));
+      assert.ok(!command.includes('wrong-user'));
+      assert.ok(command.includes(`/usr/bin/env "TERMINAL_NODE_BIN=${process.execPath}"`));
+      assert.ok(command.includes('"/home/test repo/bin/wsl-term" present "demo"'));
+      assert.equal(child.unrefCalled, true);
+    });
+  }
+});
+
+test('Windows command construction fails closed on unsupported CMD metacharacters', async () => {
+  const { client } = stateClient([
+    { name: 'demo', humanLease: false, humanAttached: false },
+  ]);
+  let spawnCount = 0;
+  const controller = createFrontendController({
+    client,
+    env: { MCP_TERMINAL_FRONTEND: 'windows-terminal', WSL_DISTRO_NAME: 'Ubuntu' },
+    repoRoot: REPO_ROOT,
+    execFileFn: async () => { throw new Error('WSL_DISTRO_NAME should win'); },
+    userInfoFn: () => ({ username: 'tester&whoami' }),
+    nodeBin: '/usr/bin/node',
+    spawnFn() { spawnCount += 1; return fakeChild(); },
+  });
+
+  await assert.rejects(
+    controller.ensurePresented('demo'),
+    (error) => error?.code === 'FRONTEND_LAUNCH_FAILED'
+      && /unsupported CMD metacharacters/.test(error.message)
+      && error.message.includes(`${WSL_TERM} attach demo`),
+  );
+  assert.equal(spawnCount, 0);
+});
+
+test('clean transient Windows launcher exit can still become attached', async () => {
+  const { client } = stateClient([
+    { name: 'demo', humanLease: false, humanAttached: false },
+    { name: 'demo', humanLease: false, humanAttached: false },
+    { name: 'demo', humanLease: false, humanAttached: true },
+  ]);
+  const child = fakeChild();
+  child.exitCode = 0;
+  const controller = createFrontendController({
+    client,
+    env: { MCP_TERMINAL_FRONTEND: 'windows-terminal', WSL_DISTRO_NAME: 'Ubuntu' },
+    repoRoot: REPO_ROOT,
+    execFileFn: async () => { throw new Error('WSL_DISTRO_NAME should win'); },
+    userInfoFn: () => ({ username: 'tester' }),
+    nodeBin: '/usr/bin/node',
+    spawnFn: () => child,
+    readinessTimeoutMs: 50,
+    pollIntervalMs: 10,
+    ...fakeClock(),
+  });
+
+  const result = await controller.ensurePresented('demo');
+  assert.equal(result.status, 'launch-attempted');
+});
+
+test('broker attachment wins over a nonzero transient Windows launcher exit', async () => {
+  const { client } = stateClient([
+    { name: 'demo', humanLease: false, humanAttached: false },
+    { name: 'demo', humanLease: false, humanAttached: true },
+  ]);
+  const child = fakeChild();
+  child.exitCode = 7;
+  const controller = createFrontendController({
+    client,
+    env: { MCP_TERMINAL_FRONTEND: 'windows-terminal', WSL_DISTRO_NAME: 'Ubuntu' },
+    repoRoot: REPO_ROOT,
+    userInfoFn: () => ({ username: 'tester' }),
+    nodeBin: '/usr/bin/node',
+    spawnFn: () => child,
+    ...fakeClock(),
+  });
+
+  const result = await controller.ensurePresented('demo');
+  assert.equal(result.status, 'launch-attempted');
+});
+
+test('Windows timeout with a human lease reports settling without immediate manual attach', async () => {
+  const { client } = stateClient([
+    { name: 'demo', humanLease: false, humanAttached: false },
+    { name: 'demo', humanLease: true, humanAttached: false },
+  ]);
+  const child = fakeChild();
+  child.exitCode = 0;
+  const controller = createFrontendController({
+    client,
+    env: { MCP_TERMINAL_FRONTEND: 'windows-terminal', WSL_DISTRO_NAME: 'Ubuntu' },
+    repoRoot: REPO_ROOT,
+    userInfoFn: () => ({ username: 'tester' }),
+    nodeBin: '/usr/bin/node',
+    spawnFn: () => child,
+    readinessTimeoutMs: 20,
+    pollIntervalMs: 10,
+    ...fakeClock(),
+  });
+
+  await assert.rejects(
+    controller.ensurePresented('demo'),
+    (error) => error?.code === 'FRONTEND_NOT_READY'
+      && /still settling/.test(error.message)
+      && /re-list/.test(error.message)
+      && !error.message.includes(`${WSL_TERM} attach demo`),
+  );
+});
+
+test('Windows timeout without attachment or lease returns exact manual fallback', async () => {
+  const { client } = stateClient([
+    { name: 'demo', humanLease: false, humanAttached: false },
+  ]);
+  const child = fakeChild();
+  child.exitCode = 0;
+  const controller = createFrontendController({
+    client,
+    env: { MCP_TERMINAL_FRONTEND: 'windows-terminal', WSL_DISTRO_NAME: 'Ubuntu' },
+    repoRoot: REPO_ROOT,
+    userInfoFn: () => ({ username: 'tester' }),
+    nodeBin: '/usr/bin/node',
+    spawnFn: () => child,
+    readinessTimeoutMs: 20,
+    pollIntervalMs: 10,
+    ...fakeClock(),
+  });
+
+  await assert.rejects(
+    controller.ensurePresented('demo'),
+    (error) => error?.code === 'FRONTEND_NOT_READY'
+      && error.message.includes(`${WSL_TERM} attach demo`),
+  );
+});
+
+test('Windows launcher failure never invokes Kitty process-group cleanup', async () => {
+  const { client } = stateClient([
+    { name: 'demo', humanLease: false, humanAttached: false },
+  ]);
+  const child = fakeChild(67890);
+  child.exitCode = 9;
+  let cleanupCount = 0;
+  const spawns = [];
+  const controller = createFrontendController({
+    client,
+    env: { MCP_TERMINAL_FRONTEND: 'windows-terminal', WSL_DISTRO_NAME: 'Ubuntu' },
+    repoRoot: REPO_ROOT,
+    userInfoFn: () => ({ username: 'tester' }),
+    nodeBin: '/usr/bin/node',
+    spawnFn(command, args, options) {
+      spawns.push({ command, args, options });
+      return child;
+    },
+    killProcessGroup: async () => { cleanupCount += 1; },
+    ...fakeClock(),
+  });
+
+  await assert.rejects(
+    controller.ensurePresented('demo'),
+    (error) => error?.code === 'FRONTEND_LAUNCH_FAILED'
+      && /code 9/.test(error.message)
+      && error.message.includes(`${WSL_TERM} attach demo`),
+  );
+  assert.equal(cleanupCount, 0);
+  assert.equal(spawns[0].command, 'cmd.exe');
+  assert.ok(!spawns[0].args[2].toLowerCase().includes('taskkill'));
 });
 
 test('frontend unavailable returns actionable manual attach fallback', async () => {

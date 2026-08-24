@@ -166,7 +166,7 @@ export function createTerminalMcpServer({ client, frontend } = {}) {
   }));
 
   server.registerTool('terminal_yield', {
-    description: 'Yield a model-owned collaborative Terminal session to human control. Reuse an already attached designated human frontend when present; if none is attached, ensure the personal Kitty frontend for the exact tmux PTY and then yield. After success, model send/resize/ordinary close is blocked until the human gives control back.',
+    description: 'Yield a model-owned collaborative Terminal session to human control. Reuse an already attached designated human frontend when present; if none is attached, ensure the configured personal frontend for the exact tmux PTY and then yield. After success, model send/resize/ordinary close is blocked until the human gives control back.',
     inputSchema: { name },
   }, async (args) => invoke(async () => {
     let result;

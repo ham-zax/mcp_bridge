@@ -95,7 +95,7 @@ export async function renderConfig(options) {
   const deployment = {
     ...(await readEnvFile(envFile, { optional: true })),
     ...Object.fromEntries(
-      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_DEV_MAX_SPOOL_BYTES', 'MCP_DEV_SPOOL_TTL_SECONDS', 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES', 'MCP_ONE_MCP_LOG_MAX_SIZE_BYTES', 'MCP_ONE_MCP_LOG_MAX_FILES', 'MCP_PERSONAL_DEFAULT_CWD'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
+      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_DEV_MAX_SPOOL_BYTES', 'MCP_DEV_SPOOL_TTL_SECONDS', 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES', 'MCP_ONE_MCP_LOG_MAX_SIZE_BYTES', 'MCP_ONE_MCP_LOG_MAX_FILES', 'MCP_PERSONAL_DEFAULT_CWD', 'MCP_TERMINAL_FRONTEND'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
     ),
   };
   const profileValues = await readEnvFile(path.join(repoRoot, 'config', 'profiles', `${profile}.env`));
@@ -107,6 +107,7 @@ export async function renderConfig(options) {
 
   const isPersonal = profile === 'personal';
   let personalDefaultCwd = null;
+  let terminalFrontend = 'kitty';
   if (isPersonal) {
     if (!runtimeDir || !path.isAbsolute(runtimeDir)) {
       throw new Error('personal profile requires an absolute XDG_RUNTIME_DIR or a user runtime directory');
@@ -117,6 +118,10 @@ export async function renderConfig(options) {
     personalDefaultCwd = deployment.MCP_PERSONAL_DEFAULT_CWD || home;
     if (typeof personalDefaultCwd !== 'string' || !path.isAbsolute(personalDefaultCwd)) {
       throw new Error('MCP_PERSONAL_DEFAULT_CWD must be an absolute path when set');
+    }
+    terminalFrontend = String(deployment.MCP_TERMINAL_FRONTEND ?? '').trim() || 'kitty';
+    if (!['kitty', 'windows-terminal'].includes(terminalFrontend)) {
+      throw new Error('MCP_TERMINAL_FRONTEND must be one of: kitty, windows-terminal');
     }
   }
 
@@ -184,6 +189,7 @@ export async function renderConfig(options) {
     __DEV_SPOOL_TTL_SECONDS__: String(devSpoolTtlSeconds),
     __DEV_SPOOL_MAX_TOTAL_BYTES__: String(devSpoolMaxTotalBytes),
     __TERMINAL_SOCKET__: runtimeDir ? path.join(runtimeDir, 'wsl-agent-terminal.sock') : '',
+    __TERMINAL_FRONTEND__: terminalFrontend,
     __RUNTIME_DIR__: runtimeDir ?? '',
   });
 
