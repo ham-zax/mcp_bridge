@@ -1,6 +1,6 @@
 ---
 name: reflexion
-description: Use when the user asks to reflect on, critique, double-check, verify, improve, or memorize completed or nearly completed work, especially for evidence-backed review, multi-perspective critique, or turning verified lessons into durable repository guidance.
+description: Self-refinement, multi-perspective critique, verification, and durable lesson curation adapted from NeoLabHQ Reflexion. Use when the user asks to reflect, self-review, critique, double-check, verify and improve prior work, run a rigorous review, memorize lessons, or says "then reflect" after a coding, analysis, or writing task. Supports repository-aware evidence gathering and works without subagents or Claude hooks.
 ---
 
 # Reflexion

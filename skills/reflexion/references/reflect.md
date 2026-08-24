@@ -79,7 +79,7 @@ Classify findings by consequence:
 
 If no material issue remains, say what was verified and what evidence supports the result. Do not manufacture criticism to justify the reflection step.
 
-If refinement is needed and the user already authorized implementation within the same scope, fix the issue and rerun the relevant checks. Otherwise present the finding and recommended action.
+If refinement is needed and the user already authorized implementation within the same scope, fix the issue and re-establish only the evidence invalidated by that fix. Do not introduce tests or broader validation unless independently authorized. Otherwise present the finding and recommended action.
 
 ## 5. Report shape
 
