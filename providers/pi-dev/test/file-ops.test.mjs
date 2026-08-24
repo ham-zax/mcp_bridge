@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -42,6 +44,37 @@ test('file_ops rejects an initial final-component symlink without touching its r
 
   assert.equal(await fs.readFile(victim, 'utf8'), 'keep\n');
   assert.equal((await fs.lstat(link)).isSymbolicLink(), true);
+});
+
+test('file_ops rejects a FIFO promptly without waiting for a peer', async () => {
+  const defaultCwd = await tempDir('file-ops-fifo-');
+  const fifo = path.join(defaultCwd, 'pipe');
+  execFileSync('mkfifo', [fifo]);
+
+  let rescueUsed = false;
+  let rescuePromise = Promise.resolve();
+  const rescue = setTimeout(() => {
+    rescueUsed = true;
+    rescuePromise = fs.open(fifo, constants.O_WRONLY | constants.O_NONBLOCK)
+      .then(handle => handle.close())
+      .catch(() => {});
+  }, 250);
+
+  try {
+    await assert.rejects(
+      () => runFileOps({
+        pathMode: 'user',
+        defaultCwd,
+        operations: [{ kind: 'delete', path: 'pipe' }],
+      }),
+      /regular file/i
+    );
+  } finally {
+    clearTimeout(rescue);
+    await rescuePromise;
+  }
+
+  assert.equal(rescueUsed, false, 'FIFO validation waited for a peer before rejecting the entry');
 });
 
 test('symlink substitution while queued cannot redirect delete to the referent', async () => {

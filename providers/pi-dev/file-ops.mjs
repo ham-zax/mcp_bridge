@@ -78,7 +78,10 @@ const defaultOperations = {
 async function inspectRegularEntry(operations, target, label) {
   let handle;
   try {
-    handle = await operations.openFile(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+    handle = await operations.openFile(
+      target,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+    );
     const stat = await handle.stat({ bigint: true });
     if (!stat.isFile()) {
       throw fileOpsError(`${label} must be an existing regular file`, 'FILE_OPS_CONFLICT');
