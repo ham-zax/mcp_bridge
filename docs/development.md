@@ -5,7 +5,7 @@
 ```text
 bin/                 lifecycle and human Terminal entrypoints
 lib/bridge/          lifecycle/process supervision internals
-providers/pi-dev/    Dev Files/Bash/patch/wait provider
+providers/pi-dev/    Dev read/edit/write/file_ops/Bash/wait provider
 providers/code-router/ Code facade + rooted CodeDB router
 providers/terminal/  Terminal MCP, broker, tmux/transcript logic
 providers/browser/   Browser facade + resource-local Chrome child routing
