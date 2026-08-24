@@ -29,7 +29,7 @@ Read the repository itself for implementation details; the artifacts above are r
 ## Ownership
 You own:
 - <behavior/subsystem/interface/artifact>
-- <verification for that ownership>
+- <completion responsibility for that ownership>
 
 Neighboring work owns:
 - <area another mission owns>
@@ -45,7 +45,7 @@ Keep changes focused on this mission unless a nearby change is necessary to pres
 ## Success conditions
 - <observable criterion>
 - <observable criterion>
-- <relevant compatibility/regression/content expectation>
+- <relevant compatibility/content expectation>
 
 ## Out of scope
 - <adjacent work this session should not absorb>
@@ -66,22 +66,18 @@ Do not restate the entire persistent-loop protocol; the receiving session should
 ## Working style
 Explore the current codebase before deciding implementation details. Follow repository conventions and existing agent instructions. Prefer coherent, maintainable changes over literal adherence to any implementation assumption in this prompt when the repository proves that assumption stale.
 
-Match verification to the artifact:
-- Executable behavior: add/change tests only when they protect meaningful behavior, a real regression, contract, important edge case, or invariant. Reuse existing coverage when sufficient. Do not create a RED test merely to prove an internal symbol does not exist.
-- Documentation/content: do not use TDD or manufacture automated assertions for prose, headings, layout, or file organization. Use relevant docs builds, link/reference/stale-path checks, formatting checks, publication/export-policy checks, and diff review.
-- Configuration/metadata: use parser/schema validation, targeted build/config checks, or a relevant smoke test.
-- Mixed: apply the appropriate evidence to each changed artifact.
+Testing is opt-in. Do not create, modify, or run tests unless the user, authoritative mission/specification, or mandatory repository policy explicitly requires testing. Do not infer testing from executable behavior, a bug fix, refactor, public API, risk, or nearby tests. If testing is not explicitly authorized, leave it out.
 
-Run the narrowest relevant checks first. Do not run a broad/full application suite unless the changed artifacts or repository policy give it a concrete purpose.
+Use non-test validation only when the mission explicitly requires it or when it is necessary to observe the requested artifact directly. Documentation/content should not receive automated tests; configuration/metadata should not receive parser/schema/build/smoke work unless the changed contract or explicit instructions require it. Do not run a broad/full application suite unless that exact requirement is part of the mission or mandatory repository policy.
 
-Do not create a new worktree merely because this is an agent mission. Use the assigned/current workspace. If the real repository state makes that unsafe, report the isolation need instead of silently creating new topology.
+Do not create a new worktree merely because this is an agent mission. Use the assigned/current workspace. Keep writes inside the mission's owned targets. If another concurrent mission needs the same mutable target, prefer separating ownership; if one shared writer is genuinely required, report the coordination boundary instead of relying on informal turn-taking. If the real repository state makes the workspace unsafe, report the isolation need instead of silently creating new topology.
 
 ## Finish report
 When finished, return:
 1. status: complete / blocked / needs decision;
 2. workspace/branch and commits created, if any;
 3. concise summary of resulting behavior, artifact, and any public/interface changes;
-4. tests/checks actually run, their results, and why they were relevant;
+4. explicitly required validation actually run, if any; otherwise state none;
 5. anything dependent sessions need to know;
 6. unresolved risks, deviations, or decisions needed.
 ```
@@ -92,7 +88,7 @@ When finished, return:
 
 Good:
 
-> The importer should reject malformed rows without discarding valid rows from the same batch. Own this behavior and its regression coverage.
+> The importer should reject malformed rows without discarding valid rows from the same batch. Own this behavior and keep the change inside the importer mission.
 
 Avoid:
 

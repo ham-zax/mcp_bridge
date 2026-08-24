@@ -24,7 +24,7 @@ Use the existing Superpowers plugin for the actual engineering discipline:
 
 - New feature, component, behavior change, or other creative implementation work -> `superpowers:brainstorming`.
 - Bug, failing test, unexpected behavior, or regression -> `superpowers:systematic-debugging`.
-- Feature or bugfix implementation -> `superpowers:test-driven-development`.
+- Feature or bugfix implementation -> use the normal implementation workflow without introducing tests by default. Invoke `superpowers:test-driven-development` only when the user explicitly requests TDD/testing, an authoritative user-approved specification requires it, or mandatory repository policy specifically requires it.
 - Requirements/spec for multi-step work -> `superpowers:writing-plans`.
 - Existing implementation plan -> `superpowers:executing-plans` when subagents are unavailable.
 - Starting work that has already passed the isolation gate below -> `superpowers:using-git-worktrees`. Never invoke it merely because an implementation plan exists.
@@ -36,24 +36,24 @@ Do not route to a subagent-dependent Superpowers skill merely because it exists.
 
 ## Local-PC execution contract
 
-Use the connected `hamza-wsl-local` plugin as the canonical path for repository filesystem and shell work in this environment.
+Use the connected `wsl-web-harness` connector as the canonical path for repository filesystem and shell work in this environment.
 
 For implementation requests, act on the repository through the connected local tools and make the required code changes directly. Do not stop at instructions, suggested patches, or code snippets unless the user explicitly asks for guidance or a plan only.
 
 - Use its native Bash/read/write/edit capabilities when available.
 - Discover the repository root and relevant paths before editing; do not guess absolute paths.
-- Run git, build, test, lint, package-manager, and project commands through the local connector when the work belongs on the user's PC.
+- Run git, build, lint, package-manager, and other permitted project commands through the local connector when the work belongs on the user's PC. Run tests only when the user, authoritative specification, or mandatory repository policy explicitly authorizes testing.
 - Preserve the user's existing working tree and unrelated changes.
 - Do not claim a command ran unless the connector returned evidence that it ran.
-- If `hamza-wsl-local` is unavailable or disconnected, state that the local execution dependency is missing and stop before pretending to modify or verify the repository.
+- If `wsl-web-harness` is unavailable or disconnected, state that the local execution dependency is missing and stop before pretending to modify or verify the repository.
 
-If another connected tool is a better fit for a specific operation (for example, a GitHub connector for PR metadata), it may be composed with this adapter. Keep `hamza-wsl-local` as the source of truth for the local working tree.
+If another connected tool is a better fit for a specific operation (for example, a GitHub connector for PR metadata), it may be composed with this adapter. Keep `wsl-web-harness` as the source of truth for the local working tree.
 
 ## Persist Superpowers artifacts to the real repository
 
 Do not downgrade Superpowers planning into chat-only prose.
 
-When the upstream skill requires a persistent artifact, write it through `hamza-wsl-local` to the repository:
+When the upstream skill requires a persistent artifact, write it through `wsl-web-harness` to the repository:
 
 - Brainstorming design/spec: `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
 - Implementation plan: `docs/superpowers/plans/YYYY-MM-DD-<feature-name>.md`
@@ -72,10 +72,10 @@ Preferred fallback:
 1. Create `.superpowers/web/<plan-basename>/progress.md` inside the repository.
 2. Ensure `.superpowers/` is ignored. Prefer an existing ignore rule; otherwise add a local-only rule to `.git/info/exclude` rather than modifying the tracked `.gitignore` solely for adapter bookkeeping.
 3. Record the plan path on the first line.
-4. Record each task as `pending`, `in_progress`, `complete`, or `blocked`, with relevant commit hashes and verification commands.
+4. Record each task as `pending`, `in_progress`, `complete`, or `blocked`, with relevant commit hashes and any explicitly required validation commands.
 5. After compaction, restart, or a long interruption, trust the persisted progress file plus `git log` and the saved plan over conversational recollection.
 
-Do not mark a task complete until the verification required by its plan has actually run.
+Do not mark a task complete until its observable success conditions are established and any validation explicitly required by its plan has actually run. The adapter must not add tests or validation requirements that the plan did not authorize.
 
 ## Subagent fallback matrix
 
@@ -83,7 +83,7 @@ Do not mark a task complete until the verification required by its plan has actu
 
 If no real subagent dispatch tool exists, do not simulate implementer/reviewer agents in prose.
 
-Use `superpowers:executing-plans` instead and execute the saved plan sequentially in this session. Preserve the plan, justified isolation, task-appropriate testing and verification, progress persistence, blocker handling, and any branch-finishing discipline that actually applies.
+Use `superpowers:executing-plans` instead and execute the saved plan sequentially in this session. Preserve the plan, justified isolation, explicitly authorized testing/validation, progress persistence, blocker handling, and any branch-finishing discipline that actually applies.
 
 ### `dispatching-parallel-agents`
 
@@ -94,8 +94,8 @@ If no subagent dispatch tool exists, do not claim parallel agents were launched.
 If no independent reviewer/subagent primitive exists:
 
 1. Build a bounded review context from the requirements/plan and the relevant git diff.
-2. Perform a separate inline review pass focused on correctness, spec compliance, regression risk, tests, security implications, and unnecessary scope.
-3. Run the appropriate verification commands after fixes.
+2. Perform a separate inline review pass focused on correctness, spec compliance, regression risk, existing test evidence when relevant, security implications, and unnecessary scope.
+3. Re-establish only the evidence invalidated by fixes. Do not run tests unless testing is independently authorized by the user/spec/repository policy.
 4. Explicitly describe the result as an **inline self-review**, not an independent reviewer opinion.
 5. If an actual external reviewer tool becomes available, prefer it for independence.
 
@@ -109,7 +109,7 @@ Some Superpowers skill-authoring tests require fresh subagents. If no subagent p
 
 The Web plugin can expose a Superpowers `SKILL.md` while omitting a supporting file referenced by that skill. When a referenced helper is unavailable from the Web skill resources:
 
-1. Use `hamza-wsl-local` to look for the corresponding helper in the user's local Superpowers installation, commonly under Codex, OpenCode, or cross-runtime skill caches.
+1. Use `wsl-web-harness` to look for the corresponding helper in the user's local Superpowers installation, commonly under Codex, OpenCode, or cross-runtime skill caches.
 2. Prefer a copy whose Superpowers version or `SKILL.md` content matches the Web plugin as closely as can be verified.
 3. Use the local helper as procedural guidance only; do not claim it was bundled in the Web plugin.
 4. If version parity cannot be established, apply only stable, obviously compatible guidance and call out the uncertainty when it is material.
@@ -122,28 +122,28 @@ A typical discovery pattern is to search the known local agent/plugin roots for:
 
 This fallback is useful for reviewer templates, testing guidance, debugging references, and other support documents missing from the browser-exposed package.
 
-## Task type and proportional verification
+## Task type and Causal-compatible validation
 
-Before choosing testing, workspace isolation, setup, or verification, classify the work by what it actually changes:
+Before choosing testing, workspace isolation, setup, or validation, classify the work by what it actually changes. Testing is opt-in: executable code, bug fixes, refactors, APIs, risk, or nearby tests do not authorize test creation/modification/execution by themselves.
 
 - **Executable behavior** — production code, runtime logic, APIs, persistence, build behavior, or other behavior that can regress.
 - **Documentation/content only** — README files, guides, prose, examples, diagrams, comments, documentation organization, or other non-executable content.
 - **Configuration/metadata** — manifests, CI/config files, schemas, packaging metadata, repository policy, or similar operational files.
 - **Mixed** — a change containing more than one category.
 
-Match verification to the affected artifact and the failure it is meant to detect.
+Match non-test evidence to the affected artifact and the failure it is meant to detect. Add testing only when the user, authoritative user-approved specification, or mandatory repository policy explicitly requires it.
 
 For documentation/content-only work:
 
 - Do not apply TDD or manufacture RED/GREEN cycles.
 - Do not create automated assertions for headings, prose, README layout, directory descriptions, or other documentation content merely to make the work "testable."
 - Use relevant lightweight checks such as documentation builds, link/reference checks, stale-path searches, formatting validation, publication/export-policy checks, and diff review.
-- Preserve genuine repository-boundary tests when the documentation change affects an actual publication, packaging, privacy, or security contract.
-- Do not run the full application test suite unless the documentation can affect executable/package behavior or repository instructions specifically require it.
+- Preserve existing repository-boundary contracts when documentation affects publication, packaging, privacy, or security; run a test for that contract only when testing is explicitly authorized or mandatory repository policy requires it.
+- Do not run application tests for documentation-only work unless an explicit testing requirement applies.
 
-For configuration/metadata work, run the smallest checks that exercise the affected contract: parser/schema validation, targeted build/config checks, or a relevant smoke test. Do not automatically escalate to the entire application suite.
+For configuration/metadata work, run parser/schema/build/smoke validation only when the changed contract actually needs it or explicit instructions require it. Do not automatically escalate to the entire application suite.
 
-For mixed work, test executable behavior according to the evidence-based testing policy and verify non-executable artifacts with their appropriate checks.
+For mixed work, keep validation scoped independently to each artifact. Do not let executable changes bootstrap testing for the whole mission.
 
 A verification step must have a concrete failure or contract it is intended to detect. Do not perform broad verification merely because a generic template mentions it.
 
@@ -175,20 +175,13 @@ Only after isolation is justified, explicitly invoke `superpowers:using-git-work
 
 Always preserve unrelated local changes. Do not merge, push, delete branches, discard work, or rewrite unrelated state without the appropriate user decision.
 
-## Evidence-based test selection
+## Test authorization boundary
 
-When adapting Superpowers TDD for this workflow, keep test-first reasoning focused on meaningful behavior. Treat tests as engineering evidence, not ceremony.
+Testing is opt-in. Do not create, modify, or run tests merely because a change affects executable behavior, fixes a bug, changes an API, carries risk, or has nearby coverage.
 
-- Add a new test when it protects changed behavior, a real regression, an important contract or edge case, or a strong invariant not already covered.
-- Do not create a test solely to increase coverage or to prove that an internal function, import, or symbol does not exist. A missing symbol may occur incidentally while introducing a genuine contract; it is not the purpose of the test.
-- When a new test is warranted, use the normal RED/GREEN discipline: make RED express the behavior or contract that should work, verify the expected failure, implement minimally, then verify green.
-- Reuse existing tests when they already prove the changed behavior instead of duplicating them.
-- Prefer a focused regression test for a real bug when it can be reproduced economically.
-- Use property-based testing only when an invariant-heavy domain gains materially stronger confidence than focused examples.
-- Run the narrowest relevant test first, then the broader affected suite needed for completion confidence.
-- Do not omit a high-value test merely to minimize lines or files.
+Testing is in scope only when the user explicitly requests it, an authoritative user-approved specification requires it, or mandatory repository policy specifically requires a test or test command. When testing is authorized, keep it proportional: reuse existing coverage where sufficient, add only tests that serve the authorized requirement, use RED/GREEN only when TDD itself is authorized, and run the narrowest required test surface before any broader suite explicitly required by the same authority.
 
-If existing tests already prove the change and there is no meaningful regression gap, do not add a new test just to manufacture a red phase. Run the relevant existing verification and record why no additional test was needed.
+When testing is not authorized, use direct behavioral evidence and the smallest relevant non-test candidate-final checks. Do not label optional omitted tests as incomplete required work.
 
 ## Plan execution discipline
 
@@ -202,14 +195,14 @@ When the user asks to execute a saved plan:
 
 1. Load the exact plan from disk.
 2. Review it for blockers, contradictions, and generic process steps inappropriate for the actual task type.
-3. Normalize testing, workspace, setup, and verification according to the policies above.
+3. Remove unauthorized testing and normalize workspace, setup, and validation according to the policies above.
 4. Establish isolation only if it is materially justified.
 5. Resume from persisted progress if present.
 6. Execute tasks sequentially in the current session.
-7. Apply evidence-based test selection for executable behavior. Use artifact-appropriate verification for documentation, configuration, and other non-code work.
-8. Run each task's meaningful verification before marking it complete.
+7. Apply the test authorization boundary. Use direct/artifact-appropriate non-test evidence when testing is not authorized.
+8. Establish each task's observable success conditions and run only explicitly required validation before marking it complete.
 9. Stop on a genuine blocker instead of guessing.
-10. After all tasks, run fresh completion verification proportional to the affected artifacts and use `superpowers:finishing-a-development-branch` only when a branch-integration decision is actually relevant.
+10. After all tasks, gather fresh completion evidence proportional to the affected artifacts, without introducing unauthorized tests, and use `superpowers:finishing-a-development-branch` only when a branch-integration decision is actually relevant.
 
 Never describe long-running implementation as background or asynchronous work. Continue in the active session until completion or a real stop condition.
 

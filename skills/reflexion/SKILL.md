@@ -26,20 +26,22 @@ Ground reflection in observable evidence rather than recollection.
 For repository work:
 
 1. Identify the repository root, current branch/worktree, relevant requirements, and changed files.
-2. Read project instructions such as `AGENTS.md`, `CLAUDE.md`, accepted specs/plans/ADRs, and relevant tests.
-3. Run the smallest useful verification commands, then broader checks when the claim requires them.
+2. Read project instructions such as `AGENTS.md`, `CLAUDE.md`, accepted specs/plans/ADRs, and relevant existing tests when they clarify intent.
+3. Gather the smallest direct evidence needed for the claim. Run non-test checks only when they materially establish the claim; do not create, modify, or run tests unless the user, authoritative specification, or mandatory repository policy explicitly authorizes testing.
 4. Check dependencies and blast radius before recommending removal, renaming, or public-interface changes.
 5. Verify current external facts with authoritative sources when the conclusion depends on them.
 
-In Hamza's ChatGPT Web environment, use `hamza-wsl-local` for local repository, Git, filesystem, and test operations when available. Do not claim local verification if the connector is absent.
+In Hamza's ChatGPT Web environment, use `wsl-web-harness` for authoritative local repository, Git, filesystem, process, and permitted verification operations when available. Do not claim local verification if the connector is absent.
+
+Reflection does not expand implementation or testing scope. If the original task did not authorize tests, a Reflect/Critique pass may inspect existing test code/results but must not run or add tests merely to increase confidence.
 
 ## Reflection depth
 
 Triage before spending effort:
 
-- **Quick**: simple edit, small explanation, documentation change, straightforward local bug. Run a concise requirement/correctness/verification check.
-- **Standard**: multi-file feature, nontrivial bug fix, architecture choice, or meaningful analysis. Run the full reflection checklist and targeted verification.
-- **Deep**: security, core-system behavior, concurrency, public API/contracts, data integrity, performance-sensitive work, or high-consequence changes. Require stronger evidence, explicit dependency analysis, and broader verification.
+- **Quick**: simple edit, small explanation, documentation change, straightforward local bug. Run a concise requirement/correctness/evidence check.
+- **Standard**: multi-file feature, nontrivial bug fix, architecture choice, or meaningful analysis. Run the full reflection checklist and targeted evidence gathering within the task's existing validation authorization.
+- **Deep**: security, core-system behavior, concurrency, public API/contracts, data integrity, performance-sensitive work, or high-consequence changes. Require stronger evidence and explicit dependency analysis; broader checks still require an actual task/repository requirement and do not imply testing authorization.
 
 Do not inflate a small task into a long ceremony. Do not use a quick pass for high-risk work.
 
@@ -48,7 +50,7 @@ Do not inflate a small task into a long ceremony. Do not use a quick pass for hi
 Reflection may discover issues. Handle them according to the user's request and action risk:
 
 - For answer-only work, revise the answer directly when the correction is clear.
-- For local code changes the user already asked to implement, fix verified issues that remain inside the agreed scope, then rerun verification.
+- For local code changes the user already asked to implement, fix verified issues that remain inside the agreed scope, then re-establish only the evidence invalidated by that fix. Do not introduce tests unless independently authorized.
 - For destructive, scope-expanding, architectural, externally consequential, or ambiguous changes, report the finding and obtain direction before acting.
 - Critique mode is report-only unless the user explicitly asks for fixes.
 

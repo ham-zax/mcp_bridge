@@ -4,9 +4,9 @@
 | --- | --- |
 | Choose internal algorithm or helper shape | decide autonomously |
 | Edit another file required by the same behavior | proceed and report |
-| Add/update focused high-value tests | proceed |
-| Skip a redundant/ceremonial test already covered elsewhere | proceed and verify with existing evidence |
-| Documentation-only change with no executable contract | use lightweight artifact checks; do not invent TDD |
+| Add/update tests explicitly required by the user/spec/repository policy | proceed, keep the test surface proportional |
+| Testing is not explicitly authorized | do not add, modify, or run tests; use direct/non-test evidence instead |
+| Documentation-only change with no executable contract | use lightweight artifact checks only when relevant; do not invent TDD |
 | Small local refactor required to make the change safe | proceed if clearly necessary |
 | Unnecessary worktree/setup/full-suite run with no concrete risk | omit it |
 | Worktree needed for concurrent writers, conflicting local state, or material isolation | proceed when authorized by the workflow/user |

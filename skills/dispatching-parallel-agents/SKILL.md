@@ -13,6 +13,8 @@ When you have multiple unrelated failures (different test files, different subsy
 
 **Core principle:** Dispatch one agent per independent problem domain. Let them work concurrently.
 
+Delegation does not expand testing scope. Each delegated mission inherits the original task's test authorization; do not tell agents to add, modify, or run tests unless the user/spec/repository policy already authorized testing for that mission.
+
 ## When to Use
 
 ```dot
@@ -81,7 +83,7 @@ Multiple dispatch calls in one response = parallel execution. One per response =
 When agents return:
 - Read each summary
 - Verify fixes don't conflict
-- Run full test suite
+- Run only integration validation explicitly required by the original task/spec/repository policy; a full test suite is not automatic
 - Integrate all changes
 
 ## Agent Prompt Structure
@@ -156,12 +158,12 @@ Agent 3 → Fix tool-approval-race-conditions.test.ts
 - Agent 2: Fixed event structure bug (threadId in wrong place)
 - Agent 3: Added wait for async tool execution to complete
 
-**Integration:** All fixes independent, no conflicts, full suite green
+**Integration:** All fixes independent, no conflicts, explicitly required integration validation green
 
 ## Verification
 
 After agents return:
 1. **Review each summary** - Understand what changed
 2. **Check for conflicts** - Did agents edit same code?
-3. **Run full suite** - Verify all fixes work together
-4. **Spot check** - Agents can make systematic errors
+3. **Run required integration validation** - Use tests only when testing was already authorized; do not add a full-suite gate by ritual
+4. **Spot check** - Use bounded non-test evidence where sufficient; agents can make systematic errors

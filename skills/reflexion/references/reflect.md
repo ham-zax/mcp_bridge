@@ -41,7 +41,7 @@ For Standard and Deep reflection, evaluate all of the following.
 
 Verify claims that depend on evidence, especially:
 
-- tests/build/lint status;
+- existing test/build/lint status already available from the task, plus any non-test check actually required to establish the claim;
 - performance or complexity;
 - library/API/version behavior;
 - security properties;
@@ -61,7 +61,7 @@ For non-code work, assess clarity, completeness, accuracy, audience fit, structu
 Create a small set of questions that could falsify your own assessment. Examples:
 
 - Which explicit requirement would fail if I am wrong?
-- What test or command proves the claimed behavior?
+- What direct evidence proves the claimed behavior, and is any proposed test/command actually authorized by the task or repository policy?
 - What caller or dependent system might I have missed?
 - Am I criticizing a repository convention merely because I prefer another style?
 - Which factual claim still lacks an authoritative source?

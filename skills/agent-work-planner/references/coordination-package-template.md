@@ -31,7 +31,7 @@ Use these templates when materializing a multi-session wave. Adapt headings when
 
 ## Workspace policy
 
-<Default current checkout or justified worktree topology. Record why each isolated workspace exists. Do not create worktrees solely because missions exist.>
+<Default current checkout or justified worktree topology. Record why each isolated workspace exists. Prefer distinct write ownership over shared mutable coordination state. If one shared writer is unavoidable, name the owner/serialization boundary. Do not create worktrees solely because missions exist.>
 
 ## Integration policy
 
@@ -41,9 +41,9 @@ Use these templates when materializing a multi-session wave. Adapt headings when
 
 <Which current-wave missions are ordinary one-turn work versus `persistent-agent-loop` missions. For long-lived missions, record timer/event/Terminal wake strategy, meaningful checkpoint boundary, steering expectations, and whether optional Kitty visibility is useful. Do not duplicate the persistent-loop protocol.>
 
-## Verification policy
+## Validation policy
 
-<Artifact-appropriate checks for the current wave. Documentation should not inherit code TDD/full-suite ceremony.>
+<Default: no test creation, test modification, or test execution. Record only validation explicitly required by the user, source plan/specification, repository policy, or integration contract.>
 
 ## Future / blocked work
 
@@ -56,7 +56,7 @@ Keep this deliberately low-resolution. Record enough to know what is waiting and
 - `<date/time or commit>` — coordination package created for Wave <N>.
 ```
 
-Update this README whenever returned agent work materially changes readiness, contracts, branch topology, verification strategy, or integration state.
+Update this README whenever returned agent work materially changes readiness, contracts, branch topology, validation requirements, or integration state.
 
 ## Mission file
 
@@ -93,7 +93,7 @@ Use one file per current-wave agent: `agent-N-<slug>.md`.
 
 You own:
 - <behavior/subsystem/interface/artifact>
-- <artifact-appropriate verification for that ownership>
+- <completion responsibility for that ownership>
 
 Neighboring missions own:
 - <adjacent area>
@@ -106,11 +106,11 @@ Neighboring missions own:
 
 - <observable criterion>
 - <observable criterion>
-- <regression / compatibility / documentation expectation>
+- <compatibility / documentation expectation>
 
-## Verification intent
+## Required validation
 
-<State what real failure, contract, publication rule, or artifact property the planned checks are meant to detect. Do not invent tests to make a docs mission look testable.>
+<Default: none. State only commands or checks explicitly required by the user, source plan/specification, repository policy, or integration contract. Never add tests merely because the mission changes code.>
 
 ## Out of scope
 
@@ -118,7 +118,7 @@ Neighboring missions own:
 
 ## Working style
 
-Explore the repository before deciding implementation details. Follow repository conventions and current code rather than stale assumptions in this brief. Keep the mission coherent and focused. Match testing and verification to the artifact type. Do not create a worktree merely because this is a delegated mission; use the assigned workspace unless a real isolation problem is discovered.
+Explore the repository before deciding implementation details. Follow repository conventions and current code rather than stale assumptions in this brief. Keep the mission coherent and focused. Do not create, modify, or run tests unless testing is explicitly authorized by the mission/source plan or mandatory repository policy. Keep any required non-test validation minimal. Do not create a worktree merely because this is a delegated mission; use the assigned workspace unless a real isolation problem is discovered.
 
 ## Finish report
 
@@ -126,7 +126,7 @@ Return:
 1. status: complete / blocked / needs decision;
 2. workspace/branch and commits created, if any;
 3. resulting behavior/artifact and public/interface changes;
-4. tests/checks actually run, results, and why they were relevant;
+4. explicitly required validation actually run, if any; otherwise state none;
 5. anything dependent sessions need to know;
 6. unresolved risks, deviations, or decisions needed.
 ```
@@ -144,5 +144,5 @@ Authoritative mission: <agent-plan-folder>/agent-N-<slug>.md
 Coordination map: <agent-plan-folder>/README.md
 Source plan/spec: <path>
 
-Read the mission and coordination map first, inspect the current repository, and own that mission through artifact-appropriate verification. If the mission says `persistent-agent-loop` is required, use that Skill for execution lifetime: durable waits/timers, steering, checkpoints, and completion gating. Do not create extra worktrees or tests merely because this is an agent mission. Do not absorb neighboring missions unless correctness requires a small boundary adjustment; report any larger conflict instead. Return the finish report requested in the mission file.
+Read the mission and coordination map first, inspect the current repository, and own that mission through its observable success conditions. If the mission says `persistent-agent-loop` is required, use that Skill for execution lifetime: durable waits/timers, steering, checkpoints, and completion gating. Do not create extra worktrees. Do not create, modify, or run tests unless testing is explicitly authorized by the mission/source plan or mandatory repository policy. Do not absorb neighboring missions unless correctness requires a small boundary adjustment; report any larger conflict instead. Return the finish report requested in the mission file.
 ```

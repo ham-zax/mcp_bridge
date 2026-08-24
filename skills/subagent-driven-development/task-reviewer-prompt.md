@@ -5,7 +5,7 @@ reads the task's diff once and returns two verdicts: spec compliance and
 code quality.
 
 **Purpose:** Verify one task's implementation matches its requirements (nothing
-more, nothing less) and is well-built (clean, tested, maintainable)
+more, nothing less) and is well-built (clean, maintainable, and validated only as required)
 
 ```
 Subagent (general-purpose):
@@ -61,19 +61,11 @@ Subagent (general-purpose):
     implementer grading their own work. Judge the code on its merits — a
     stated rationale never downgrades a finding's severity.
 
-    ## Tests
+    ## Validation and tests
 
-    The implementer already ran the tests and reported results with TDD
-    evidence for exactly this code. Do not re-run the suite to confirm their
-    report. Run a test only when reading the code raises a specific doubt
-    that no existing run answers — and then a focused test, never a
-    package-wide suite, race detector run, or repeated/high-count loop. If
-    heavy validation seems warranted, recommend it in your report instead of
-    running it. If you cannot run commands in this environment, name the
-    test you would run.
+    Reviewing a delegated task does not authorize tests. Inspect the implementer's reported validation and existing test code/results as evidence. Run a test only when testing was explicitly authorized by the task/spec/repository policy; even then, run only the smallest authorized command needed to resolve a concrete review doubt, never a package-wide suite by ritual.
 
-    Warnings or other noise in the implementer's reported test output are
-    findings — test output should be pristine.
+    If testing was not authorized, do not penalize the task for lacking new test execution. Judge the observable behavior, diff, contracts, and any required non-test validation instead.
 
     ## Part 1: Spec Compliance
 
@@ -98,9 +90,9 @@ Subagent (general-purpose):
     - DRY without premature abstraction?
     - Edge cases handled?
 
-    **Tests:**
-    - Do the new and changed tests verify real behavior, not mocks?
-    - Are the task's edge cases covered?
+    **Tests, only when testing was authorized and tests changed:**
+    - Do the authorized new/changed tests verify real required behavior rather than incidental implementation details?
+    - Do not request extra coverage merely because more cases are imaginable.
 
     **Structure:**
     - Does each file have one clear responsibility with a well-defined interface?

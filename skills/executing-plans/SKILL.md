@@ -16,18 +16,18 @@ Load plan, review critically, execute all tasks, report when complete.
 ## The Process
 
 ### Step 1: Load and Review Plan
-1. Ensure an isolated workspace: use superpowers:using-git-worktrees to create one or verify the existing one
-2. Read plan file
-3. Review critically - identify any questions or concerns about the plan
-4. If concerns: Raise them with your human partner before starting
-5. If no concerns: Create todos for the plan items and proceed
+1. Use the current checkout by default; create/use a worktree only when explicit/concurrent-writer isolation or mandatory repository policy requires it.
+2. Read the plan file.
+3. Review critically for blockers, stale assumptions, and process steps that exceed the task's authority.
+4. Remove test creation/modification/execution, TDD, broad-suite, setup, or validation steps unless the user, authoritative user-approved specification, or mandatory repository policy explicitly requires them. A stale plan does not create testing authorization.
+5. If a proposed normalization would change product behavior, public contracts, security semantics, or another protected boundary, raise that decision; otherwise proceed with the normalized plan.
 
 ### Step 2: Execute Tasks
 
 For each task:
 1. Mark as in_progress
 2. Follow each step exactly (plan has bite-sized steps)
-3. Run verifications as specified
+3. Run only validation that remains explicitly required after the Step 1 scope review
 4. Mark as completed
 
 ### Step 3: Complete Development
@@ -35,7 +35,7 @@ For each task:
 After all tasks complete and verified:
 - Announce: "I'm using the finishing-a-development-branch skill to complete this work."
 - **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch
-- Follow that skill to verify tests, present options, execute choice
+- Follow that skill to establish required completion evidence, present options, and execute the user's integration choice without introducing unauthorized tests
 
 ## When to Stop and Ask for Help
 
@@ -58,7 +58,7 @@ After all tasks complete and verified:
 ## Remember
 - Review plan critically first
 - Follow plan steps exactly
-- Don't skip verifications
+- Don't skip explicitly required validation, and don't invent additional test/verification work
 - Reference skills when plan says to
 - Stop when blocked, don't guess
 - Never start implementation on main/master branch without explicit user consent

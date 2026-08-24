@@ -157,7 +157,8 @@ Preserve mission continuity without making user steering wait behind unnecessary
 
 - For status/progress/checkpoint requests, report immediately from the latest verified state. At most perform one small authoritative probe when the status cannot be stated safely without it; do not run a broad suite, independent review, or unrelated cleanup before answering.
 - If substantial mission work remains, emit the status/checkpoint response first, then resume the mission in the same active turn. Do not yield or end the turn merely because a status response was requested; only the normal mission stop/replacement/impossible-or-unsafe conditions may terminate execution.
-- Reserve broad verification for meaningful transition boundaries: actual completion, merge/integration decisions, risky handoffs, or evidence that invalidates previous verification.
+- Persistence does not authorize tests. Create, modify, or run tests only when the user, authoritative mission/specification, or mandatory repository policy explicitly requires testing.
+- Reserve any explicitly required broad verification for meaningful transition boundaries: actual completion, merge/integration decisions, risky handoffs, or evidence that invalidates previous verification. Do not introduce a broad suite merely because the mission is long-lived.
 - Treat usage-metered or separately billed external agents/models/CLIs, including Codex, as explicit opt-in resources. A generic workflow instruction to "request review" or "dispatch a reviewer" does not authorize substituting Codex or another metered tool when a native reviewer is unavailable.
 - If delegated review is required by another workflow but no native or explicitly authorized reviewer exists, do not launch a metered substitute. Perform bounded in-session review when permitted by the user's constraints, report the unavailable delegation, or ask for authorization at the decision boundary.
 - Do not infer continuing authorization from a previous task. External-agent authorization is scoped to the task or mission the user actually approved.
@@ -230,7 +231,7 @@ Temporary idleness is not completion. A subtask finishing is not completion. A t
 Before ending:
 
 1. re-read the stated mission goal and completion criteria;
-2. run fresh verification appropriate to the task;
+2. obtain the fresh evidence required to establish the mission's completion criteria; do not infer testing authorization from persistence;
 3. confirm no required work remains merely waiting on another known condition;
 4. record final durable evidence when the mission has used checkpoints;
 5. cancel obsolete waits and leave persistent processes running only if the mission requires them;
@@ -241,10 +242,11 @@ Before ending:
 ### Work until an implementation is genuinely done
 
 ```text
-implement/test
+implement
+-> run explicitly required validation, if any
 -> if long process: Terminal + event wait
 -> inspect result
--> fix/retest
+-> fix and revalidate only what the mission requires
 -> checkpoint meaningful progress
 -> continue until acceptance criteria verified
 -> end

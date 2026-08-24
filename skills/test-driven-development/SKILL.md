@@ -1,13 +1,15 @@
 ---
 name: test-driven-development
-description: Use when implementing any feature or bugfix, before writing implementation code
+description: Use only when the user explicitly requests TDD/test-first development, an authoritative user-approved specification requires TDD, or mandatory repository policy specifically requires it. Do not auto-trigger for ordinary features or bug fixes.
 ---
 
 # Test-Driven Development (TDD)
 
 ## Overview
 
-Write the test first. Watch it fail. Write minimal code to pass.
+This Skill is an explicitly authorized testing mode, not the default implementation workflow. Ordinary feature work, bug fixes, refactors, APIs, risk, or nearby tests do not activate it by themselves.
+
+Once TDD is actually authorized, write the test first. Watch it fail. Write minimal code to pass.
 
 **Core principle:** If you didn't watch the test fail, you don't know if it tests the right thing.
 

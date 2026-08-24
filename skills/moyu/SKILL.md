@@ -54,7 +54,7 @@ Read `references/boundaries.md` for the decision matrix.
 4. State the effective mission boundary internally: desired outcome, owned surface, contracts to preserve, definition of done.
 5. Select the smallest design and smallest justified process that satisfy those constraints.
 6. Implement in small coherent increments.
-7. Run artifact-appropriate verification that protects real failure modes.
+7. Gather the smallest direct evidence required by the mission; defer routine non-test checks to the candidate-final state and do not create, modify, or run tests unless testing is explicitly authorized under Causal Coding.
 8. Inspect the diff for drift before claiming completion.
 
 When a connected local repository is available, use its real git diff/status and relevant verification commands rather than relying on memory or pasted snippets.
@@ -65,7 +65,7 @@ Do not confuse scope discipline with literal file locking.
 
 A change outside the initially named file is acceptable when it is required to make the requested behavior correct, such as:
 
-- updating a meaningful test for changed behavior
+- updating a test required by an explicitly authorized testing contract when the behavior change makes that update necessary
 - updating an internal call site after a required signature change already authorized by the mission
 - changing a nearby type/schema declaration that is part of the same contract
 - adding a small migration explicitly implied by an approved data change
@@ -102,17 +102,15 @@ Use worktrees when isolation has a real reason: explicit user request, concurren
 
 For documentation/content-only changes, use relevant checks such as docs builds, links, stale references, formatting, publication/export-policy checks, and diff review. Do not invent RED/GREEN cycles or assertions about prose/headings/layout unless that content is itself a machine-enforced contract.
 
-For configuration/metadata, use the smallest parser/schema/build/smoke check that exercises the affected contract. For mixed changes, verify each artifact according to its actual risk.
+For configuration/metadata, use parser/schema/build/smoke validation only when the changed contract actually needs it or explicit instructions require it. For mixed changes, avoid validation spillover between artifact types.
 
-## Tests must earn their cost
+## Testing follows Causal Coding
 
-Treat tests as evidence, not ceremony. Add or change a test when it protects meaningful mission behavior, a real regression, a public/shared contract, a plausible important edge case, or a strong invariant.
+Testing is opt-in. Do not create, modify, or run tests merely because the mission changes executable code, fixes a bug, refactors an API, appears risky, or has nearby tests.
 
-Do not add tests merely to increase count, mirror implementation details, cover impossible/speculative states, duplicate existing coverage, or manufacture a RED step whose only signal is that an internal symbol does not exist. In TDD, the failing test should express the required behavior or contract; a missing import/name may occur incidentally, but it is not the reason the test exists.
+Testing is in scope only when the user explicitly requests it, an authoritative user-approved specification requires it, or mandatory repository policy specifically requires a test or test command. When testing is authorized, keep it proportional: reuse existing coverage when sufficient, add only tests that serve the authorized requirement, run the narrowest relevant command, and do not manufacture TDD/RED states or coverage work beyond that scope.
 
-Reuse existing coverage when it already proves the behavior. Prefer the smallest durable test surface that would catch bugs we actually care about. Never skip a high-value regression or contract test just to keep the diff small.
-
-Run the narrowest relevant test first for feedback, then only the broader affected suite needed for confidence.
+If testing is not authorized, use direct implementation evidence and the smallest relevant non-test candidate-final checks instead. Do not describe omitted optional tests as incomplete required work.
 
 ## Drift detection
 
@@ -140,12 +138,12 @@ Action: stop and present the minimum decision needed from the user/coordinator. 
 
 Before completion, verify:
 
-- every changed file contributes to the mission or required verification
+- every changed file contributes to the mission or explicitly required validation
 - no adjacent feature or cleanup slipped in
 - no new abstraction exists without present-day need
 - no new dependency was added without authorization
-- every new/changed test has a meaningful failure it would catch, without redundant test ceremony
-- every worktree/setup/broad verification step has a concrete isolation or failure-mode justification
+- any new/changed test is independently authorized under the governing testing policy and stays within that authorization
+- every worktree/setup/broad validation step is explicitly required or has a concrete non-test contract reason
 - documentation/configuration work used artifact-appropriate checks instead of code-oriented ceremony
 - the diff is understandable without a tour of unrelated changes
 - any necessary transitive changes are called out clearly

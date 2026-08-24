@@ -97,45 +97,26 @@ git worktree add "$path" -b "$BRANCH_NAME"
 cd "$path"
 ```
 
-**Sandbox fallback:** If `git worktree add` fails with a permission error (sandbox denial), tell the user the sandbox blocked worktree creation and you're working in the current directory instead. Then run setup and baseline tests in place.
+**Sandbox fallback:** If `git worktree add` fails with a permission error (sandbox denial), tell the user the sandbox blocked worktree creation and continue in the current directory only when that still satisfies the requested isolation/safety contract. Do not bootstrap setup or tests merely because worktree creation failed.
 
-## Step 2: Project Setup
+## Step 2: Project Setup Only When Needed
 
-Auto-detect and run appropriate setup:
+Do not install dependencies or run setup merely because a new worktree exists. Reuse the existing environment when it is already usable. Run only the minimum setup required by the requested work or an explicit repository rule.
 
-```bash
-# Node.js
-if [ -f package.json ]; then npm install; fi
+If a required command later proves the worktree lacks necessary dependencies, use the project's established setup mechanism at that point rather than preemptively installing everything.
 
-# Rust
-if [ -f Cargo.toml ]; then cargo build; fi
+## Step 3: Establish Only Required Baseline Evidence
 
-# Python
-if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-if [ -f pyproject.toml ]; then poetry install; fi
+A fresh worktree does not itself authorize tests. Run baseline tests only when the user, authoritative specification, or mandatory repository policy explicitly requires testing or a specific baseline test command.
 
-# Go
-if [ -f go.mod ]; then go mod download; fi
-```
-
-## Step 3: Verify Clean Baseline
-
-Run tests to ensure workspace starts clean:
-
-```bash
-# Use project-appropriate command
-npm test / cargo test / pytest / go test ./...
-```
-
-**If tests fail:** Report failures, ask whether to proceed or investigate.
-
-**If tests pass:** Report ready.
+Otherwise verify only the worktree facts needed for safe use, such as intended branch/HEAD, clean status, and required files/dependencies for the immediate task.
 
 ### Report
 
 ```
 Worktree ready at <full-path>
-Tests passing (<N> tests, 0 failures)
+Branch/HEAD and working-tree state verified
+Required setup/validation: <none | concise result>
 Ready to implement <feature-name>
 ```
 
@@ -152,9 +133,9 @@ Ready to implement <feature-name>
 | Both exist | Use `.worktrees/` |
 | Neither exists | Check instruction file, then default `.worktrees/` |
 | Directory not ignored | Add to .gitignore + commit |
-| Permission error on create | Sandbox fallback, work in place |
-| Tests fail during baseline | Report failures + ask |
-| No package.json/Cargo.toml | Skip dependency install |
+| Permission error on create | Use current checkout only if it still satisfies the required isolation boundary |
+| Testing explicitly required | Run only the required baseline test command and report its result |
+| No setup requirement | Do not install dependencies merely because the worktree is new |
 
 ## Common Rationalizations
 
@@ -164,4 +145,4 @@ Ready to implement <feature-name>
 | "`git worktree add` is quicker than hunting for a native tool" | A native tool (e.g. `EnterWorktree`) owns placement, branching, and cleanup. Bypassing it is the #1 mistake — it creates phantom state your harness can't see or manage. |
 | "The worktree directory is surely ignored already" | Run `git check-ignore`. An unignored worktree directory commits the whole tree into the repo. |
 | "Any directory name works" | Explicit instructions beat an existing project-local directory, which beats the `.worktrees/` default. |
-| "The workspace is fresh — baseline tests can wait" | A dirty baseline makes every later failure ambiguous. Run the tests now; proceeding past failures is your human partner's call. |
+| "A new worktree needs baseline tests" | Worktree creation does not authorize testing. Verify Git/worktree state; run tests only when the task/spec/repository policy explicitly requires them. |

@@ -1,29 +1,25 @@
 ---
 name: finishing-a-development-branch
-description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work
+description: Use when implementation is complete and you need to decide how to integrate, publish, preserve, or clean up the branch/worktree.
 ---
 
 # Finishing a Development Branch
 
 ## Overview
 
-**Core principle:** Verify tests → Detect environment → Present options → Execute choice → Clean up.
+**Core principle:** Establish required completion evidence → Detect environment → Present options → Execute choice → Clean up.
 
 **Announce at start:** "I'm using the finishing-a-development-branch skill to complete this work."
 
-## Step 1: Verify Tests
+## Step 1: Establish Required Completion Evidence
 
-Run the project's full test suite (`npm test` / `cargo test` / `pytest` / `go test ./...`).
+Branch finishing does not authorize testing. Re-read the task/spec/repository requirements and determine what evidence is actually required before integration.
 
-**If tests fail**, report the failures and stop — the menu comes after a green suite:
+- If testing or a specific test command is explicitly required, run only that authorized test surface and stop on a real failure.
+- If testing is not authorized, do not run a test suite merely because the branch is being finished. Use fresh repository evidence and any required non-test checks instead.
+- Do not turn an optional confidence check into a merge prerequisite.
 
-```
-Tests failing (<N> failures). Must fix before completing:
-
-[Show failures]
-```
-
-**If tests pass:** continue to Step 2.
+Continue to Step 2 once the requested completion criteria and explicitly required validation are satisfied.
 
 ## Step 2: Detect Environment
 
@@ -95,15 +91,16 @@ git checkout <base-branch>
 git pull
 git merge <feature-branch>
 
-# Verify tests on merged result
-<test command>
+# Re-establish only integration evidence invalidated by the merge.
+# Run tests here only when testing is explicitly required for integration.
+<required validation command, if any>
 ```
 
-If tests fail on the merged result: stop, leave the worktree and branch in
+If required integration validation fails: stop, leave the worktree and branch in
 place, and investigate — nothing has been pushed, so the merge is local
 and recoverable.
 
-Once the merged result is green: clean up the worktree (Step 6), then
+Once required integration evidence is satisfied: clean up the worktree (Step 6), then
 delete the branch:
 
 ```bash
@@ -190,12 +187,12 @@ place. If your platform provides a workspace-exit tool, use it.
 
 | Excuse | Reality |
 |--------|---------|
-| "Tests passed earlier this session" | Run the suite on the tree you are about to integrate. A green run only proves the tree it ran on. |
+| "Finishing always means run the full suite" | Integration does not create testing authorization. Run only tests or other validation explicitly required for this integration; otherwise use fresh repository evidence. |
 | "They obviously want it merged" | Integration is your human partner's decision. Present the menu and wait. |
 | "They seem done with this feature — I'll offer to discard it" | The menu is complete as written. Discard happens only when your human partner asks for it in so many words. |
 | "'Yeah, get rid of it' counts as confirmation" | Only the typed word `discard` authorizes deletion. |
 | "The PR is up, so the worktree is clutter now" | PR feedback gets fixed in that worktree. It stays until the work lands. |
 | "This other worktree looks stale — I'll clean it too" | Clean up only worktrees under `.worktrees/` or `worktrees/`. Everything else belongs to the host. |
-| "The merged-result failure is probably flaky" | A failing merged result stops everything. Branch and worktree stay put while you investigate. |
+| "Required merged-result validation is probably flaky" | A failing required integration check stops the integration. Branch and worktree stay put while you investigate. |
 | "The base branch is obviously main" | Confirm the fork point or ask. Merging into the wrong base is expensive to undo. |
 | "The push was rejected — force-push will fix it" | A rejected push means the remote moved. Investigate; force-push only on your human partner's explicit request. |

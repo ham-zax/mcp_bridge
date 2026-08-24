@@ -11,6 +11,8 @@ description: Use when encountering any bug, test failure, or unexpected behavior
 
 **Violating the letter of this process is violating the spirit of debugging.**
 
+Testing is opt-in. Debugging requires a reproducible symptom and falsifiable evidence, not automatically an automated test. Create, modify, or run tests only when the user, authoritative user-approved specification, or mandatory repository policy explicitly authorizes testing.
+
 ## The Iron Law
 
 ```
@@ -169,12 +171,12 @@ You MUST complete each phase before proceeding to the next.
 
 **Fix the root cause, not the symptom:**
 
-1. **Create Failing Test Case**
-   - Simplest possible reproduction
-   - Automated test if possible
-   - One-off test script if no framework
-   - MUST have before fixing
-   - Use the `superpowers:test-driven-development` skill for writing proper failing tests
+1. **Establish a Failing Reproduction**
+   - Use the simplest observable reproduction of the real symptom
+   - Prefer direct runtime/input/output evidence when that is sufficient
+   - Use an automated test only when testing is explicitly authorized
+   - Do not create a one-off test script merely to manufacture a test requirement
+   - The reproduction must be capable of disproving the proposed fix
 
 2. **Implement Single Fix**
    - Address the root cause identified
@@ -183,10 +185,10 @@ You MUST complete each phase before proceeding to the next.
    - No bundled refactoring
 
 3. **Verify Fix**
-   - Test passes now?
-   - No other tests broken?
-   - Issue actually resolved?
-   - Use the `superpowers:verification-before-completion` skill before claiming success
+   - Does the original reproduction now succeed?
+   - Is the violated invariant restored at the responsible boundary?
+   - Run tests only when testing is independently authorized; otherwise do not expand the validation surface just because a bug was fixed
+   - Use the completion-evidence workflow before claiming success
 
 4. **If Fix Doesn't Work**
    - STOP

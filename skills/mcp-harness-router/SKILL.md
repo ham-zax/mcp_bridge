@@ -29,7 +29,7 @@ When Superpowers Web Adapter also applies, let Superpowers control engineering w
 
 ## Authority and observability
 
-- For connected-WSL repository, Git, process, timestamp, or filesystem facts, `mcp-harness-local` is authoritative. ChatGPT container/Python, Files, and public web are different environments and are not diagnostic substitutes for the WSL machine.
+- For connected-WSL repository, Git, process, timestamp, or filesystem facts, `wsl-web-harness` is authoritative. ChatGPT container/Python, Files, and public web are different environments and are not diagnostic substitutes for the WSL machine.
 - Diagnose with an explicit four-layer model: **presentation layer -> MCP proxy/harness transport -> WSL process/filesystem -> repository state**. Evidence at one layer does not silently determine the next layer. A generic proxy/status message does not override a successful concrete harness invocation; likewise, an MCP transport response does not by itself prove the underlying shell command exited successfully.
 - Distinguish three model-visible states: **observable success**, **observable tool/provider error**, and **UNOBSERVABLE presentation**. A hidden, redacted, skipped, or otherwise opaque UI result is not evidence that the underlying command succeeded and is not evidence that it failed.
 - When WSL observability becomes uncertain, perform at most one bounded `bash` health probe against the intended repository. Prefer a compact summary such as `pwd`, `git rev-parse --show-toplevel`, short `HEAD`, current branch, dirty-file count, and an explicit success marker. Do not invent image/file/base64/HTTP/alternate-filesystem visibility probes.

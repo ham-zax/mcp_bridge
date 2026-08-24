@@ -31,7 +31,8 @@ reason -> act -> checkpoint if meaningful -> wait -> reassess -> continue
 ## Keep latency and external usage bounded
 
 - Respond to explicit user steering early within the active turn, then resume the mission. Do not turn a status/checkpoint request into another long implementation or verification cycle before acknowledging it, and do not end/yield the turn merely to improve responsiveness.
-- Run broad verification at meaningful transition boundaries such as a real merge/completion decision or when changed evidence requires it, not merely because a progress message arrived.
+- Persistence does not authorize tests. Create, modify, or run tests only when the user, authoritative mission/specification, or mandatory repository policy explicitly requires testing.
+- Run broad verification only when it is explicitly required at a meaningful transition boundary such as a real merge/completion decision; do not introduce it merely because a progress message arrived or because the mission is long-lived.
 - Treat usage-metered or separately billed external agents/models/CLIs, including Codex, as **explicit opt-in only**. Do not invoke or substitute them for a missing reviewer/subagent unless the user explicitly authorizes that external agent for the current task.
 - If another workflow asks for delegated review but no native or already-authorized reviewer exists, do not silently fall back to Codex or another metered agent. Use bounded in-session review when appropriate, report that delegated review was unavailable, or ask the user at the actual decision boundary.
 
@@ -81,7 +82,7 @@ Read [references/protocol.md](references/protocol.md) before any mission expecte
 Before ending a mission:
 
 - re-read the completion criteria;
-- run fresh verification appropriate to the task;
+- obtain the fresh evidence required to establish the mission's completion criteria; do not infer testing authorization from persistence;
 - distinguish verified completion from temporary idleness;
 - cancel obsolete waits only when they are no longer part of the mission;
 - leave a durable checkpoint if the mission cannot safely continue.
