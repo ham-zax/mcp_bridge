@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -6,6 +7,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { ensureWindowsChrome } from '../browser/windows-chrome-runtime.mjs';
+import { resolveBrowserMemory } from './browser-memory.mjs';
 
 export const AGENT_BROWSER_VERSION = '0.34.0';
 export const DEFAULT_SESSION_PREFIX = 'mcp-browser-fast';
@@ -16,6 +18,7 @@ const WINDOWS_AGENT_BROWSER_SOURCE = path.join(DIR, 'node_modules', 'agent-brows
 const WINDOWS_RUNNER_SOURCE = path.join(DIR, 'windows-runner.cjs');
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const AGENT_BROWSER_MAX_OUTPUT_CHARS = 262144;
+const DEFAULT_BROWSER_ARTIFACTS_FILE = path.join(os.homedir(), '.config', 'mcp-dev-bridge', 'browser-artifacts.json');
 
 function fastError(code, message, cause) {
   const error = new Error(`${code}: ${message}`, cause ? { cause } : undefined);
@@ -32,6 +35,39 @@ function targetName(value) {
   const target = value ?? 'windows';
   if (target !== 'windows' && target !== 'linux') throw fastError('INVALID_BROWSER_TARGET', `expected windows or linux, got ${String(target)}`);
   return target;
+}
+
+function artifactName(value) {
+  const name = requiredString(value, 'upload.artifact');
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) throw fastError('INVALID_ARGUMENT', 'upload.artifact must contain only letters, numbers, dot, underscore, or hyphen');
+  return name;
+}
+
+async function resolveApprovedArtifact(name, manifestPath) {
+  let manifest;
+  try {
+    manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  } catch (error) {
+    if (error?.code === 'ENOENT') throw fastError('BROWSER_FAST_ARTIFACTS_UNAVAILABLE', `approved artifact manifest not found: ${manifestPath}`);
+    throw fastError('BROWSER_FAST_ARTIFACTS_INVALID', `could not read approved artifact manifest: ${manifestPath}`, error);
+  }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw fastError('BROWSER_FAST_ARTIFACTS_INVALID', 'approved artifact manifest must be a JSON object');
+  }
+  const configured = manifest[name];
+  if (typeof configured !== 'string' || configured.length === 0) {
+    throw fastError('BROWSER_FAST_ARTIFACT_NOT_APPROVED', `artifact is not approved: ${name}`);
+  }
+  if (!path.isAbsolute(configured)) throw fastError('BROWSER_FAST_ARTIFACTS_INVALID', `artifact path must be absolute: ${name}`);
+  let resolved;
+  try {
+    resolved = await fs.realpath(configured);
+    const stat = await fs.stat(resolved);
+    if (!stat.isFile()) throw new Error('not a regular file');
+  } catch (error) {
+    throw fastError('BROWSER_FAST_ARTIFACT_UNAVAILABLE', `approved artifact is unavailable: ${name}`, error);
+  }
+  return resolved;
 }
 
 function withoutLifecycle(value) {
@@ -261,6 +297,13 @@ export class AgentBrowserRunner {
       : this.linuxBatch(commands, options);
   }
 
+  async pathForTarget(target, file) {
+    if (target !== 'windows') return file;
+    const translated = await this.processRunner('wslpath', ['-w', file]);
+    if (!translated.stdout) throw fastError('BROWSER_FAST_ARTIFACT_PATH_FAILED', `could not translate artifact path for Windows: ${file}`);
+    return translated.stdout;
+  }
+
   async batch(target, commands, { bail = true, tab } = {}) {
     if (tab !== undefined) {
       try {
@@ -339,6 +382,7 @@ export function actionCommand(action) {
     case 'type': return ['type', directTarget(action), requiredString(action.value, 'type.value')];
     case 'check': return ['check', directTarget(action)];
     case 'uncheck': return ['uncheck', directTarget(action)];
+    case 'upload': return ['upload', directTarget(action), requiredString(action.file, 'upload.file')];
     case 'select': {
       if (!Array.isArray(action.values) || action.values.length !== 1 || typeof action.values[0] !== 'string') {
         throw fastError('INVALID_ARGUMENT', 'select.values must contain exactly one string');
@@ -362,9 +406,11 @@ export function actionCommand(action) {
 }
 
 export class FastBrowser {
-  constructor({ runner = new AgentBrowserRunner() } = {}) {
+  constructor({ runner = new AgentBrowserRunner(), memoryRoot, artifactManifestPath = DEFAULT_BROWSER_ARTIFACTS_FILE } = {}) {
     if (!runner || typeof runner.batch !== 'function') throw new TypeError('runner with batch() is required');
     this.runner = runner;
+    this.memoryRoot = memoryRoot;
+    this.artifactManifestPath = artifactManifestPath;
     this.operationTails = new Map();
   }
 
@@ -427,13 +473,16 @@ export class FastBrowser {
       title: item.title,
       url: item.url
     }));
+    const origin = snapshotItem.origin ?? tabs.find(item => item.active)?.url ?? null;
+    const memory = await resolveBrowserMemory(origin, { root: this.memoryRoot });
     return {
       browser_target: target,
       active_tab: tabs.find(item => item.active)?.tab_id ?? null,
-      origin: snapshotItem.origin ?? tabs.find(item => item.active)?.url ?? null,
+      origin,
       snapshot: snapshotItem.snapshot ?? '',
       refs: snapshotItem.refs ?? {},
-      tabs
+      tabs,
+      memory
     };
   }
 
@@ -446,7 +495,20 @@ export class FastBrowser {
     const target = targetName(browser_target);
     const requestedTab = requiredString(tab, 'tab');
     if (!Array.isArray(actions) || actions.length === 0) throw fastError('INVALID_ARGUMENT', 'actions must be a non-empty array');
-    const actionCommands = actions.map(actionCommand);
+    const preparedActions = [];
+    for (const action of actions) {
+      if (action?.op !== 'upload') {
+        preparedActions.push(action);
+        continue;
+      }
+      const artifact = artifactName(action.artifact);
+      const approvedPath = await resolveApprovedArtifact(artifact, this.artifactManifestPath);
+      const file = typeof this.runner.pathForTarget === 'function'
+        ? await this.runner.pathForTarget(target, approvedPath)
+        : approvedPath;
+      preparedActions.push({ ...action, file });
+    }
+    const actionCommands = preparedActions.map(actionCommand);
 
     return this.withTargetLock(target, async () => {
       const initial = await this.listTabsUnlocked(target, { tab: requestedTab });
@@ -577,10 +639,11 @@ const ACTION_SCHEMA = {
   properties: {
     op: {
       type: 'string',
-      enum: ['navigate', 'back', 'forward', 'reload', 'click', 'fill', 'type', 'check', 'uncheck', 'select', 'press', 'wait', 'tab_list', 'tab_new', 'tab_switch', 'tab_close']
+      enum: ['navigate', 'back', 'forward', 'reload', 'click', 'fill', 'type', 'check', 'uncheck', 'upload', 'select', 'press', 'wait', 'tab_list', 'tab_new', 'tab_switch', 'tab_close']
     },
     target: { type: 'string', minLength: 1, description: 'Opaque element ref/uid from the latest observe result. Do not invent CSS/XPath selectors.' },
     value: { type: 'string' },
+    artifact: { type: 'string', minLength: 1, pattern: '^[A-Za-z0-9._-]+$', description: 'Logical approved artifact name from the local browser-artifacts manifest; arbitrary filesystem paths are not accepted.' },
     values: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 1 },
     key: { type: 'string', minLength: 1 },
     text: { type: 'string', minLength: 1 },
@@ -600,13 +663,13 @@ export function createBrowserFastServer({ browser } = {}) {
     { name: 'browser-fast', version: '0.1.0' },
     {
       capabilities: { tools: {} },
-      instructions: 'Fast resource-local browser interaction. Observe once for stable refs/tabs, execute mechanical sequences locally, and never assume failed or partial batches are safe to replay.'
+      instructions: 'Fast resource-local browser interaction. Observe once for stable refs/tabs plus bounded local site memory, execute mechanical sequences locally, and never assume failed or partial batches are safe to replay.'
     }
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [
     {
       name: 'observe',
-      description: 'Return compact interactive browser state with stable tab IDs and element refs. Prefer this before interaction instead of repeated screenshots or full-page dumps.',
+      description: 'Return compact interactive browser state with stable tab IDs, element refs, and bounded read-only local policy/site/platform memory for the current URL when available. Unknown sites remain valid with empty memory.',
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       inputSchema: {
         type: 'object',
@@ -621,7 +684,7 @@ export function createBrowserFastServer({ browser } = {}) {
     },
     {
       name: 'execute',
-      description: 'Execute multiple mechanical browser actions locally in one call. After a click, exactly one new tab is followed before later actions; multiple new tabs stop the sequence without guessing. Defaults to fail-fast, never auto-retries, and reports completed/failed/unknown/not-run steps plus final compact state so partial external side effects are explicit.',
+      description: 'Execute multiple mechanical browser actions locally in one call, including upload by logical approved artifact name rather than arbitrary path. After a click, exactly one new tab is followed before later actions; multiple new tabs stop the sequence without guessing. Defaults to fail-fast, never auto-retries, and reports completed/failed/unknown/not-run steps plus final compact state so partial external side effects are explicit.',
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
       inputSchema: {
         type: 'object',

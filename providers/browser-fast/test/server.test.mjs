@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { resolveBrowserMemory } from '../browser-memory.mjs';
 import {
   AgentBrowserRunner,
   FastBrowser,
@@ -30,10 +31,15 @@ test('browser-fast exposes only observe and execute', async t => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map(tool => tool.name), ['observe', 'execute']);
   assert.equal(tools[0].annotations.readOnlyHint, true);
+  assert.match(tools[0].description, /local policy\/site\/platform memory/i);
   assert.equal(tools[1].annotations.readOnlyHint, false);
   assert.equal(tools[1].annotations.idempotentHint, false);
   assert.match(tools[1].description, /never auto-retries/i);
   assert.match(tools[1].description, /exactly one new tab/i);
+  const actionSchema = tools[1].inputSchema.properties.actions.items;
+  assert.equal(actionSchema.properties.op.enum.includes('upload'), true);
+  assert.equal(actionSchema.properties.artifact.pattern, '^[A-Za-z0-9._-]+$');
+  assert.equal(actionSchema.properties.file, undefined);
   assert.deepEqual(tools[1].inputSchema.required, ['tab', 'actions']);
 });
 
@@ -42,12 +48,110 @@ test('action mapping prefers observation refs and keeps batching vocabulary smal
   assert.deepEqual(actionCommand({ op: 'click', target: 'e3' }), ['click', '@e3']);
   assert.deepEqual(actionCommand({ op: 'fill', target: '@e4', value: 'hello' }), ['fill', '@e4', 'hello']);
   assert.deepEqual(actionCommand({ op: 'select', target: 'e5', values: ['senior'] }), ['select', '@e5', 'senior']);
+  assert.deepEqual(actionCommand({ op: 'upload', target: 'e5', file: '/tmp/approved.pdf' }), ['upload', '@e5', '/tmp/approved.pdf']);
   assert.deepEqual(actionCommand({ op: 'wait', text: 'Submitted' }), ['wait', '--text', 'Submitted']);
   assert.deepEqual(actionCommand({ op: 'wait', milliseconds: 250 }), ['wait', '250']);
   assert.deepEqual(actionCommand({ op: 'tab_switch', tab: 't2' }), ['tab', 't2']);
-  assert.throws(() => actionCommand({ op: 'upload', target: 'e5', files: ['/tmp/secret'] }), /unsupported action op/);
+  assert.throws(() => actionCommand({ op: 'upload', target: 'e5', artifact: 'document.current' }), /upload.file/);
   assert.throws(() => actionCommand({ op: 'wait', url: '**/done' }), /exactly one/);
   assert.throws(() => actionCommand({ op: 'select', target: 'e5', values: ['a', 'b'] }), /exactly one/);
+});
+
+test('browser memory resolves exact sites and reusable platforms without first-label collisions', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'browser-fast-memory-test-'));
+  t.after(async () => { await fs.rm(root, { recursive: true, force: true }); });
+
+  await fs.mkdir(path.join(root, 'policies', 'account.example.test'), { recursive: true });
+  await fs.writeFile(path.join(root, 'policies', 'account.example.test', 'manual.md'), 'Authenticated interaction is manual-only.');
+
+  await fs.mkdir(path.join(root, 'platforms', 'hosted-forms'), { recursive: true });
+  await fs.writeFile(path.join(root, 'platforms', 'hosted-forms', 'match.json'), JSON.stringify({ host_suffixes: ['forms.example.test'] }));
+  await fs.writeFile(path.join(root, 'platforms', 'hosted-forms', 'strategy.md'), 'Verify the final confirmation state.');
+
+  await fs.mkdir(path.join(root, 'sites', 'careers.example.test'), { recursive: true });
+  await fs.writeFile(path.join(root, 'sites', 'careers.example.test', 'application.md'), 'Custom company form memory.');
+
+  const custom = await resolveBrowserMemory('https://careers.example.test/apply/123', { root });
+  assert.equal(custom.host, 'careers.example.test');
+  assert.deepEqual(custom.matches.map(item => [item.kind, item.key]), [['site', 'careers.example.test']]);
+  assert.match(custom.matches[0].content, /Custom company form memory/);
+
+  const unrelated = await resolveBrowserMemory('https://careers.other.test/apply/123', { root });
+  assert.equal(unrelated.host, 'careers.other.test');
+  assert.deepEqual(unrelated.matches, []);
+
+  await fs.mkdir(path.join(root, 'sites', 'tenant.forms.example.test'), { recursive: true });
+  await fs.writeFile(path.join(root, 'sites', 'tenant.forms.example.test', 'local.md'), 'This host has a site-specific quirk.');
+  const hosted = await resolveBrowserMemory('https://tenant.forms.example.test/application/1', { root });
+  assert.deepEqual(hosted.matches.map(item => [item.kind, item.key]), [
+    ['site', 'tenant.forms.example.test'],
+    ['platform', 'hosted-forms']
+  ]);
+
+  const policy = await resolveBrowserMemory('https://www.account.example.test/settings', { root });
+  assert.equal(policy.host, 'account.example.test');
+  assert.deepEqual(policy.matches.map(item => [item.kind, item.key]), [['policy', 'account.example.test']]);
+});
+
+test('browser memory bounds returned file count and content size', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'browser-fast-memory-bounds-'));
+  t.after(async () => { await fs.rm(root, { recursive: true, force: true }); });
+  const site = path.join(root, 'sites', 'example.test');
+  await fs.mkdir(site, { recursive: true });
+  await fs.writeFile(path.join(site, 'a.md'), 'abcdefghij');
+  await fs.writeFile(path.join(site, 'b.md'), 'klmnopqrst');
+
+  const memory = await resolveBrowserMemory('https://example.test/', {
+    root,
+    maxFiles: 1,
+    maxFileBytes: 4,
+    maxTotalBytes: 4
+  });
+  assert.equal(memory.matches.length, 1);
+  assert.equal(memory.matches[0].content, 'abcd');
+  assert.equal(memory.matches[0].truncated, true);
+});
+
+test('upload resolves only approved artifacts and delegates target path translation', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'browser-fast-artifact-test-'));
+  t.after(async () => { await fs.rm(root, { recursive: true, force: true }); });
+  const file = path.join(root, 'document.pdf');
+  const manifest = path.join(root, 'browser-artifacts.json');
+  await fs.writeFile(file, 'document-bytes');
+  await fs.writeFile(manifest, JSON.stringify({ 'document.current': file }));
+
+  const calls = [];
+  const runner = {
+    async pathForTarget(target, approvedPath) {
+      assert.equal(target, 'windows');
+      assert.equal(approvedPath, file);
+      return `WIN:${approvedPath}`;
+    },
+    async batch(target, commands, options) {
+      calls.push({ target, commands, options });
+      if (commands.length === 1 && commands[0][0] === 'tab' && commands[0][1] === 'list') {
+        return { exitCode: 0, items: [{ success: true, result: { tabs: [{ active: true, targetId: 'TAB-1', url: 'https://example.test/' }] } }] };
+      }
+      if (commands.length === 1 && commands[0][0] === 'upload') {
+        return { exitCode: 0, items: [{ success: true, result: { uploaded: true } }] };
+      }
+      throw new Error(`unexpected commands: ${JSON.stringify(commands)}`);
+    }
+  };
+  const browser = new FastBrowser({ runner, artifactManifestPath: manifest });
+  const result = await browser.execute({
+    browser_target: 'windows',
+    tab: 'TAB-1',
+    final_state: 'none',
+    actions: [{ op: 'upload', target: 'e5', artifact: 'document.current' }]
+  });
+
+  assert.equal(result.outcome, 'completed');
+  assert.deepEqual(calls[1].commands, [['upload', '@e5', `WIN:${file}`]]);
+  await assert.rejects(
+    browser.execute({ browser_target: 'windows', tab: 'TAB-1', final_state: 'none', actions: [{ op: 'upload', target: 'e5', artifact: 'not-approved' }] }),
+    /BROWSER_FAST_ARTIFACT_NOT_APPROVED/
+  );
 });
 
 test('failed tab-context validation is always fail-closed before action dispatch', async () => {
@@ -134,6 +238,19 @@ test('partial execution is explicit and never replayed after a later failure', a
   assert.equal(calls.filter(call => call.commands[0]?.[0] === 'fill').length, 1);
   assert.equal(calls.filter(call => call.commands[0]?.[0] === 'click').length, 1);
   assert.equal(calls.filter(call => call.commands[0]?.[0] === 'wait').length, 1);
+});
+
+test('Windows upload paths are translated through wslpath while Linux paths stay local', async () => {
+  const calls = [];
+  const runner = new AgentBrowserRunner({
+    processRunner: async (command, args) => {
+      calls.push({ command, args });
+      return { code: 0, stdout: '\\\\wsl.localhost\\Ubuntu\\home\\tester\\document.pdf', stderr: '' };
+    }
+  });
+  assert.equal(await runner.pathForTarget('linux', '/home/tester/document.pdf'), '/home/tester/document.pdf');
+  assert.equal(await runner.pathForTarget('windows', '/home/tester/document.pdf'), '\\\\wsl.localhost\\Ubuntu\\home\\tester\\document.pdf');
+  assert.deepEqual(calls, [{ command: 'wslpath', args: ['-w', '/home/tester/document.pdf'] }]);
 });
 
 test('Windows Agent Browser runner provisions native runtime and validates tab context before non-bailing actions', async t => {
@@ -258,7 +375,12 @@ test('browser-fast serializes complete operations per target and carries explici
   assert.deepEqual(calls.map(call => call.options.tab).filter(Boolean), ['t1', 't2']);
 });
 
-test('observe explicitly rebinds the current target before snapshot so a strict pin can recover after tab_gone', async () => {
+test('observe explicitly rebinds the current target and attaches bounded site memory', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'browser-fast-observe-memory-'));
+  t.after(async () => { await fs.rm(root, { recursive: true, force: true }); });
+  await fs.mkdir(path.join(root, 'sites', 'example.test'), { recursive: true });
+  await fs.writeFile(path.join(root, 'sites', 'example.test', 'application.md'), 'Use the current form state; do not replay an unknown submit.');
+
   const calls = [];
   const runner = {
     async batch(target, commands, options) {
@@ -289,11 +411,14 @@ test('observe explicitly rebinds the current target before snapshot so a strict 
       };
     }
   };
-  const browser = new FastBrowser({ runner });
+  const browser = new FastBrowser({ runner, memoryRoot: root });
   const observed = await browser.observe({ browser_target: 'windows' });
   assert.equal(observed.active_tab, 'TARGET-STABLE-ABC');
   assert.equal(observed.tabs[0].tab_id, 'TARGET-STABLE-ABC');
   assert.equal(observed.tabs[0].target_id, 'TARGET-STABLE-ABC');
+  assert.equal(observed.memory.host, 'example.test');
+  assert.deepEqual(observed.memory.matches.map(item => [item.kind, item.key]), [['site', 'example.test']]);
+  assert.match(observed.memory.matches[0].content, /do not replay an unknown submit/);
   assert.equal(calls.length, 3);
 });
 
