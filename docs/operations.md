@@ -215,3 +215,36 @@ These are pinned-version compatibility behaviors. Requalify them when upgrading 
 For the personal Local domain, the outer 1MCP exposes only Local `tool_list`, `tool_schema`, and `tool_call` under `tag:local`; the Local provider starts a private inner 1MCP over stdio in normal direct mode. That inner config contains the DevTools `browser` surface and experimental `browser-fast` interaction surface. The renderer writes the inner config before the outer config so a hot reload cannot start Local against a missing file. Stock lazy `tool_invoke` remains outside this path because direct mode preserves downstream MCP results.
 
 Windows browser calls do not attach to the everyday Chrome profile and require no `chrome://inspect` setup. The shared Windows runtime owns `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`; on first use or after that browser exits, it launches visible Chrome with `--user-data-dir=<that directory>` and `--remote-debugging-port=0`, waits for the profile's `DevToolsActivePort`, and health-checks the loopback endpoint. Chrome chooses the port, so the bridge does not reserve a global `9222`. `browser` passes the resulting HTTP endpoint to Chrome DevTools MCP with `--browserUrl`; `browser-fast` passes the WebSocket endpoint to native Agent Browser with `--cdp` and `--pin-tab`. The profile is persistent: sign into sites in that MCP Chrome window once when needed, and cookies/local storage remain in that directory across restarts. Do not copy the everyday Chrome data directory into it. Agent Browser 0.35.0 plus its one-shot Windows Node helper remain materialized under `%LOCALAPPDATA%\\mcp-dev-bridge\\agent-browser\\0.35.0`; the helper owns bounded stdout/stderr files so cold daemon startup cannot keep the WSL interop lifetime open. Do not publish the debugging endpoint beyond the trusted local machine. Both logical servers default to this Windows profile; `browser_target=linux` selects the separate WSLg paths.
+
+### Switching the Linux browser-fast backend
+
+The live selector is `~/.config/mcp-dev-bridge/browser-fast.json`. It is reread without restarting the bridge. The normal Chrome configuration is:
+
+```json
+{
+  "version": 1,
+  "linux": {
+    "browser": "chrome"
+  }
+}
+```
+
+To use Clearcote, first run its CDP server on loopback using an upstream-supported command such as:
+
+```bash
+clearcote-serve --port 9222 --fingerprint hamza-main --platform linux
+```
+
+Then change the selector to:
+
+```json
+{
+  "version": 1,
+  "linux": {
+    "browser": "clearcote",
+    "cdpPort": 9222
+  }
+}
+```
+
+Use `browser_target="linux"` and observe again. Clearcote owns the browser process and profile; browser-fast continues to own refs, batching, tab validation, and approved uploads through Agent Browser. Keep the CDP endpoint loopback-only and make changes only between complete browser-fast calls. Selecting `firefox` fails explicitly because the current Agent Browser backend is Chromium-CDP-only; Firefox needs a separate future driver adapter, not another config value.

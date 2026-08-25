@@ -6,6 +6,7 @@ import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { resolveBrowserMemory } from '../browser-memory.mjs';
+import { resolveLinuxBrowserBackend } from '../browser-backend-config.mjs';
 import {
   AgentBrowserRunner,
   FastBrowser,
@@ -251,6 +252,56 @@ test('Windows upload paths are translated through wslpath while Linux paths stay
   assert.equal(await runner.pathForTarget('linux', '/home/tester/document.pdf'), '/home/tester/document.pdf');
   assert.equal(await runner.pathForTarget('windows', '/home/tester/document.pdf'), '\\\\wsl.localhost\\Ubuntu\\home\\tester\\document.pdf');
   assert.deepEqual(calls, [{ command: 'wslpath', args: ['-w', '/home/tester/document.pdf'] }]);
+});
+
+test('Linux browser backend config defaults to Chrome and rejects Firefox explicitly', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'browser-fast-backend-config-'));
+  t.after(async () => { await fs.rm(root, { recursive: true, force: true }); });
+  const configFile = path.join(root, 'browser-fast.json');
+
+  assert.deepEqual(await resolveLinuxBrowserBackend({ configFile }), {
+    browser: 'chrome',
+    session: 'mcp-browser-fast-linux'
+  });
+
+  await fs.writeFile(configFile, JSON.stringify({ version: 1, linux: { browser: 'firefox' } }));
+  await assert.rejects(
+    resolveLinuxBrowserBackend({ configFile }),
+    error => error?.code === 'UNSUPPORTED_BROWSER_BACKEND' && /cannot drive it/.test(error.message)
+  );
+});
+
+test('Linux runner hot-switches from managed Chrome to a Clearcote CDP session', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'browser-fast-backend-switch-'));
+  t.after(async () => { await fs.rm(root, { recursive: true, force: true }); });
+  const configFile = path.join(root, 'browser-fast.json');
+  const calls = [];
+  const processRunner = async (command, args, options = {}) => {
+    calls.push({ command, args, options });
+    return { code: 0, stdout: JSON.stringify([{ success: true, result: {} }]), stderr: '' };
+  };
+  const runner = new AgentBrowserRunner({
+    env: {
+      AGENT_BROWSER_EXECUTABLE_PATH: '/usr/bin/google-chrome',
+      AGENT_BROWSER_PROFILE: 'Default'
+    },
+    processRunner,
+    linuxBackendResolve: () => resolveLinuxBrowserBackend({ configFile })
+  });
+
+  await fs.writeFile(configFile, JSON.stringify({ version: 1, linux: { browser: 'chrome' } }));
+  await runner.linuxBatch([['tab', 'list']]);
+  await fs.writeFile(configFile, JSON.stringify({ version: 1, linux: { browser: 'clearcote', cdpPort: 9222 } }));
+  await runner.linuxBatch([['tab', 'list']]);
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].args.includes('mcp-browser-fast-linux'), true);
+  assert.equal(calls[0].args.includes('--cdp'), false);
+  assert.equal(calls[0].options.env.AGENT_BROWSER_EXECUTABLE_PATH, '/usr/bin/google-chrome');
+  assert.equal(calls[1].args.includes('mcp-browser-fast-linux-clearcote-9222'), true);
+  assert.deepEqual(calls[1].args.slice(calls[1].args.indexOf('--cdp'), calls[1].args.indexOf('--cdp') + 2), ['--cdp', '9222']);
+  assert.equal(calls[1].options.env.AGENT_BROWSER_EXECUTABLE_PATH, undefined);
+  assert.equal(calls[1].options.env.AGENT_BROWSER_PROFILE, undefined);
 });
 
 test('Windows Agent Browser runner provisions native runtime and validates tab context before non-bailing actions', async t => {

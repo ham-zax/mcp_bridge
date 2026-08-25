@@ -7,6 +7,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { ensureWindowsChrome } from '../browser/windows-chrome-runtime.mjs';
+import { resolveLinuxBrowserBackend } from './browser-backend-config.mjs';
 import { resolveBrowserMemory } from './browser-memory.mjs';
 
 export const AGENT_BROWSER_VERSION = '0.35.0';
@@ -171,15 +172,17 @@ export class AgentBrowserRunner {
     processRunner = runProcess,
     windowsSource = WINDOWS_AGENT_BROWSER_SOURCE,
     windowsRunnerSource = WINDOWS_RUNNER_SOURCE,
-    windowsChromeEnsure
+    windowsChromeEnsure,
+    linuxBackendResolve = resolveLinuxBrowserBackend
   } = {}) {
     this.env = env;
     this.processRunner = processRunner;
     this.windowsSource = windowsSource;
     this.windowsRunnerSource = windowsRunnerSource;
     this.windowsChromeEnsure = windowsChromeEnsure ?? (() => ensureWindowsChrome({ processRunner: this.processRunner }));
+    this.linuxBackendResolve = linuxBackendResolve;
     this.windowsAgentRuntimePromise = null;
-    this.linuxUsed = false;
+    this.linuxSessions = new Map();
   }
 
   async windowsAgentRuntime(chrome) {
@@ -271,10 +274,19 @@ export class AgentBrowserRunner {
   }
 
   async linuxBatch(commands, { bail = true } = {}) {
-    this.linuxUsed = true;
+    const backend = await this.linuxBackendResolve();
+    const session = backend.session;
+    const env = { ...this.env, AGENT_BROWSER_NO_XVFB: '1' };
+    if (backend.cdp !== undefined) {
+      delete env.AGENT_BROWSER_EXECUTABLE_PATH;
+      delete env.AGENT_BROWSER_PROFILE;
+      delete env.AGENT_BROWSER_ARGS;
+    }
+    this.linuxSessions.set(session, env);
     const args = [
       AGENT_BROWSER_JS,
-      '--session', `${DEFAULT_SESSION_PREFIX}-linux`,
+      '--session', session,
+      ...(backend.cdp === undefined ? [] : ['--cdp', backend.cdp]),
       '--headed',
       '--pin-tab',
       '--idle-timeout', '1h',
@@ -284,7 +296,7 @@ export class AgentBrowserRunner {
     if (bail) args.push('--bail');
     args.push('--json');
     const result = await this.processRunner(process.execPath, args, {
-      env: { ...this.env, AGENT_BROWSER_NO_XVFB: '1' },
+      env,
       input: JSON.stringify(commands),
       acceptNonZero: true
     });
@@ -342,16 +354,13 @@ export class AgentBrowserRunner {
   }
 
   async close() {
-    if (!this.linuxUsed) return;
-    this.linuxUsed = false;
-    await this.processRunner(process.execPath, [
+    const sessions = [...this.linuxSessions];
+    this.linuxSessions.clear();
+    await Promise.all(sessions.map(([session, env]) => this.processRunner(process.execPath, [
       AGENT_BROWSER_JS,
-      '--session', `${DEFAULT_SESSION_PREFIX}-linux`,
+      '--session', session,
       'close'
-    ], {
-      env: { ...this.env, AGENT_BROWSER_NO_XVFB: '1' },
-      acceptNonZero: true
-    }).catch(() => {});
+    ], { env, acceptNonZero: true }).catch(() => {})));
   }
 }
 

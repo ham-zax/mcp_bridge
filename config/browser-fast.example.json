@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "linux": {
+    "browser": "chrome"
+  }
+}
