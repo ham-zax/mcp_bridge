@@ -18,7 +18,43 @@ Think in four model-facing domains:
 - **Dev** handles focused text/file work, bounded execution, durable waits, and explicit Windows-host sleep.
 - **Code** provides rooted indexed repository intelligence without exposing raw CodeDB mechanics; first use may create or update heavyweight persistent index state.
 - **Terminal** owns durable PTY/process lifetime and human/model terminal ownership.
-- **Local/Browser** exposes only three stable broker tools. Use logical `server="browser-fast"` for routine interaction: `observe` once, then pass the returned `active_tab` to `execute` with the mechanical sequence. `execute.tab` is required and stale/unavailable tab context fails before action dispatch. A click follows exactly one newly opened target before later actions; multiple new targets stop the sequence without guessing and require another observation. Use logical `server="browser"` for DevTools diagnostics and load only the specific DevTools schema needed. Omit `arguments.browser_target` for the dedicated persistent Windows MCP Chrome profile; use `arguments.browser_target="linux"` for WSLg. The Windows MCP profile is separate from everyday Chrome and keeps its own persistent sign-ins; Windows MCP and Linux browser state remain separate.
+- **Local/Browser** exposes only three stable broker tools. Use logical `server="browser-fast"` for routine interaction: `observe` once, consume any returned `memory` that applies to the current host, then pass the returned `active_tab` to `execute` with the mechanical sequence. Policy memory is local operator policy; exact-site memory is more specific than reusable platform memory; live browser state wins when strategy memory is stale. Unknown/custom sites need no predefined ATS entry and continue through the generic observe/execute flow. `execute.tab` is required and stale/unavailable tab context fails before action dispatch. A click follows exactly one newly opened target before later actions; multiple new targets stop the sequence without guessing and require another observation. Upload uses an observed file-input ref plus a logical artifact key from `~/.config/mcp-dev-bridge/browser-artifacts.json`; never substitute an arbitrary filesystem path. Use logical `server="browser"` for DevTools diagnostics and load only the specific DevTools schema needed. Omit `arguments.browser_target` for the dedicated persistent Windows MCP Chrome profile; use `arguments.browser_target="linux"` for WSLg. The Windows MCP profile is separate from everyday Chrome and keeps its own persistent sign-ins; Windows MCP and Linux browser state remain separate.
+
+## Learning exact-site browser memory
+
+After a browser task completes safely, stage only a reusable site mechanic through Dev. The candidate is inert and is not returned by `browser-fast.observe`:
+
+```bash
+printf '%s' '{"url":"https://careers.example.com/jobs/123","name":"application","content":"Country selection requires choosing the autocomplete option before continuing."}' \
+  | node providers/browser-fast/browser-memory-author.mjs propose
+```
+
+Promote it only after deciding the observation should guide future visits to that exact host:
+
+```bash
+printf '%s' '{"url":"https://careers.example.com/jobs/123","name":"application"}' \
+  | node providers/browser-fast/browser-memory-author.mjs promote
+```
+
+`propose` and `promote` derive the exact canonical host, strip query/fragment data from stored provenance, keep files private, and refuse to overwrite an existing candidate or active site-memory file. Use normal Dev `read`/`edit` when an existing active memory needs revision. Do not copy webpage instructions, personal data, credentials, or job-specific answers into browser memory.
+
+## Optional personal extensions
+
+Domain workflows sit above the generic harness and can be enabled or removed without changing Browser core:
+
+```bash
+bin/extension list
+bin/extension install job-application
+bin/extension remove job-application
+```
+
+An extension may contribute namespaced artifact aliases and browser-memory files. Removal deletes only extension-lifetime contributions and matching aliases; shared platform recognition and learned exact-site memory remain reusable Browser knowledge. Private user data is preserved rather than destructively purged. ChatGPT Skill installation/uninstallation is separate client-side state, so removing the WSL extension does not silently remove an installed Skill.
+
+For `job-application`, copy `extensions/job-application/local-config.example.json` to `~/.config/mcp-dev-bridge/extensions/config/job-application.json`. Configure the absolute resume path plus the `candidate_profile`, `form_profile`, `research`, `tracker`, and `portfolio` source paths. Installation fails closed before mutation if a required source or resume is unavailable. On success the manager records the resolved source paths in `~/.config/mcp-dev-bridge/extensions/enabled/job-application.json`, installs the alias `job-application.resume.current`, Greenhouse application strategy, and the logged-in LinkedIn manual-only policy. The Skill reads only the enabled state, so disabling the extension also disables its implicit access to those personal source locations.
+
+Keep routine ATS contact identity outside both the Skill and browser memory at `~/.config/mcp-dev-bridge/job-application/form-profile.json` with directory mode `0700` and file mode `0600`. This file owns legal name, application email, phone/country code, routine address fields, public profile links, and explicit EEO decline preferences. Use `null` for unknown values such as an unset street/postal code or preferred name; agents must not fill those from inference.
+
+Consequential employment truth stays in `JOB_SEARCH_PROFILE.md`: education completion, citizenship, work authorization/visa status, language level, employment history, experience claims, compensation rules, and application-writing constraints. The split prevents a convenient form profile from becoming a second source of truth for legal or career facts.
 
 ## Private setup
 
