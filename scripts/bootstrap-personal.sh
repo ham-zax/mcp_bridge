@@ -107,7 +107,8 @@ echo "== rendering personal user-systemd units =="
 HOME="$USER_HOME" BRIDGE_STATE_DIR="$STATE_DIR" BRIDGE_SYSTEMD_TARGET_DIR="$SYSTEMD_TARGET_DIR" \
   BRIDGE_SYSTEMD_DRY_RUN=1 "$ROOT/scripts/install-systemd-user.sh"
 HOME="$USER_HOME" TERMINAL_SYSTEMD_TARGET_DIR="$SYSTEMD_TARGET_DIR" \
-  TERMINAL_SYSTEMD_DRY_RUN=1 "$ROOT/scripts/install-terminal-broker-user.sh"
+  TERMINAL_OWNER_ENV_FILE="$STATE_DIR/owner.env" TERMINAL_SYSTEMD_DRY_RUN=1 \
+  "$ROOT/scripts/install-terminal-broker-user.sh"
 
 DROPIN_DIR="$SYSTEMD_TARGET_DIR/mcp-dev-bridge.service.d"
 DROPIN="$DROPIN_DIR/personal.conf"

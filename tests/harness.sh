@@ -309,6 +309,65 @@ EOF
   rm -rf "$tmp"
 }
 
+test_owner_overlay_rendering() {
+  local tmp output rc
+  tmp="$(mktemp -d)" || return 1
+  mkdir -p "$tmp/home" "$tmp/runtime"
+  cat > "$tmp/home/context.md" <<'EOF'
+# Owner context
+
+Test owner instructions.
+EOF
+  cat > "$tmp/home/gui.env" <<'EOF'
+GALLIUM_DRIVER=d3d12
+MOZ_ENABLE_WAYLAND=1
+EOF
+  chmod 0600 "$tmp/home/context.md" "$tmp/home/gui.env"
+  cat > "$tmp/deployment.env" <<EOF
+MCP_PUBLIC_URL=https://mcp.example.test
+MCP_OWNER_CONTEXT_FILE=$tmp/home/context.md
+MCP_OWNER_ENV_FILE=$tmp/home/gui.env
+EOF
+
+  env -u MCP_OWNER_CONTEXT_FILE -u MCP_OWNER_ENV_FILE HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" \
+    node "$ROOT/scripts/render-config.mjs" --profile personal --env-file "$tmp/deployment.env" \
+    --state-dir "$tmp/state" --repo-root "$ROOT" >/dev/null || { rm -rf "$tmp"; return 1; }
+
+  node - "$tmp/state/1mcp/mcp.json" "$tmp/state/local-1mcp/mcp.json" "$tmp/state/owner.env" "$tmp/home/context.md" <<'NODE'
+const fs = require('fs');
+const [outerFile, innerFile, ownerEnvFile, contextFile] = process.argv.slice(2);
+const outer = JSON.parse(fs.readFileSync(outerFile, 'utf8'));
+const inner = JSON.parse(fs.readFileSync(innerFile, 'utf8'));
+const dev = outer.mcpServers.dev.env;
+const terminal = outer.mcpServers.terminal.env;
+const browser = inner.mcpServers.browser.env;
+const fast = inner.mcpServers['browser-fast'].env;
+if (dev.MCP_OWNER_CONTEXT_FILE !== contextFile) process.exit(1);
+for (const env of [dev, terminal]) {
+  if (env.GALLIUM_DRIVER !== 'd3d12' || env.MOZ_ENABLE_WAYLAND !== '1') process.exit(1);
+}
+for (const env of [browser, fast]) {
+  if (env.GALLIUM_DRIVER !== 'd3d12') process.exit(1);
+  if (env.MOZ_ENABLE_WAYLAND !== undefined) process.exit(1);
+}
+if (fs.readFileSync(ownerEnvFile, 'utf8') !== 'GALLIUM_DRIVER=d3d12\nMOZ_ENABLE_WAYLAND=1\n') process.exit(1);
+if ((fs.statSync(ownerEnvFile).mode & 0o777) !== 0o600) process.exit(1);
+NODE
+  rc=$?
+  [ "$rc" -eq 0 ] || { rm -rf "$tmp"; return "$rc"; }
+
+  cat > "$tmp/home/gui.env" <<'EOF'
+GALLIUM_DRIVER=d3d12
+PATH=/tmp
+EOF
+  output="$(env -u MCP_OWNER_CONTEXT_FILE -u MCP_OWNER_ENV_FILE HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/runtime" \
+    node "$ROOT/scripts/render-config.mjs" --profile personal --env-file "$tmp/deployment.env" \
+    --state-dir "$tmp/invalid-state" --repo-root "$ROOT" 2>&1)"
+  rc=$?
+  rm -rf "$tmp"
+  [ "$rc" -ne 0 ] && grep -Fq 'MCP_OWNER_ENV_FILE permits only: GALLIUM_DRIVER, MOZ_ENABLE_WAYLAND' <<<"$output"
+}
+
 test_personal_default_cwd_override() {
   local tmp output rc
   tmp="$(mktemp -d)" || return 1
@@ -426,6 +485,7 @@ run_test 'final rendered composition places Browser behind Local only in persona
 run_test 'Dev spool deployment override rejects invalid values' test_dev_spool_limit_validation
 run_test '1MCP rotating log deployment policy rejects invalid values' test_one_mcp_log_policy_validation
 run_test 'personal Terminal frontend selector defaults, overrides, and validates in profile scope' test_terminal_frontend_selector
+run_test 'personal owner overlay sanitizes and propagates GUI policy' test_owner_overlay_rendering
 run_test 'personal default cwd supports an absolute deployment override' test_personal_default_cwd_override
 run_test 'personal runtime files carry no machine-specific home path' test_personal_runtime_files_have_no_machine_home
 run_test 'personal smoke validation accepts the private provider contract' test_personal_smoke_validation

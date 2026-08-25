@@ -1,3 +1,5 @@
+import { constants as fsConstants } from 'node:fs';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -20,6 +22,24 @@ import { waitInputSchema } from './wait-schema.mjs';
 import { WaitStore } from './wait-state.mjs';
 import { TerminalWaitSource } from './wait-terminal.mjs';
 import { runWindowsSleep } from './windows-power.mjs';
+
+const OWNER_CONTEXT_MAX_BYTES = 32 * 1024;
+
+async function loadOwnerContext(file) {
+  if (!file) return undefined;
+  if (!path.isAbsolute(file)) throw new Error('MCP_OWNER_CONTEXT_FILE must be an absolute path');
+  const stat = await fs.lstat(file);
+  if (!stat.isFile()) throw new Error('MCP_OWNER_CONTEXT_FILE must reference a regular file');
+  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+    throw new Error('MCP_OWNER_CONTEXT_FILE must be owned by the current user');
+  }
+  if (stat.size > OWNER_CONTEXT_MAX_BYTES) {
+    throw new Error(`MCP_OWNER_CONTEXT_FILE exceeds the ${OWNER_CONTEXT_MAX_BYTES}-byte limit`);
+  }
+  await fs.access(file, fsConstants.R_OK);
+  const text = await fs.readFile(file, 'utf8');
+  return text.trim() || undefined;
+}
 
 const mode = process.env.MCP_DEV_SHELL_MODE;
 if (!['allowlist', 'unrestricted'].includes(mode)) {
@@ -117,7 +137,18 @@ if (pathMode === 'user') {
   });
 }
 
-const server = new McpServer({ name: 'pi-dev', version: '0.1.0' });
+let ownerContext;
+try {
+  ownerContext = await loadOwnerContext(process.env.MCP_OWNER_CONTEXT_FILE);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(2);
+}
+
+const server = new McpServer(
+  { name: 'pi-dev', version: '0.1.0' },
+  ownerContext ? { instructions: ownerContext } : undefined,
+);
 const modelPath = pathMode === 'user'
   ? z.string().min(1).describe('Path; relative paths resolve from the configured default cwd and absolute paths are accepted')
   : z.string().min(1).describe('Path relative to the configured workspace root');

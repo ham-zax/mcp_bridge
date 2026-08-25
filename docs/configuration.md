@@ -23,9 +23,13 @@ MCP_ONE_MCP_LOG_MAX_SIZE_BYTES=10485760
 MCP_ONE_MCP_LOG_MAX_FILES=5
 MCP_PERSONAL_DEFAULT_CWD=
 MCP_TERMINAL_FRONTEND=kitty
+MCP_OWNER_CONTEXT_FILE=
+MCP_OWNER_ENV_FILE=
 ```
 
-`MCP_PERSONAL_DEFAULT_CWD` is optional and applies only to the private personal profile. Leave it empty/unset to use the actual WSL user's `$HOME`. `MCP_TERMINAL_FRONTEND` is also personal-only: unset/empty defaults to `kitty`, and the accepted values are `kitty` and `windows-terminal`. The renderer validates this selector only for `personal`, so a stray value does not break `restricted` or `trusted-dev`. Do not put trust policy or secrets in this file.
+`MCP_PERSONAL_DEFAULT_CWD` is optional and applies only to the private personal profile. Leave it empty/unset to use the actual WSL user's `$HOME`. `MCP_TERMINAL_FRONTEND` is also personal-only: unset/empty defaults to `kitty`, and the accepted values are `kitty` and `windows-terminal`. The renderer validates this selector only for `personal`, so a stray value does not break `restricted` or `trusted-dev`.
+
+`MCP_OWNER_CONTEXT_FILE` and `MCP_OWNER_ENV_FILE` are optional personal-profile references to owner-controlled files outside the repository. Both paths must be absolute when set. `pi-dev` requires the context file to be a readable, current-user-owned regular file no larger than 32 KiB and publishes non-empty content as MCP initialization instructions. The renderer requires the env file to be a readable, current-user-owned regular file no larger than 64 KiB and permits only `GALLIUM_DRIVER` and `MOZ_ENABLE_WAYLAND`. It writes those validated values to private generated `owner.env` state instead of importing arbitrary variables into systemd services. Do not put trust policy or secrets in `.env` or the owner GUI env.
 
 ## Profiles
 
@@ -60,7 +64,7 @@ The renderer resolves one absolute personal default cwd from `MCP_PERSONAL_DEFAU
 
 For personal rendering, the outer config contains `local`, `code`, `dev`, and `terminal`. The outer `local` provider is tagged only `local` and points at the repository Local broker. The renderer also atomically materializes a private inner config at the bridge state root containing `browser` and experimental `browser-fast`, and writes that inner config before publishing the outer config so config reload cannot start Local against a missing file. The Local broker starts pinned 1MCP over stdio in direct mode and exposes only bounded discovery/schema/call metatools.
 
-`browser` remains the full Chrome DevTools MCP facade for diagnostics and rich results; its tools default to the dedicated persistent Windows MCP Chrome profile and use `browser_target=linux` for WSLg. `browser-fast` exposes only `observe` and `execute` for routine interaction and uses pinned Agent Browser 0.34.0 on both targets. Windows keeps the MCP Chrome data directory at `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`; a shared runtime launches that visible profile with an ephemeral debugging port and supplies its `DevToolsActivePort` endpoint to both logical servers. The everyday Chrome user-data directory is not attached or copied. `browser_target=linux` uses the separate WSLg browser state. Both stay behind the same `tag:local` authorization boundary.
+`browser` remains the full Chrome DevTools MCP facade for diagnostics and rich results; its tools default to the dedicated persistent Windows MCP Chrome profile and use `browser_target=linux` for WSLg. `browser-fast` exposes only `observe` and `execute` for routine interaction and uses pinned Agent Browser 0.34.0 on both targets. Windows keeps the MCP Chrome data directory at `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`; a shared runtime launches that visible profile with an ephemeral debugging port and supplies its `DevToolsActivePort` endpoint to both logical servers. The everyday Chrome user-data directory is not attached or copied. The tracked templates carry only generic WSLg plumbing. Personal graphics policy comes from the optional owner env: Dev, the Terminal MCP provider, and the Terminal/tmux services receive its validated supported values, while Linux Browser receives `GALLIUM_DRIVER` when supplied. This keeps workstation-specific GPU and GUI choices out of active tracked configuration. Both browser surfaces stay behind the same `tag:local` authorization boundary.
 
 `pc_sleep` is registered only in this personal user-path mode and uses Windows Task Scheduler for an optional wake time. Code has no repository-size preflight or threshold: first use may start a persistent CodeDB child and create or update substantial on-disk index state, potentially consuming significant disk and RAM. Tool descriptions steer large or unfamiliar repository discovery toward Dev Bash/`rg` and focused `read` first; that guidance is not runtime enforcement.
 
@@ -96,6 +100,7 @@ Important files:
 
 ```text
 bridge.env        selected profile, public URL, workspace/default cwd, source root
+owner.env         sanitized personal GUI environment when the personal profile is rendered
 1mcp/mcp.json     rendered provider composition
 1mcp/config.toml  rendered 1MCP application policy, including bounded native logging
 1mcp/             1MCP writable application/OAuth/session state

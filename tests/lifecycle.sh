@@ -135,6 +135,18 @@ test_systemd_installer_handles_missing_home() {
   contains "$ROOT/scripts/install-systemd-user.sh" 'getent passwd'
 }
 
+test_terminal_systemd_owner_env_handoff() {
+  local sandbox="$TMP/terminal-owner-env"
+  local target="$sandbox/systemd"
+  local owner_env="$sandbox/owner.env"
+  mkdir -p "$sandbox/home" "$target"
+  : > "$owner_env"
+  HOME="$sandbox/home" TERMINAL_SYSTEMD_TARGET_DIR="$target" TERMINAL_OWNER_ENV_FILE="$owner_env" \
+    TERMINAL_SYSTEMD_DRY_RUN=1 "$ROOT/scripts/install-terminal-broker-user.sh" >/dev/null || return 1
+  grep -Fq "EnvironmentFile=-$owner_env" "$target/wsl-agent-tmux.service" && \
+    grep -Fq "EnvironmentFile=-$owner_env" "$target/wsl-agent-terminal-broker.service"
+}
+
 test_personal_bootstrap_startup_consent_contract() {
   local script="$ROOT/scripts/bootstrap-personal.sh"
   [ -x "$script" ] && \
@@ -168,6 +180,7 @@ run_test 'legacy tunnel scripts are thin start/stop aliases' test_compatibility_
 run_test 'status keeps duplicate and PID/listener diagnostics' test_status_has_core_diagnostics
 run_test 'systemd user unit autostarts the canonical bridge' test_systemd_user_autostart_contract
 run_test 'systemd installer derives user home when HOME is missing' test_systemd_installer_handles_missing_home
+run_test 'Terminal systemd units consume the rendered owner environment' test_terminal_systemd_owner_env_handoff
 run_test 'personal bootstrap keeps startup behind explicit consent' test_personal_bootstrap_startup_consent_contract
 run_test 'manual lifecycle and watchdog share an exclusive lock' test_lifecycle_lock_is_used_everywhere
 

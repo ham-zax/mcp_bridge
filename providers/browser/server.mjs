@@ -32,7 +32,7 @@ function browserError(code, message, cause) {
 
 function linuxBrowserEnv(env = process.env) {
   const values = {};
-  for (const key of ['XDG_RUNTIME_DIR', 'WAYLAND_DISPLAY', 'DISPLAY', 'PULSE_SERVER']) {
+  for (const key of ['XDG_RUNTIME_DIR', 'WAYLAND_DISPLAY', 'DISPLAY', 'PULSE_SERVER', 'GALLIUM_DRIVER']) {
     if (env[key] !== undefined) values[key] = env[key];
   }
   return values;

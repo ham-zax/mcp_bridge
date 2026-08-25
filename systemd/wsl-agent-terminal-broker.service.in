@@ -13,6 +13,7 @@ Environment=PATH=@PATH@
 Environment=WAYLAND_DISPLAY=wayland-0
 Environment=DISPLAY=:0
 Environment=PULSE_SERVER=unix:/mnt/wslg/PulseServer
+EnvironmentFile=-@OWNER_ENV_FILE@
 Environment=MCP_TERMINAL_SOCKET=%t/wsl-agent-terminal.sock
 Environment=MCP_TERMINAL_STATE_ROOT=@STATE_ROOT@
 Environment=MCP_TERMINAL_DEFAULT_CWD=@USER_HOME@

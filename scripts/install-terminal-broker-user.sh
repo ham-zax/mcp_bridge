@@ -14,6 +14,8 @@ STATE_BASE="${XDG_STATE_HOME:-$USER_HOME/.local/state}"
 STATE_ROOT="${TERMINAL_STATE_ROOT:-$STATE_BASE/wsl-agent-terminal}"
 TARGET_DIR="${TERMINAL_SYSTEMD_TARGET_DIR:-$USER_HOME/.config/systemd/user}"
 PATH_VALUE="${TERMINAL_SYSTEMD_PATH:-$PATH}"
+OWNER_ENV_FILE="${TERMINAL_OWNER_ENV_FILE:-$STATE_BASE/mcp-dev-bridge/owner.env}"
+[[ "$OWNER_ENV_FILE" = /* ]] || { echo "TERMINAL_OWNER_ENV_FILE must be absolute" >&2; exit 1; }
 
 TMUX_UNIT="wsl-agent-tmux.service"
 BROKER_UNIT="wsl-agent-terminal-broker.service"
@@ -38,6 +40,7 @@ render_unit() {
   template="${template//@TMUX_BIN@/$TMUX_BIN}"
   template="${template//@NODE_BIN@/$NODE_BIN}"
   template="${template//@PATH@/$PATH_VALUE}"
+  template="${template//@OWNER_ENV_FILE@/$OWNER_ENV_FILE}"
   if grep -q '@[A-Z_][A-Z_]*@' <<<"$template"; then
     echo "unresolved placeholder while rendering $source" >&2
     exit 1

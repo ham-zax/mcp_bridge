@@ -100,6 +100,8 @@ cp .env.example .env
 scripts/bootstrap-personal.sh --enable-startup
 ```
 
+Machine-specific owner policy can stay outside the checkout under `~/.config/mcp-dev-bridge/owner/`. Set `MCP_OWNER_CONTEXT_FILE` and `MCP_OWNER_ENV_FILE` in `.env` to reference those files. The owner context becomes `pi-dev` MCP initialization instructions; the owner env is reduced to its supported GUI variables before it reaches Dev, Browser, tmux, or Terminal.
+
 `--enable-startup` is an explicit consent boundary. It installs/renders the user-systemd units, enables user linger when needed, and starts the bridge, tmux lifetime service, and Terminal broker. Omit the flag to prepare dependencies, configuration, and `wsl-term` without changing persistent startup state. The bootstrap does not configure Windows itself to launch WSL.
 
 The repository cannot silently install or replace ChatGPT Skills or client authorization. See [Personal WSL harness](docs/personal/harness.md) for the current source-checkout workflow.

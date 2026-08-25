@@ -189,6 +189,18 @@ test('path mode startup validation requires the matching authority root', async 
   assert.match(invalidSpoolBudget.stderr, /MCP_DEV_SPOOL_MAX_TOTAL_BYTES.*MCP_DEV_MAX_SPOOL_BYTES/i);
 });
 
+test('owner context is published as MCP initialization instructions', async () => {
+  const { defaultCwd, env } = await userFixture();
+  const contextFile = path.join(defaultCwd, 'owner-context.md');
+  const instructions = '# Owner context\n\nPrimary personal WSL target.';
+  await fs.writeFile(contextFile, `${instructions}\n`, { mode: 0o600 });
+  env.MCP_OWNER_CONTEXT_FILE = contextFile;
+
+  await withClient(env, async client => {
+    assert.equal(client.getInstructions(), instructions);
+  });
+});
+
 test('trusted-dev exposes four tools and minimal schemas', async () => {
   const { env } = await fixture('unrestricted');
   await withClient(env, async client => {

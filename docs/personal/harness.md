@@ -26,6 +26,29 @@ Think in four model-facing domains:
 
 Create/configure `.env` first, at minimum supplying the public MCP URL. The personal default cwd is optional: set `MCP_PERSONAL_DEFAULT_CWD=/absolute/path` when you want something other than this WSL user's `$HOME`.
 
+Keep the live machine-specific owner policy outside the checkout. A typical runtime layout is:
+
+```text
+~/.config/mcp-dev-bridge/owner/
+    context.md
+    gui.env
+```
+
+This repository also keeps backup/reference copies under `docs/history/personal-owner/`. Those tracked files are excluded from the public publication surface and are not loaded by the runtime; restore or copy them into the owner directory when rebuilding this workstation.
+
+Point the personal deployment at those files rather than copying their contents into tracked configuration:
+
+```text
+MCP_OWNER_CONTEXT_FILE=/home/user/.config/mcp-dev-bridge/owner/context.md
+MCP_OWNER_ENV_FILE=/home/user/.config/mcp-dev-bridge/owner/gui.env
+```
+
+`pi-dev` reads `MCP_OWNER_CONTEXT_FILE` as a current-user-owned regular file, limits it to 32 KiB, and publishes non-empty content as its MCP server `instructions`. 1MCP includes those upstream instructions in the initialization instructions sent to a matching client. Use this file for WSL- or workstation-specific guidance, not project invariants or current-task instructions.
+
+`MCP_OWNER_ENV_FILE` is also current-user-owned and bounded. The renderer accepts only `GALLIUM_DRIVER` and `MOZ_ENABLE_WAYLAND`, validates their values, and writes a sanitized `owner.env` under the private bridge state directory. Dev, the Terminal MCP provider, and the Terminal/tmux services receive the supported owner GUI environment; Linux Browser receives `GALLIUM_DRIVER` when configured. Other variables are rejected rather than imported into service environments. Context changes are read on the next `pi-dev` start; GUI env changes take effect after the personal configuration is rendered again and the relevant processes are restarted.
+
+Keep the ownership boundary explicit: repository invariants belong in tracked repository guidance, personal WSL/machine policy belongs in the owner overlay, and current-task instructions belong in the conversation.
+
 For a complete install with automatic startup in later WSL sessions:
 
 ```bash

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -49,6 +50,45 @@ async function readEnvFile(file, { optional = false } = {}) {
     if (optional && error?.code === 'ENOENT') return {};
     throw error;
   }
+}
+
+const OWNER_RUNTIME_ENV_KEYS = ['GALLIUM_DRIVER', 'MOZ_ENABLE_WAYLAND'];
+const OWNER_BROWSER_ENV_KEYS = new Set(['GALLIUM_DRIVER']);
+const OWNER_ENV_MAX_BYTES = 64 * 1024;
+
+async function readOwnedRegularTextFile(file, label, maxBytes) {
+  if (!path.isAbsolute(file)) throw new Error(`${label} must be an absolute path when set`);
+  const stat = await fs.lstat(file);
+  if (!stat.isFile()) throw new Error(`${label} must reference a regular file`);
+  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+    throw new Error(`${label} must be owned by the current user`);
+  }
+  if (stat.size > maxBytes) throw new Error(`${label} exceeds the ${maxBytes}-byte limit`);
+  await fs.access(file, fsConstants.R_OK);
+  return fs.readFile(file, 'utf8');
+}
+
+function parseOwnerRuntimeEnv(text) {
+  const values = parseEnv(text);
+  for (const key of Object.keys(values)) {
+    if (!OWNER_RUNTIME_ENV_KEYS.includes(key)) {
+      throw new Error(`MCP_OWNER_ENV_FILE permits only: ${OWNER_RUNTIME_ENV_KEYS.join(', ')}`);
+    }
+  }
+  if (values.GALLIUM_DRIVER !== undefined && !/^[A-Za-z0-9._-]+$/.test(values.GALLIUM_DRIVER)) {
+    throw new Error('GALLIUM_DRIVER in MCP_OWNER_ENV_FILE must be a simple driver token');
+  }
+  if (values.MOZ_ENABLE_WAYLAND !== undefined && !['0', '1'].includes(values.MOZ_ENABLE_WAYLAND)) {
+    throw new Error('MOZ_ENABLE_WAYLAND in MCP_OWNER_ENV_FILE must be 0 or 1');
+  }
+  return values;
+}
+
+function renderOwnerRuntimeEnv(values) {
+  return OWNER_RUNTIME_ENV_KEYS
+    .filter((key) => values[key] !== undefined)
+    .map((key) => `${key}=${values[key]}\n`)
+    .join('');
 }
 
 function replaceStrings(value, replacements) {
@@ -106,7 +146,7 @@ export async function renderConfig(options) {
   const deployment = {
     ...(await readEnvFile(envFile, { optional: true })),
     ...Object.fromEntries(
-      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_DEV_MAX_SPOOL_BYTES', 'MCP_DEV_SPOOL_TTL_SECONDS', 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES', 'MCP_ONE_MCP_LOG_MAX_SIZE_BYTES', 'MCP_ONE_MCP_LOG_MAX_FILES', 'MCP_PERSONAL_DEFAULT_CWD', 'MCP_TERMINAL_FRONTEND', 'BRIDGE_ONE_MCP_ENTRY'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
+      ['MCP_WORKSPACE_ROOT', 'MCP_PUBLIC_URL', 'MCP_TUNNEL_NAME', 'MCP_DEV_MAX_OUTPUT_BYTES', 'MCP_DEV_MAX_SPOOL_BYTES', 'MCP_DEV_SPOOL_TTL_SECONDS', 'MCP_DEV_SPOOL_MAX_TOTAL_BYTES', 'MCP_ONE_MCP_LOG_MAX_SIZE_BYTES', 'MCP_ONE_MCP_LOG_MAX_FILES', 'MCP_PERSONAL_DEFAULT_CWD', 'MCP_TERMINAL_FRONTEND', 'MCP_OWNER_CONTEXT_FILE', 'MCP_OWNER_ENV_FILE', 'BRIDGE_ONE_MCP_ENTRY'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]),
     ),
   };
   const profileValues = await readEnvFile(path.join(repoRoot, 'config', 'profiles', `${profile}.env`));
@@ -119,6 +159,8 @@ export async function renderConfig(options) {
   const isPersonal = profile === 'personal';
   let personalDefaultCwd = null;
   let terminalFrontend = 'kitty';
+  let ownerContextFile = null;
+  let ownerRuntimeEnv = {};
   if (isPersonal) {
     if (!runtimeDir || !path.isAbsolute(runtimeDir)) {
       throw new Error('personal profile requires an absolute XDG_RUNTIME_DIR or a user runtime directory');
@@ -133,6 +175,16 @@ export async function renderConfig(options) {
     terminalFrontend = String(deployment.MCP_TERMINAL_FRONTEND ?? '').trim() || 'kitty';
     if (!['kitty', 'windows-terminal'].includes(terminalFrontend)) {
       throw new Error('MCP_TERMINAL_FRONTEND must be one of: kitty, windows-terminal');
+    }
+    ownerContextFile = String(deployment.MCP_OWNER_CONTEXT_FILE ?? '').trim() || null;
+    if (ownerContextFile && !path.isAbsolute(ownerContextFile)) {
+      throw new Error('MCP_OWNER_CONTEXT_FILE must be an absolute path when set');
+    }
+    const ownerEnvFile = String(deployment.MCP_OWNER_ENV_FILE ?? '').trim() || null;
+    if (ownerEnvFile) {
+      ownerRuntimeEnv = parseOwnerRuntimeEnv(
+        await readOwnedRegularTextFile(ownerEnvFile, 'MCP_OWNER_ENV_FILE', OWNER_ENV_MAX_BYTES),
+      );
     }
   }
 
@@ -217,6 +269,14 @@ export async function renderConfig(options) {
     rendered.mcpServers.dev.env.MCP_DEV_PATH_MODE = profileValues.MCP_DEV_PATH_MODE;
     rendered.mcpServers.dev.env.MCP_DEV_DEFAULT_CWD = personalDefaultCwd;
     rendered.mcpServers.code.env.MCP_CODE_DEFAULT_CWD = personalDefaultCwd;
+    if (ownerContextFile) rendered.mcpServers.dev.env.MCP_OWNER_CONTEXT_FILE = ownerContextFile;
+    Object.assign(rendered.mcpServers.dev.env, ownerRuntimeEnv);
+    Object.assign(rendered.mcpServers.terminal.env, ownerRuntimeEnv);
+    for (const key of OWNER_BROWSER_ENV_KEYS) {
+      if (ownerRuntimeEnv[key] === undefined) continue;
+      localRendered.mcpServers.browser.env[key] = ownerRuntimeEnv[key];
+      localRendered.mcpServers['browser-fast'].env[key] = ownerRuntimeEnv[key];
+    }
   } else {
     rendered.mcpServers.dev.env.MCP_DEV_PATH_MODE = 'workspace';
     if (profile === 'trusted-dev') delete rendered.mcpServers.shell;
@@ -238,6 +298,7 @@ export async function renderConfig(options) {
   await fs.chmod(logDir, 0o700);
 
   const configPath = path.join(oneMcpDir, 'mcp.json');
+  if (isPersonal) await atomicWrite(path.join(stateDir, 'owner.env'), renderOwnerRuntimeEnv(ownerRuntimeEnv));
   if (localRendered) await atomicWrite(localInnerConfigPath, `${JSON.stringify(localRendered, null, 2)}\n`);
   await atomicWrite(configPath, `${JSON.stringify(rendered, null, 2)}\n`);
   const appConfigPath = path.join(oneMcpDir, 'config.toml');
