@@ -318,9 +318,16 @@ test_owner_overlay_rendering() {
 
 Test owner instructions.
 EOF
-  cat > "$tmp/home/gui.env" <<'EOF'
+  cat > "$tmp/home/fake-chrome" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod 0700 "$tmp/home/fake-chrome"
+  cat > "$tmp/home/gui.env" <<EOF
 GALLIUM_DRIVER=d3d12
 MOZ_ENABLE_WAYLAND=1
+AGENT_BROWSER_PROFILE=Default
+AGENT_BROWSER_EXECUTABLE_PATH=$tmp/home/fake-chrome
 EOF
   chmod 0600 "$tmp/home/context.md" "$tmp/home/gui.env"
   cat > "$tmp/deployment.env" <<EOF
@@ -346,10 +353,13 @@ if (dev.MCP_OWNER_CONTEXT_FILE !== contextFile) process.exit(1);
 for (const env of [dev, terminal]) {
   if (env.GALLIUM_DRIVER !== 'd3d12' || env.MOZ_ENABLE_WAYLAND !== '1') process.exit(1);
 }
-for (const env of [browser, fast]) {
-  if (env.GALLIUM_DRIVER !== 'd3d12') process.exit(1);
-  if (env.MOZ_ENABLE_WAYLAND !== undefined) process.exit(1);
-}
+if (browser.GALLIUM_DRIVER !== 'd3d12') process.exit(1);
+if (browser.MOZ_ENABLE_WAYLAND !== undefined) process.exit(1);
+if (browser.AGENT_BROWSER_PROFILE !== undefined || browser.AGENT_BROWSER_EXECUTABLE_PATH !== undefined) process.exit(1);
+if (fast.GALLIUM_DRIVER !== 'd3d12') process.exit(1);
+if (fast.MOZ_ENABLE_WAYLAND !== undefined) process.exit(1);
+if (fast.AGENT_BROWSER_PROFILE !== 'Default') process.exit(1);
+if (fast.AGENT_BROWSER_EXECUTABLE_PATH !== contextFile.replace(/context\.md$/, 'fake-chrome')) process.exit(1);
 if (fs.readFileSync(ownerEnvFile, 'utf8') !== 'GALLIUM_DRIVER=d3d12\nMOZ_ENABLE_WAYLAND=1\n') process.exit(1);
 if ((fs.statSync(ownerEnvFile).mode & 0o777) !== 0o600) process.exit(1);
 NODE
@@ -365,7 +375,7 @@ EOF
     --state-dir "$tmp/invalid-state" --repo-root "$ROOT" 2>&1)"
   rc=$?
   rm -rf "$tmp"
-  [ "$rc" -ne 0 ] && grep -Fq 'MCP_OWNER_ENV_FILE permits only: GALLIUM_DRIVER, MOZ_ENABLE_WAYLAND' <<<"$output"
+  [ "$rc" -ne 0 ] && grep -Fq 'MCP_OWNER_ENV_FILE permits only: GALLIUM_DRIVER, MOZ_ENABLE_WAYLAND, AGENT_BROWSER_PROFILE, AGENT_BROWSER_EXECUTABLE_PATH' <<<"$output"
 }
 
 test_personal_default_cwd_override() {

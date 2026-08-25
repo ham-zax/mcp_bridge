@@ -54,6 +54,8 @@ async function readEnvFile(file, { optional = false } = {}) {
 
 const OWNER_RUNTIME_ENV_KEYS = ['GALLIUM_DRIVER', 'MOZ_ENABLE_WAYLAND'];
 const OWNER_BROWSER_ENV_KEYS = new Set(['GALLIUM_DRIVER']);
+const OWNER_BROWSER_FAST_ENV_KEYS = new Set(['GALLIUM_DRIVER', 'AGENT_BROWSER_PROFILE', 'AGENT_BROWSER_EXECUTABLE_PATH']);
+const OWNER_ENV_KEYS = new Set([...OWNER_RUNTIME_ENV_KEYS, ...OWNER_BROWSER_FAST_ENV_KEYS]);
 const OWNER_ENV_MAX_BYTES = 64 * 1024;
 
 async function readOwnedRegularTextFile(file, label, maxBytes) {
@@ -68,11 +70,11 @@ async function readOwnedRegularTextFile(file, label, maxBytes) {
   return fs.readFile(file, 'utf8');
 }
 
-function parseOwnerRuntimeEnv(text) {
+function parseOwnerEnv(text) {
   const values = parseEnv(text);
   for (const key of Object.keys(values)) {
-    if (!OWNER_RUNTIME_ENV_KEYS.includes(key)) {
-      throw new Error(`MCP_OWNER_ENV_FILE permits only: ${OWNER_RUNTIME_ENV_KEYS.join(', ')}`);
+    if (!OWNER_ENV_KEYS.has(key)) {
+      throw new Error(`MCP_OWNER_ENV_FILE permits only: ${[...OWNER_ENV_KEYS].join(', ')}`);
     }
   }
   if (values.GALLIUM_DRIVER !== undefined && !/^[A-Za-z0-9._-]+$/.test(values.GALLIUM_DRIVER)) {
@@ -80,6 +82,12 @@ function parseOwnerRuntimeEnv(text) {
   }
   if (values.MOZ_ENABLE_WAYLAND !== undefined && !['0', '1'].includes(values.MOZ_ENABLE_WAYLAND)) {
     throw new Error('MOZ_ENABLE_WAYLAND in MCP_OWNER_ENV_FILE must be 0 or 1');
+  }
+  if (values.AGENT_BROWSER_PROFILE !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$/.test(values.AGENT_BROWSER_PROFILE)) {
+    throw new Error('AGENT_BROWSER_PROFILE in MCP_OWNER_ENV_FILE must be a simple Chrome profile name');
+  }
+  if (values.AGENT_BROWSER_EXECUTABLE_PATH !== undefined && !path.isAbsolute(values.AGENT_BROWSER_EXECUTABLE_PATH)) {
+    throw new Error('AGENT_BROWSER_EXECUTABLE_PATH in MCP_OWNER_ENV_FILE must be an absolute path');
   }
   return values;
 }
@@ -160,7 +168,7 @@ export async function renderConfig(options) {
   let personalDefaultCwd = null;
   let terminalFrontend = 'kitty';
   let ownerContextFile = null;
-  let ownerRuntimeEnv = {};
+  let ownerEnv = {};
   if (isPersonal) {
     if (!runtimeDir || !path.isAbsolute(runtimeDir)) {
       throw new Error('personal profile requires an absolute XDG_RUNTIME_DIR or a user runtime directory');
@@ -182,9 +190,21 @@ export async function renderConfig(options) {
     }
     const ownerEnvFile = String(deployment.MCP_OWNER_ENV_FILE ?? '').trim() || null;
     if (ownerEnvFile) {
-      ownerRuntimeEnv = parseOwnerRuntimeEnv(
+      ownerEnv = parseOwnerEnv(
         await readOwnedRegularTextFile(ownerEnvFile, 'MCP_OWNER_ENV_FILE', OWNER_ENV_MAX_BYTES),
       );
+      const browserExecutable = ownerEnv.AGENT_BROWSER_EXECUTABLE_PATH;
+      if (browserExecutable !== undefined) {
+        const stat = await fs.stat(browserExecutable).catch(() => null);
+        if (!stat?.isFile()) {
+          throw new Error('AGENT_BROWSER_EXECUTABLE_PATH in MCP_OWNER_ENV_FILE must reference an existing regular file');
+        }
+        try {
+          await fs.access(browserExecutable, fsConstants.X_OK);
+        } catch {
+          throw new Error('AGENT_BROWSER_EXECUTABLE_PATH in MCP_OWNER_ENV_FILE must be executable');
+        }
+      }
     }
   }
 
@@ -270,12 +290,18 @@ export async function renderConfig(options) {
     rendered.mcpServers.dev.env.MCP_DEV_DEFAULT_CWD = personalDefaultCwd;
     rendered.mcpServers.code.env.MCP_CODE_DEFAULT_CWD = personalDefaultCwd;
     if (ownerContextFile) rendered.mcpServers.dev.env.MCP_OWNER_CONTEXT_FILE = ownerContextFile;
-    Object.assign(rendered.mcpServers.dev.env, ownerRuntimeEnv);
-    Object.assign(rendered.mcpServers.terminal.env, ownerRuntimeEnv);
+    for (const key of OWNER_RUNTIME_ENV_KEYS) {
+      if (ownerEnv[key] === undefined) continue;
+      rendered.mcpServers.dev.env[key] = ownerEnv[key];
+      rendered.mcpServers.terminal.env[key] = ownerEnv[key];
+    }
     for (const key of OWNER_BROWSER_ENV_KEYS) {
-      if (ownerRuntimeEnv[key] === undefined) continue;
-      localRendered.mcpServers.browser.env[key] = ownerRuntimeEnv[key];
-      localRendered.mcpServers['browser-fast'].env[key] = ownerRuntimeEnv[key];
+      if (ownerEnv[key] === undefined) continue;
+      localRendered.mcpServers.browser.env[key] = ownerEnv[key];
+    }
+    for (const key of OWNER_BROWSER_FAST_ENV_KEYS) {
+      if (ownerEnv[key] === undefined) continue;
+      localRendered.mcpServers['browser-fast'].env[key] = ownerEnv[key];
     }
   } else {
     rendered.mcpServers.dev.env.MCP_DEV_PATH_MODE = 'workspace';
@@ -298,7 +324,7 @@ export async function renderConfig(options) {
   await fs.chmod(logDir, 0o700);
 
   const configPath = path.join(oneMcpDir, 'mcp.json');
-  if (isPersonal) await atomicWrite(path.join(stateDir, 'owner.env'), renderOwnerRuntimeEnv(ownerRuntimeEnv));
+  if (isPersonal) await atomicWrite(path.join(stateDir, 'owner.env'), renderOwnerRuntimeEnv(ownerEnv));
   if (localRendered) await atomicWrite(localInnerConfigPath, `${JSON.stringify(localRendered, null, 2)}\n`);
   await atomicWrite(configPath, `${JSON.stringify(rendered, null, 2)}\n`);
   const appConfigPath = path.join(oneMcpDir, 'config.toml');
