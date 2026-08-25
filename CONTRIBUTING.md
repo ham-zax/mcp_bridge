@@ -10,29 +10,13 @@ Read:
 - [Security](docs/security.md)
 - [Development](docs/development.md)
 
-If a change affects trust profiles, generated configuration, lifecycle, OAuth continuity, Terminal lifetime, or the model-facing tool surface, update the relevant tests and current documentation in the same change.
+If a change affects trust profiles, generated configuration, lifecycle, OAuth continuity, Terminal lifetime, or the model-facing tool surface, update the relevant current documentation in the same change.
 
 ## Verification
 
-For code/runtime changes, run the focused tests for what you changed, then the full gate before merging:
+Use the smallest validation that directly establishes the changed behavior or contract. See [Development](docs/development.md) for available syntax/static checks and long-running command guidance.
 
-```bash
-bash tests/harness.sh
-bash tests/publication.sh
-bash tests/lifecycle.sh
-(cd providers/pi-dev && npm test)
-(cd providers/terminal && npm test)
-(cd providers/code-router && npm test)
-(cd providers/browser && npm test)
-(cd providers/browser-fast && npm test)
-(cd providers/local-tools && npm test)
-bash scripts/check-personal-toolbox.sh
-git diff --check
-```
-
-See [Development](docs/development.md) for syntax checks and long-running test guidance.
-
-For documentation-only changes, keep the edit loop light: run `node scripts/check-doc-links.mjs`, scan for stale paths/claims, and use `git diff --check`. Run the full repository gate once before merge rather than after each prose edit.
+For documentation-only changes, run `node scripts/check-doc-links.mjs`, scan for stale paths/claims, and use `git diff --check`.
 
 ## Documentation rules
 

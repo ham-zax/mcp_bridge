@@ -222,29 +222,47 @@ The live selector is `~/.config/mcp-dev-bridge/browser-fast.json`. It is reread 
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "linux": {
     "browser": "chrome"
+  },
+  "clearcote": {
+    "profiles": {
+      "x-main": {
+        "fingerprint": "x-main",
+        "platform": "linux",
+        "brand": "Chrome",
+        "headless": false,
+        "humanize": true,
+        "lightStealth": false
+      }
+    }
   }
 }
 ```
 
-To use Clearcote, first run its CDP server on loopback using an upstream-supported command such as:
-
-```bash
-clearcote-serve --port 9222 --fingerprint hamza-main --platform linux
-```
-
-Then change the selector to:
+To use the managed Clearcote profile, change only the Linux selector:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "linux": {
     "browser": "clearcote",
-    "cdpPort": 9222
+    "profile": "x-main"
+  },
+  "clearcote": {
+    "profiles": {
+      "x-main": {
+        "fingerprint": "x-main",
+        "platform": "linux",
+        "brand": "Chrome",
+        "headless": false,
+        "humanize": true,
+        "lightStealth": false
+      }
+    }
   }
 }
 ```
 
-Use `browser_target="linux"` and observe again. Clearcote owns the browser process and profile; browser-fast continues to own refs, batching, tab validation, and approved uploads through Agent Browser. Keep the CDP endpoint loopback-only and make changes only between complete browser-fast calls. Selecting `firefox` fails explicitly because the current Agent Browser backend is Chromium-CDP-only; Firefox needs a separate future driver adapter, not another config value.
+Use `browser_target="linux"` and observe again. `browser-fast` starts and owns the persistent Clearcote profile beneath the bridge state directory and exposes its ephemeral debugging endpoint on loopback only. Agent Browser owns snapshots, refs, and tab IDs; Clearcote owns supported humanized input. `lightStealth` is optional and defaults off when omitted; set it to `true` only when you deliberately want Clearcote's light-stealth metadata preset. In Clearcote 0.27.0 that mode consumes the fingerprint seed while building launch arguments, so the later humanization installer does not receive that seed for its stable motor persona; persistent browser state remains on disk. Switch only between complete `browser-fast` operations and discard prior refs. The V1 external `cdpPort` form remains readable during migration but no separate `clearcote-serve` process is required for V2. Selecting `firefox` fails explicitly because the current Agent Browser observation layer is Chromium-CDP-only; Firefox needs a separate future driver adapter, not another config value.

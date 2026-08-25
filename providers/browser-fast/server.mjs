@@ -8,6 +8,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { ensureWindowsChrome } from '../browser/windows-chrome-runtime.mjs';
 import { resolveLinuxBrowserBackend } from './browser-backend-config.mjs';
+import { ManagedClearcoteRuntime } from './clearcote-runtime.mjs';
 import { resolveBrowserMemory } from './browser-memory.mjs';
 
 export const AGENT_BROWSER_VERSION = '0.35.0';
@@ -30,6 +31,20 @@ function fastError(code, message, cause) {
 function requiredString(value, name) {
   if (typeof value !== 'string' || value.length === 0) throw fastError('INVALID_ARGUMENT', `${name} must be a non-empty string`);
   return value;
+}
+
+function managedTargetPoint(box, humanize) {
+  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  if (!humanize || box.width < 6 || box.height < 6) return center;
+  const centralSample = () => (Math.random() + Math.random() + Math.random()) / 3;
+  return {
+    x: box.x + box.width * (0.2 + centralSample() * 0.6),
+    y: box.y + box.height * (0.2 + centralSample() * 0.6)
+  };
+}
+
+function localDelay(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
 function targetName(value) {
@@ -173,7 +188,8 @@ export class AgentBrowserRunner {
     windowsSource = WINDOWS_AGENT_BROWSER_SOURCE,
     windowsRunnerSource = WINDOWS_RUNNER_SOURCE,
     windowsChromeEnsure,
-    linuxBackendResolve = resolveLinuxBrowserBackend
+    linuxBackendResolve = resolveLinuxBrowserBackend,
+    clearcoteRuntime = new ManagedClearcoteRuntime()
   } = {}) {
     this.env = env;
     this.processRunner = processRunner;
@@ -181,6 +197,7 @@ export class AgentBrowserRunner {
     this.windowsRunnerSource = windowsRunnerSource;
     this.windowsChromeEnsure = windowsChromeEnsure ?? (() => ensureWindowsChrome({ processRunner: this.processRunner }));
     this.linuxBackendResolve = linuxBackendResolve;
+    this.clearcoteRuntime = clearcoteRuntime;
     this.windowsAgentRuntimePromise = null;
     this.linuxSessions = new Map();
   }
@@ -273,8 +290,7 @@ export class AgentBrowserRunner {
     return parseAgentBrowserBatch(result);
   }
 
-  async linuxBatch(commands, { bail = true } = {}) {
-    const backend = await this.linuxBackendResolve();
+  async linuxAgentBatch(backend, commands, { bail = true } = {}) {
     const session = backend.session;
     const env = { ...this.env, AGENT_BROWSER_NO_XVFB: '1' };
     if (backend.cdp !== undefined) {
@@ -283,13 +299,14 @@ export class AgentBrowserRunner {
       delete env.AGENT_BROWSER_ARGS;
     }
     this.linuxSessions.set(session, env);
+    const idleTimeout = backend.browser === 'clearcote' && backend.managed === true ? '0' : '1h';
     const args = [
       AGENT_BROWSER_JS,
       '--session', session,
       ...(backend.cdp === undefined ? [] : ['--cdp', backend.cdp]),
       '--headed',
       '--pin-tab',
-      '--idle-timeout', '1h',
+      '--idle-timeout', idleTimeout,
       '--max-output', String(AGENT_BROWSER_MAX_OUTPUT_CHARS),
       'batch'
     ];
@@ -301,6 +318,168 @@ export class AgentBrowserRunner {
       acceptNonZero: true
     });
     return parseAgentBrowserBatch(result);
+  }
+
+  isManagedClearcoteCommand(command) {
+    const op = command?.[0];
+    return ['click', 'fill', 'type', 'check', 'uncheck', 'select', 'press', 'hover', 'drag'].includes(op)
+      || (op === 'mouse' && command?.[1] === 'wheel');
+  }
+
+  async activeManagedPage(backend) {
+    const listed = await this.linuxAgentBatch(backend, [['tab', 'list']], { bail: true });
+    const item = listed.items[0];
+    if (item?.success !== true) throw fastError('BROWSER_FAST_COMMAND_FAILED', item?.error || 'failed to inspect current tab');
+    const tabs = item.result?.tabs ?? [];
+    const active = tabs.find(tab => tab.active === true) ?? tabs[0];
+    const targetId = active?.targetId ?? active?.tabId;
+    if (!targetId) throw fastError('BROWSER_FAST_COMMAND_FAILED', 'browser has no active tab');
+    return this.clearcoteRuntime.pageForTarget(targetId);
+  }
+
+  async managedRefBox(backend, ref) {
+    const batch = await this.linuxAgentBatch(backend, [['get', 'box', ref]], { bail: true });
+    const item = batch.items[0];
+    if (item?.success !== true) return { error: item?.error || `could not resolve ${ref}` };
+    const box = item.result ?? {};
+    if (![box.x, box.y, box.width, box.height].every(Number.isFinite)) return { error: `invalid bounding box for ${ref}` };
+    return { box };
+  }
+
+  async managedFocus(backend, ref) {
+    const batch = await this.linuxAgentBatch(backend, [['focus', ref]], { bail: true });
+    const item = batch.items[0];
+    return item?.success === true ? null : item?.error || `could not focus ${ref}`;
+  }
+
+  async managedClearcoteCommand(backend, command) {
+    const op = command[0];
+    const humanize = backend.profile?.humanize === true;
+    const fail = error => ({ command, success: false, error });
+    const uncertain = error => ({ command, success: false, uncertain: true, error });
+    let page;
+    try {
+      page = await this.activeManagedPage(backend);
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error));
+    }
+
+    try {
+      if (op === 'click' || op === 'hover') {
+        const ref = command[1];
+        const focusError = await this.managedFocus(backend, ref);
+        if (!focusError) {
+          const focused = page.locator(':focus');
+          if (await focused.count() === 1) {
+            if (op === 'click') await focused.click();
+            else await focused.hover();
+            return { command, success: true, error: null, result: { target: ref } };
+          }
+        }
+
+        const resolved = await this.managedRefBox(backend, ref);
+        if (resolved.error) return fail(focusError || resolved.error);
+        const point = managedTargetPoint(resolved.box, humanize);
+        if (op === 'click') await page.mouse.click(point.x, point.y);
+        else await page.mouse.move(point.x, point.y);
+        return { command, success: true, error: null, result: { target: ref } };
+      }
+
+      if (op === 'drag') {
+        const source = await this.managedRefBox(backend, command[1]);
+        if (source.error) return fail(source.error);
+        const destination = await this.managedRefBox(backend, command[2]);
+        if (destination.error) return fail(destination.error);
+        const sourcePoint = managedTargetPoint(source.box, humanize);
+        const destinationPoint = managedTargetPoint(destination.box, humanize);
+        const persona = humanize ? page._clearcotePersona : null;
+        const heldGlide = humanize ? page._clearcoteHeldGlide : null;
+        await page.mouse.move(sourcePoint.x, sourcePoint.y);
+        if (humanize) await localDelay(100 + Math.random() * 100);
+        await page.mouse.down();
+        try {
+          if (persona) await localDelay(persona.grabMinMs + Math.random() * (persona.grabMaxMs - persona.grabMinMs));
+          if (typeof heldGlide === 'function') await heldGlide(destinationPoint.x, destinationPoint.y);
+          else await page.mouse.move(destinationPoint.x, destinationPoint.y);
+          if (persona) await localDelay(persona.releaseMinMs + Math.random() * (persona.releaseMaxMs - persona.releaseMinMs));
+        } finally {
+          await page.mouse.up();
+        }
+        return { command, success: true, error: null, result: { source: command[1], destination: command[2] } };
+      }
+
+      if (op === 'mouse' && command[1] === 'wheel') {
+        await page.mouse.wheel(Number(command[3]), Number(command[2]));
+        return { command, success: true, error: null, result: { delta_y: Number(command[2]), delta_x: Number(command[3]) } };
+      }
+
+      if (op === 'press') {
+        await page.keyboard.press(command[1]);
+        return { command, success: true, error: null, result: { key: command[1] } };
+      }
+
+      if (['fill', 'type', 'check', 'uncheck', 'select'].includes(op)) {
+        const ref = command[1];
+        const focusError = await this.managedFocus(backend, ref);
+        if (focusError) return fail(focusError);
+        const focused = page.locator(':focus');
+        if (op === 'fill') await focused.fill(command[2]);
+        else if (op === 'type') {
+          if (humanize) await focused.hover();
+          await focused.type(command[2]);
+        }
+        else if (op === 'check') await focused.check();
+        else if (op === 'uncheck') await focused.uncheck();
+        else await focused.selectOption(command[2]);
+        return { command, success: true, error: null, result: { target: ref } };
+      }
+
+      return null;
+    } catch (error) {
+      return uncertain(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async managedLinuxBatch(backend, commands, { bail = true } = {}) {
+    const items = [];
+    const stderr = [];
+    let exitCode = 0;
+    let index = 0;
+
+    while (index < commands.length) {
+      if (this.isManagedClearcoteCommand(commands[index])) {
+        const item = await this.managedClearcoteCommand(backend, commands[index]);
+        items.push(item);
+        if (item?.success !== true) {
+          exitCode = 1;
+          if (bail) break;
+        }
+        index += 1;
+        continue;
+      }
+
+      let end = index + 1;
+      while (end < commands.length && !this.isManagedClearcoteCommand(commands[end])) end += 1;
+      const batch = await this.linuxAgentBatch(backend, commands.slice(index, end), { bail });
+      items.push(...batch.items);
+      if (batch.stderr) stderr.push(batch.stderr);
+      if (batch.exitCode !== 0) exitCode = batch.exitCode;
+      if (bail && batch.items.some(item => item?.success !== true)) break;
+      index = end;
+    }
+
+    return { items, stderr: stderr.join('\n'), exitCode };
+  }
+
+  async linuxBatch(commands, { bail = true } = {}) {
+    const selected = await this.linuxBackendResolve();
+    if (selected.managed === true) {
+      const runtime = await this.clearcoteRuntime.ensure(selected);
+      const backend = { ...selected, cdp: runtime.cdp };
+      return this.managedLinuxBatch(backend, commands, { bail });
+    }
+    await this.clearcoteRuntime.close();
+    return this.linuxAgentBatch(selected, commands, { bail });
   }
 
   async targetBatch(target, commands, options) {
@@ -361,6 +540,7 @@ export class AgentBrowserRunner {
       '--session', session,
       'close'
     ], { env, acceptNonZero: true }).catch(() => {})));
+    await this.clearcoteRuntime.close();
   }
 }
 
@@ -373,9 +553,13 @@ function snapshotCommand(scope, includeUrls) {
   return command;
 }
 
+function directRef(value, name) {
+  const ref = requiredString(value, name);
+  return ref.startsWith('e') && /^e\d+$/.test(ref) ? `@${ref}` : ref;
+}
+
 function directTarget(action) {
-  const target = requiredString(action.target, `${action.op}.target`);
-  return target.startsWith('e') && /^e\d+$/.test(target) ? `@${target}` : target;
+  return directRef(action.target, `${action.op}.target`);
 }
 
 export function actionCommand(action) {
@@ -399,6 +583,16 @@ export function actionCommand(action) {
       return ['select', directTarget(action), action.values[0]];
     }
     case 'press': return ['press', requiredString(action.key, 'press.key')];
+    case 'hover': return ['hover', directTarget(action)];
+    case 'drag': return ['drag', directTarget(action), directRef(action.destination, 'drag.destination')];
+    case 'scroll': {
+      const deltaX = action.delta_x ?? 0;
+      const deltaY = action.delta_y ?? 0;
+      if (!Number.isInteger(deltaX) || !Number.isInteger(deltaY) || (deltaX === 0 && deltaY === 0)) {
+        throw fastError('INVALID_ARGUMENT', 'scroll requires integer delta_x/delta_y with at least one non-zero value');
+      }
+      return ['mouse', 'wheel', String(deltaY), String(deltaX)];
+    }
     case 'wait': {
       const modes = [action.text !== undefined, action.milliseconds !== undefined].filter(Boolean).length;
       if (modes !== 1) throw fastError('INVALID_ARGUMENT', 'wait requires exactly one of text or milliseconds');
@@ -648,13 +842,16 @@ const ACTION_SCHEMA = {
   properties: {
     op: {
       type: 'string',
-      enum: ['navigate', 'back', 'forward', 'reload', 'click', 'fill', 'type', 'check', 'uncheck', 'upload', 'select', 'press', 'wait', 'tab_list', 'tab_new', 'tab_switch', 'tab_close']
+      enum: ['navigate', 'back', 'forward', 'reload', 'click', 'fill', 'type', 'check', 'uncheck', 'upload', 'select', 'press', 'hover', 'drag', 'scroll', 'wait', 'tab_list', 'tab_new', 'tab_switch', 'tab_close']
     },
     target: { type: 'string', minLength: 1, description: 'Opaque element ref/uid from the latest observe result. Do not invent CSS/XPath selectors.' },
     value: { type: 'string' },
     artifact: { type: 'string', minLength: 1, pattern: '^[A-Za-z0-9._-]+$', description: 'Logical approved artifact name from the local browser-artifacts manifest; arbitrary filesystem paths are not accepted.' },
     values: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 1 },
     key: { type: 'string', minLength: 1 },
+    destination: { type: 'string', minLength: 1, description: 'Opaque destination element ref/uid from the latest observe result for drag.' },
+    delta_x: { type: 'integer', description: 'Horizontal wheel delta in CSS pixels; positive scrolls right.' },
+    delta_y: { type: 'integer', description: 'Vertical wheel delta in CSS pixels; positive scrolls down.' },
     text: { type: 'string', minLength: 1 },
     url: { type: 'string', minLength: 1 },
     milliseconds: { type: 'integer', minimum: 0 },
@@ -683,7 +880,7 @@ export function createBrowserFastServer({ browser } = {}) {
       inputSchema: {
         type: 'object',
         properties: {
-          browser_target: { type: 'string', enum: ['windows', 'linux'], description: 'Omit for the dedicated persistent Windows MCP Chrome profile; use linux for the managed WSLg Agent Browser session.' },
+          browser_target: { type: 'string', enum: ['windows', 'linux'], description: 'Omit for the dedicated persistent Windows MCP Chrome profile; use linux for the configured Linux browser backend (managed Chrome or managed Clearcote).' },
           scope: { type: 'string', enum: ['interactive', 'compact', 'full'], default: 'interactive' },
           include_urls: { type: 'boolean', default: true },
           tab: { type: 'string', minLength: 1, description: 'Optional stable tab ID or CDP target ID to select before observing.' }
@@ -693,12 +890,12 @@ export function createBrowserFastServer({ browser } = {}) {
     },
     {
       name: 'execute',
-      description: 'Execute multiple mechanical browser actions locally in one call, including upload by logical approved artifact name rather than arbitrary path. After a click, exactly one new tab is followed before later actions; multiple new tabs stop the sequence without guessing. Defaults to fail-fast, never auto-retries, and reports completed/failed/unknown/not-run steps plus final compact state so partial external side effects are explicit.',
+      description: 'Execute multiple mechanical browser actions locally in one call, including hover, wheel scroll, drag, and upload by logical approved artifact name rather than arbitrary path. Managed Clearcote routes supported input through its humanized Playwright layer while Agent Browser keeps refs and tab identity. After a click, exactly one new tab is followed before later actions; multiple new tabs stop the sequence without guessing. Defaults to fail-fast, never auto-retries, and reports completed/failed/unknown/not-run steps plus final compact state so partial external side effects are explicit.',
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
       inputSchema: {
         type: 'object',
         properties: {
-          browser_target: { type: 'string', enum: ['windows', 'linux'], description: 'Omit for the dedicated persistent Windows MCP Chrome profile; use linux for the managed WSLg Agent Browser session.' },
+          browser_target: { type: 'string', enum: ['windows', 'linux'], description: 'Omit for the dedicated persistent Windows MCP Chrome profile; use linux for the configured Linux browser backend (managed Chrome or managed Clearcote).' },
           tab: { type: 'string', minLength: 1, description: 'Required tab ID from the latest observe result. Execution validates that the pinned Agent Browser session is still on this exact tab and fails closed on mismatch; it does not switch tabs.' },
           actions: { type: 'array', items: ACTION_SCHEMA, minItems: 1, maxItems: 64 },
           stop_on_error: { type: 'boolean', default: true, description: 'Stop at the first failed action. The executor never retries actions automatically.' },

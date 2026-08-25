@@ -9,6 +9,8 @@ export const DEFAULT_BROWSER_FAST_CONFIG_FILE = path.join(
   'browser-fast.json'
 );
 const MAX_CONFIG_BYTES = 16 * 1024;
+const MAX_PROFILE_NAME_LENGTH = 64;
+const PROFILE_NAME = /^[A-Za-z0-9._-]+$/;
 
 function configError(code, message, cause) {
   const error = new Error(`${code}: ${message}`, cause ? { cause } : undefined);
@@ -25,6 +27,78 @@ function rejectUnknownKeys(value, allowed, location) {
   if (unknown.length > 0) {
     throw configError('BROWSER_FAST_CONFIG_INVALID', `${location} contains unknown key: ${unknown[0]}`);
   }
+}
+
+function requiredProfileName(value, location) {
+  if (
+    typeof value !== 'string'
+    || value.length > MAX_PROFILE_NAME_LENGTH
+    || value === '.'
+    || value === '..'
+    || !PROFILE_NAME.test(value)
+  ) {
+    throw configError(
+      'BROWSER_FAST_CONFIG_INVALID',
+      `${location} must be 1-${MAX_PROFILE_NAME_LENGTH} characters using only letters, numbers, dot, underscore, or hyphen, and cannot be . or ..`
+    );
+  }
+  return value;
+}
+
+function optionalString(value, location) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.length === 0) {
+    throw configError('BROWSER_FAST_CONFIG_INVALID', `${location} must be a non-empty string`);
+  }
+  return value;
+}
+
+function optionalBoolean(value, location) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') throw configError('BROWSER_FAST_CONFIG_INVALID', `${location} must be a boolean`);
+  return value;
+}
+
+function resolveManagedClearcote(config) {
+  rejectUnknownKeys(config, new Set(['version', 'linux', 'clearcote']), 'browser-fast config');
+  rejectUnknownKeys(config.linux, new Set(['browser', 'profile']), 'browser-fast config linux');
+
+  const profileName = requiredProfileName(config.linux.profile, 'browser-fast config linux.profile');
+  if (!isRecord(config.clearcote)) throw configError('BROWSER_FAST_CONFIG_INVALID', 'browser-fast config clearcote must be an object');
+  rejectUnknownKeys(config.clearcote, new Set(['profiles']), 'browser-fast config clearcote');
+  if (!isRecord(config.clearcote.profiles)) throw configError('BROWSER_FAST_CONFIG_INVALID', 'browser-fast config clearcote.profiles must be an object');
+
+  const raw = config.clearcote.profiles[profileName];
+  if (!isRecord(raw)) throw configError('BROWSER_FAST_CONFIG_INVALID', `clearcote profile is not defined: ${profileName}`);
+  rejectUnknownKeys(
+    raw,
+    new Set(['fingerprint', 'platform', 'brand', 'headless', 'humanize', 'lightStealth', 'timezone', 'acceptLanguage']),
+    `browser-fast config clearcote.profiles.${profileName}`
+  );
+
+  const platform = optionalString(raw.platform, `clearcote profile ${profileName}.platform`);
+  if (platform !== undefined && !['windows', 'linux', 'macos', 'android'].includes(platform)) {
+    throw configError('BROWSER_FAST_CONFIG_INVALID', `clearcote profile ${profileName}.platform must be windows, linux, macos, or android`);
+  }
+
+  const profile = {
+    fingerprint: optionalString(raw.fingerprint, `clearcote profile ${profileName}.fingerprint`) ?? profileName,
+    ...(platform === undefined ? {} : { platform }),
+    ...(raw.brand === undefined ? {} : { brand: optionalString(raw.brand, `clearcote profile ${profileName}.brand`) }),
+    headless: optionalBoolean(raw.headless, `clearcote profile ${profileName}.headless`) ?? false,
+    humanize: optionalBoolean(raw.humanize, `clearcote profile ${profileName}.humanize`) ?? true,
+    ...(raw.lightStealth === undefined ? {} : { lightStealth: optionalBoolean(raw.lightStealth, `clearcote profile ${profileName}.lightStealth`) }),
+    ...(raw.timezone === undefined ? {} : { timezone: optionalString(raw.timezone, `clearcote profile ${profileName}.timezone`) }),
+    ...(raw.acceptLanguage === undefined ? {} : { acceptLanguage: optionalString(raw.acceptLanguage, `clearcote profile ${profileName}.acceptLanguage`) })
+  };
+
+  return {
+    browser: 'clearcote',
+    managed: true,
+    profileName,
+    profile,
+    session: `mcp-browser-fast-linux-clearcote-${profileName}`
+  };
 }
 
 export async function resolveLinuxBrowserBackend({
@@ -61,9 +135,29 @@ export async function resolveLinuxBrowserBackend({
     throw configError('BROWSER_FAST_CONFIG_INVALID', `${configFile} is not valid JSON`, error);
   }
   if (!isRecord(config)) throw configError('BROWSER_FAST_CONFIG_INVALID', `${configFile} must contain a JSON object`);
-  rejectUnknownKeys(config, new Set(['version', 'linux']), 'browser-fast config');
-  if (config.version !== 1) throw configError('BROWSER_FAST_CONFIG_INVALID', 'browser-fast config version must be 1');
   if (!isRecord(config.linux)) throw configError('BROWSER_FAST_CONFIG_INVALID', 'browser-fast config linux must be an object');
+
+  if (config.version === 2) {
+    const browser = config.linux.browser;
+    if (browser === 'firefox') {
+      throw configError(
+        'UNSUPPORTED_BROWSER_BACKEND',
+        'Firefox does not expose Chromium CDP and Agent Browser 0.35.0 cannot drive it; use chrome or clearcote'
+      );
+    }
+    if (browser === 'chrome') {
+      rejectUnknownKeys(config, new Set(['version', 'linux', 'clearcote']), 'browser-fast config');
+      rejectUnknownKeys(config.linux, new Set(['browser']), 'browser-fast config linux');
+      return { browser, session: 'mcp-browser-fast-linux' };
+    }
+    if (browser !== 'clearcote') {
+      throw configError('BROWSER_FAST_CONFIG_INVALID', 'browser-fast config linux.browser must be chrome, clearcote, or firefox');
+    }
+    return resolveManagedClearcote(config);
+  }
+
+  rejectUnknownKeys(config, new Set(['version', 'linux']), 'browser-fast config');
+  if (config.version !== 1) throw configError('BROWSER_FAST_CONFIG_INVALID', 'browser-fast config version must be 1 or 2');
   rejectUnknownKeys(config.linux, new Set(['browser', 'cdpPort']), 'browser-fast config linux');
 
   const browser = config.linux.browser;
