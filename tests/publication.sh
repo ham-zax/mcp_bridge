@@ -34,8 +34,11 @@ is_public_path() {
     providers/browser/* | \
     providers/browser-fast/* | \
     providers/local-tools/* | \
+    extensions/* | \
     scripts/bootstrap-personal.sh | \
+    scripts/manage-extension.mjs | \
     skills/* | \
+    bin/extension | \
     bin/wsl-term)
       return 1
       ;;
@@ -112,8 +115,11 @@ test_private_only_paths_are_not_public() {
     providers/browser/example \
     providers/browser-fast/example \
     providers/local-tools/example \
+    extensions/example \
     scripts/bootstrap-personal.sh \
+    scripts/manage-extension.mjs \
     skills/example \
+    bin/extension \
     bin/wsl-term; do
     if is_public_path "$path"; then
       echo "private-only path classified as public: $path" >&2

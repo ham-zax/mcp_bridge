@@ -480,6 +480,82 @@ test_legacy_filesystem_dependency_removed() {
   ! grep -Fq '@modelcontextprotocol/server-filesystem' "$ROOT/scripts/setup.sh"
 }
 
+test_optional_extension_lifecycle() {
+  local tmp config
+  tmp="$(mktemp -d)" || return 1
+  config="$tmp/config"
+  mkdir -p "$config/extensions/config" "$config/job-application" "$tmp/portfolio" || { rm -rf "$tmp"; return 1; }
+  printf 'pdf' > "$tmp/resume.pdf"
+  printf '# candidate\n' > "$tmp/candidate.md"
+  printf '{}\n' > "$config/job-application/form-profile.json"
+  printf '# research\n' > "$tmp/research.md"
+  printf 'Application Key,Status\n' > "$tmp/tracker.csv"
+  printf '{"version":1,"artifacts":{"job-application.resume.current":"%s"},"sources":{"candidate_profile":"%s","form_profile":"%s","research":"%s","tracker":"%s","portfolio":"%s"}}\n' \
+    "$tmp/resume.pdf" "$tmp/candidate.md" "$config/job-application/form-profile.json" "$tmp/research.md" "$tmp/tracker.csv" "$tmp/portfolio" \
+    > "$config/extensions/config/job-application.json"
+
+  MCP_EXTENSION_CONFIG_ROOT="$config" "$ROOT/bin/extension" install job-application >/dev/null || { rm -rf "$tmp"; return 1; }
+  [ -f "$config/browser-memory/platforms/greenhouse/match.json" ] || { rm -rf "$tmp"; return 1; }
+  [ -f "$config/browser-memory/platforms/greenhouse/job-application.md" ] || { rm -rf "$tmp"; return 1; }
+  [ -f "$config/browser-memory/policies/linkedin.com/job-application.md" ] || { rm -rf "$tmp"; return 1; }
+  node - "$config/browser-artifacts.json" "$config/extensions/enabled/job-application.json" <<'NODE' || { rm -rf "$tmp"; return 1; }
+const fs = require('fs');
+const artifacts = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+if (!artifacts['job-application.resume.current']) process.exit(1);
+for (const key of ['candidate_profile', 'form_profile', 'research', 'tracker', 'portfolio']) {
+  if (!state.sources?.[key]) process.exit(1);
+}
+if (!state.memory.every(item => item.owned === true)) process.exit(1);
+NODE
+
+  MCP_EXTENSION_CONFIG_ROOT="$config" "$ROOT/bin/extension" remove job-application >/dev/null || { rm -rf "$tmp"; return 1; }
+  [ -f "$config/browser-memory/platforms/greenhouse/match.json" ] || { rm -rf "$tmp"; return 1; }
+  [ ! -e "$config/browser-memory/platforms/greenhouse/job-application.md" ] || { rm -rf "$tmp"; return 1; }
+  [ ! -e "$config/browser-memory/policies/linkedin.com/job-application.md" ] || { rm -rf "$tmp"; return 1; }
+  [ -f "$config/job-application/form-profile.json" ] || { rm -rf "$tmp"; return 1; }
+  node - "$config/browser-artifacts.json" <<'NODE' || { rm -rf "$tmp"; return 1; }
+const fs = require('fs');
+const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (value['job-application.resume.current'] !== undefined) process.exit(1);
+NODE
+
+  MCP_EXTENSION_CONFIG_ROOT="$config" "$ROOT/bin/extension" install job-application >/dev/null || { rm -rf "$tmp"; return 1; }
+  MCP_EXTENSION_CONFIG_ROOT="$config" "$ROOT/bin/extension" list | grep -Fq '"enabled": true' || { rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+}
+
+test_extension_install_preflights_required_config() {
+  local tmp config output rc
+  tmp="$(mktemp -d)" || return 1
+  config="$tmp/config"
+  mkdir -p "$config/extensions/config" || { rm -rf "$tmp"; return 1; }
+  printf 'pdf' > "$tmp/resume.pdf"
+  printf '# candidate\n' > "$tmp/candidate.md"
+  printf '{"version":1,"artifacts":{"job-application.resume.current":"%s"},"sources":{"candidate_profile":"%s"}}\n' \
+    "$tmp/resume.pdf" "$tmp/candidate.md" > "$config/extensions/config/job-application.json"
+
+  output="$(MCP_EXTENSION_CONFIG_ROOT="$config" "$ROOT/bin/extension" install job-application 2>&1)"
+  rc=$?
+  [ "$rc" -ne 0 ] || { rm -rf "$tmp"; return 1; }
+  grep -Fq 'EXTENSION_CONFIG_REQUIRED' <<<"$output" || { rm -rf "$tmp"; return 1; }
+  [ ! -e "$config/extensions/enabled/job-application.json" ] || { rm -rf "$tmp"; return 1; }
+  [ ! -e "$config/browser-artifacts.json" ] || { rm -rf "$tmp"; return 1; }
+  [ ! -d "$config/browser-memory" ] || [ -z "$(find "$config/browser-memory" -type f -print -quit 2>/dev/null)" ] || { rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+}
+
+test_extension_example_matches_manifest() {
+  node - "$ROOT/extensions/job-application/extension.json" "$ROOT/extensions/job-application/local-config.example.json" <<'NODE'
+const fs = require('fs');
+const manifest = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const example = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const sorted = value => [...value].sort();
+if (JSON.stringify(sorted(manifest.required_artifacts)) !== JSON.stringify(sorted(Object.keys(example.artifacts ?? {})))) process.exit(1);
+if (JSON.stringify(sorted(manifest.required_sources)) !== JSON.stringify(sorted(Object.keys(example.sources ?? {})))) process.exit(1);
+NODE
+}
+
 run_test 'raw CodeDB surface stays removed from public composition' test_raw_codedb_surface_removed
 run_test 'final rendered composition places Browser behind Local only in personal mode' test_final_rendered_composition
 run_test 'Dev spool deployment override rejects invalid values' test_dev_spool_limit_validation
@@ -492,6 +568,9 @@ run_test 'personal smoke validation accepts the private provider contract' test_
 run_test 'personal toolbox contract passes' bash "$ROOT/tests/personal-toolbox.sh"
 run_test 'Pi dev provider pins and structure are complete' test_pi_provider_structure
 run_test 'legacy filesystem dependency is removed after Pi cutover' test_legacy_filesystem_dependency_removed
+run_test 'optional extensions install and remove without changing Browser core' test_optional_extension_lifecycle
+run_test 'extension install preflights required private config before mutation' test_extension_install_preflights_required_config
+run_test 'extension example config matches its declared source and artifact contract' test_extension_example_matches_manifest
 
 printf '\n%d tests, %d failures\n' "$TESTS" "$FAILURES"
 [ "$FAILURES" -eq 0 ]

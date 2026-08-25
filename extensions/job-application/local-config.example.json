@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "artifacts": {
+    "job-application.resume.current": "/absolute/path/to/current-resume.pdf"
+  },
+  "sources": {
+    "candidate_profile": "/absolute/path/to/JOB_SEARCH_PROFILE.md",
+    "form_profile": "/absolute/path/to/form-profile.json",
+    "research": "/absolute/path/to/job-research.md",
+    "tracker": "/absolute/path/to/job_application_tracker.csv",
+    "portfolio": "/absolute/path/to/portfolio"
+  }
+}

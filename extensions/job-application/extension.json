@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "name": "job-application",
+  "description": "Personal external-ATS application workflow layered on the generic browser harness.",
+  "skill": "skills/job-application",
+  "required_artifacts": [
+    "job-application.resume.current"
+  ],
+  "required_sources": [
+    "candidate_profile",
+    "form_profile",
+    "research",
+    "tracker",
+    "portfolio"
+  ],
+  "memory": [
+    {
+      "source": "browser-memory/platforms/greenhouse/match.json",
+      "target": "platforms/greenhouse/match.json",
+      "lifetime": "shared"
+    },
+    {
+      "source": "browser-memory/platforms/greenhouse/job-application.md",
+      "target": "platforms/greenhouse/job-application.md",
+      "lifetime": "extension"
+    },
+    {
+      "source": "browser-memory/policies/linkedin.com/job-application.md",
+      "target": "policies/linkedin.com/job-application.md",
+      "lifetime": "extension"
+    }
+  ]
+}
