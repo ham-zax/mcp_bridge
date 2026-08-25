@@ -1,6 +1,6 @@
 ---
 name: agent-browser
-description: "Browser automation and interactive web-app work on the connected local PC. Use for navigation, forms, screenshots, authenticated flows, exploratory QA, bug hunts, or Electron automation. For resource-local state, route through Local: use browser-fast for routine interaction on the dedicated persistent Windows MCP Chrome profile or WSLg, and browser for DevTools diagnostics. Use the agent-browser CLI only for isolated browser sessions."
+description: "Browser automation and interactive web-app work on the connected local PC. Use for navigation, forms, screenshots, authenticated flows, exploratory QA, bug hunts, or Electron automation. For resource-local state, route through Local: use browser-fast for routine interaction on the dedicated persistent Windows MCP Chrome profile or managed Linux/WSLg state, including the Clearcote backend, and browser for DevTools diagnostics. Use the agent-browser CLI only for isolated browser sessions."
 ---
 
 # Agent Browser
@@ -10,7 +10,7 @@ Choose the browser boundary before acting. Browser state is a resource-local cap
 ## Route by browser state
 
 - Routine Windows interaction -> use Local logical `server="browser-fast"`; omit `arguments.browser_target` so it uses the dedicated persistent MCP Chrome profile. That profile is separate from everyday Chrome and keeps its own sign-ins/cookies. The full `browser` diagnostics surface targets this same Windows MCP profile.
-- Routine interaction with managed visible Linux/WSLg browser state -> use the same logical `server="browser-fast"` route with `arguments.browser_target="linux"`.
+- Routine interaction with managed visible Linux/WSLg browser state -> use the same logical `server="browser-fast"` route with `arguments.browser_target="linux"`. The local selector may choose managed Chrome or managed Clearcote. When it selects Clearcote, read [references/clearcote.md](references/clearcote.md) before changing browser lifecycle, profile settings, or humanized input behavior.
 - DevTools diagnostics such as network, console, performance, Lighthouse, heap, screenshots, or detailed debugging -> use Local logical `server="browser"`; omit `arguments.browser_target` for the dedicated Windows MCP profile or pass `"linux"` for WSLg.
 - If the user specifically asks to control everyday Windows Chrome, report that it is outside the MCP browser boundary; do not silently substitute it for the dedicated profile.
 - Isolated/fresh browser automation, CLI-specific workflows, or Electron automation that does not need either resource-local browser -> use the installed `agent-browser` CLI.
@@ -31,6 +31,22 @@ For routine interaction, use the fast surface:
 - Prefer `observe(tab=...)` for an intentional tab switch because it immediately returns fresh refs. Use `tab_switch` inside `execute` only when no later ref-based action depends on the pre-switch snapshot; otherwise switch by observation first.
 - Keep `stop_on_error=true` unless continuing after a failed action is explicitly safe. The executor never retries. Read `completed`, `failed`, `unknown`, and `not_run` before deciding whether another call is safe, and never replay an `unknown` consequential action automatically.
 - Re-observe after stale/unavailable tab context, ambiguity, failure, or any transition that needs fresh refs. Observation explicitly rebinds its chosen/current tab before snapshotting, so it is the recovery boundary after strict `--pin-tab` loses its prior target. Do not snapshot between routine mechanical steps merely to confirm each success.
+
+## Managed Linux Clearcote
+
+When the Linux selector resolves to managed Clearcote:
+
+- Keep `browser-fast` as the model-facing surface. Agent Browser owns accessibility snapshots, refs, and target identity; Clearcote owns the persistent Chromium process/profile and supported trusted input.
+- Treat `humanize: true` as the default for every managed Clearcote profile. A profile must explicitly set `humanize: false` to disable it. Do not add a second humanization default inside Agent Browser.
+- Launch/reuse the GUI by calling `browser-fast` with `browser_target="linux"`; do not shell-launch a second browser against the same profile. The managed profile is persistent, so cookies and authenticated state survive runtime restarts.
+- Let the human enter passwords, MFA, and challenge responses directly in the visible browser. Do not ask for or type credentials on their behalf.
+- Preserve Clearcote's functional humanization defaults: trusted native input, non-center targeting where geometry fallback is required, pointer acquisition before typing, drag grab/settle/release behavior, and scroll anchoring/easing. Automatic ambient motion remains opt-in because it can interfere with caller-directed actions.
+- Do not add `--no-sandbox`. Managed Clearcote launches Playwright with Chromium sandboxing enabled.
+- Agent Browser is an attached observer/executor for this backend, not the browser lifecycle owner. Its managed Clearcote CDP session must not impose idle browser shutdown; `ManagedClearcoteRuntime` owns close/restart.
+- Treat `lightStealth` as optional and default-off. Enabling it can relaunch the managed process while preserving profile state, and Clearcote 0.27.0 has a fingerprint-seed caveat documented in the reference.
+- Re-observe after backend/profile relaunches because prior tab IDs and refs are no longer valid.
+
+See [references/clearcote.md](references/clearcote.md) for the current Clearcote 0.27.0 contract and version-specific limits.
 
 For DevTools work, use `server="browser"`. If the action is already known, reuse its schema and call it directly. Otherwise use a narrow `tool_list(server="browser", query=...)`, load the exact `tool_schema` once, then reuse it for the session.
 
