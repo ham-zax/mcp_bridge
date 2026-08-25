@@ -154,7 +154,7 @@ Default Terminal state:
 ${XDG_STATE_HOME:-$HOME/.local/state}/wsl-agent-terminal
 ```
 
-`bin/status` reports current/rotated 1MCP log bytes against the rendered native-rotation policy, finalized Bash spool bytes against the configured aggregate budget, active Bash spool bytes separately, and oldest retained ages. It also flags the obsolete runtime `one-mcp.log` append file if one remains from a pre-hardening launch. These diagnostics are read-only; Pi Dev performs actual spool cleanup at startup and opportunistically after every Bash command.
+`bin/status` reports current/rotated 1MCP log bytes against the rendered native-rotation policy, finalized Bash spool bytes against the configured aggregate budget, active Bash spool bytes separately, and oldest retained ages. It also flags the obsolete runtime `one-mcp.log` append file if one remains from a pre-hardening launch. 1MCP uses restart-stable tailable Winston rotation, and bridge startup prunes stale numeric log siblings left by the older incrementing rotation mode. Pi Dev performs Bash spool cleanup at startup and opportunistically after every Bash command.
 
 1MCP's current log lives under `mcp-dev-bridge/logs/` and is rotated by the pinned 1MCP/Winston runtime according to `1mcp/config.toml`. Do not recreate shell `>> one-mcp.log` capture. After upgrading from a deployment that predates `config.toml`, rerun the renderer/bootstrap before restart; `scripts/smoke-local.sh` deliberately rejects stale generated state.
 

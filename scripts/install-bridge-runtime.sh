@@ -31,6 +31,24 @@ if (source.includes(upstream)) {
 NODE
 echo "  patched exact registered HTTPS OAuth callbacks"
 
+echo "== applying pinned 1MCP restart-stable log rotation =="
+LOGGER_IMPL="$(npm root -g)/@1mcp/agent/build/logger/logger.js"
+node --input-type=module - "$LOGGER_IMPL" <<'NODE'
+import fs from 'node:fs';
+const [loggerPath] = process.argv.slice(2);
+const upstream = '            ...(options.maxFiles ? { maxFiles: options.maxFiles } : {}),';
+const patched = '            ...(options.maxFiles ? { maxFiles: options.maxFiles, tailable: options.maxFiles > 1 } : {}),';
+
+let source = fs.readFileSync(loggerPath, 'utf8');
+if (source.includes(upstream)) {
+  source = source.replace(upstream, patched);
+  fs.writeFileSync(loggerPath, source);
+} else if (!source.includes(patched)) {
+  throw new Error('pinned 1MCP logger source shape changed; refusing an unsafe rotation patch');
+}
+NODE
+echo "  patched restart-stable tailable rotation"
+
 echo "== verifying pinned 1MCP native log rotation =="
 LOGGING_CONFIG="$(npm root -g)/@1mcp/agent/build/logger/loggingConfig.js"
 LOGGER_IMPL="$(npm root -g)/@1mcp/agent/build/logger/logger.js"
@@ -44,8 +62,9 @@ if (resolved.maxSize !== 10 * 1024 * 1024 || resolved.maxFiles !== 5) {
   throw new Error('pinned 1MCP did not resolve structured maxSize/maxFiles as expected');
 }
 const loggerSource = fs.readFileSync(loggerPath, 'utf8');
-if (!loggerSource.includes('maxsize: options.maxSize') || !loggerSource.includes('maxFiles: options.maxFiles')) {
-  throw new Error('pinned 1MCP logger does not expose native size/file-count rotation');
+if (!loggerSource.includes('maxsize: options.maxSize') ||
+    !loggerSource.includes('maxFiles: options.maxFiles, tailable: options.maxFiles > 1')) {
+  throw new Error('pinned 1MCP logger does not expose restart-stable native size/file-count rotation');
 }
 NODE
 echo "  verified native log rotation (structured maxSize/maxFiles)"

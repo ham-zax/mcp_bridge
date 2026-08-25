@@ -44,7 +44,35 @@ test_native_1mcp_rotation_capability_is_guarded() {
   contains "$helper" 'logger/logger\.js' &&
   contains "$helper" 'maxSize' &&
   contains "$helper" 'maxFiles' &&
-  contains "$helper" 'native log rotation'
+  contains "$helper" 'tailable: options\.maxFiles > 1' &&
+  contains "$helper" 'restart-stable native size/file-count rotation'
+}
+
+test_stale_incrementing_1mcp_logs_are_pruned_before_restart() {
+  local sandbox="$TMP/log-prune"
+  local state="$sandbox/state"
+  mkdir -p "$state/1mcp" "$state/logs" "$sandbox/run"
+  cat > "$state/1mcp/config.toml" <<EOF
+[logging]
+file = "$state/logs/one-mcp.log"
+maxSize = 10485760
+maxFiles = 3
+EOF
+  : > "$state/logs/one-mcp.log"
+  : > "$state/logs/one-mcp1.log"
+  : > "$state/logs/one-mcp2.log"
+  : > "$state/logs/one-mcp3.log"
+  : > "$state/logs/one-mcp9.log"
+  BRIDGE_STATE_DIR="$state" BRIDGE_CONFIG_DIR="$state/1mcp" BRIDGE_RUN_DIR="$sandbox/run" \
+    BRIDGE_ONE_MCP_LOG_FILE="$state/logs/one-mcp.log" bash -c '
+      source "$1/lib/bridge/common.sh"
+      bridge_prune_stale_1mcp_logs
+    ' _ "$ROOT" || return 1
+  [ -f "$state/logs/one-mcp.log" ] &&
+    [ -f "$state/logs/one-mcp1.log" ] &&
+    [ -f "$state/logs/one-mcp2.log" ] &&
+    [ ! -e "$state/logs/one-mcp3.log" ] &&
+    [ ! -e "$state/logs/one-mcp9.log" ]
 }
 
 test_1mcp_https_callback_csp_compatibility_is_guarded() {
@@ -168,6 +196,7 @@ run_test 'lifecycle entrypoint scripts remain executable' test_scripts_are_execu
 run_test 'no global pkill/pgrep lifecycle management' test_no_global_process_matching
 run_test 'privileged MCP dependencies are pinned' test_dependencies_are_pinned
 run_test 'pinned 1MCP native rotation capability is guarded' test_native_1mcp_rotation_capability_is_guarded
+run_test 'stale incrementing 1MCP logs are pruned before restart' test_stale_incrementing_1mcp_logs_are_pruned_before_restart
 run_test 'pinned 1MCP permits its exact registered HTTPS OAuth callback' test_1mcp_https_callback_csp_compatibility_is_guarded
 run_test 'public and personal setup share the pinned bridge runtime installer' test_shared_bridge_runtime_installer_is_used
 run_test 'Cloudflare OAuth Bridge is the only canonical stack' test_cloudflare_oauth_is_canonical

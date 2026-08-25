@@ -257,6 +257,29 @@ bridge_stop_1mcp() {
   rm -f "$BRIDGE_ONE_MCP_PID_FILE" "$BRIDGE_CONFIG_DIR/server.pid"
 }
 
+bridge_prune_stale_1mcp_logs() {
+  local max_files log_dir log_name stem path name suffix
+  [ -r "$BRIDGE_CONFIG_DIR/config.toml" ] || return 0
+  max_files="$(sed -n 's/^maxFiles[[:space:]]*=[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' "$BRIDGE_CONFIG_DIR/config.toml" | head -n1)"
+  [[ "$max_files" =~ ^[1-9][0-9]*$ ]] || return 0
+
+  log_dir="$(dirname "$BRIDGE_ONE_MCP_LOG_FILE")"
+  log_name="$(basename "$BRIDGE_ONE_MCP_LOG_FILE")"
+  [[ "$log_name" == *.log ]] || return 0
+  [ -d "$log_dir" ] || return 0
+  stem="${log_name%.log}"
+
+  while IFS= read -r -d '' path; do
+    name="${path##*/}"
+    suffix="${name#"$stem"}"
+    suffix="${suffix%.log}"
+    [[ "$suffix" =~ ^[0-9]+$ ]] || continue
+    if [ "$suffix" -ge "$max_files" ]; then
+      rm -f -- "$path"
+    fi
+  done < <(find "$log_dir" -maxdepth 1 -type f -name "${stem}[0-9]*.log" -print0 2>/dev/null)
+}
+
 bridge_start_1mcp() {
   local external="$1" entry
   [ -n "$external" ] || { echo "external URL is required" >&2; return 2; }
@@ -264,8 +287,9 @@ bridge_start_1mcp() {
   [ -f "$entry" ] || { echo "1MCP entry not found: $entry" >&2; return 1; }
 
   rm -f "$BRIDGE_ONE_MCP_PID_FILE"
-  # Remove the legacy unbounded console capture before a fresh native-logging launch.
+  # Remove the legacy unbounded console capture and stale pre-tailable rotations before launch.
   rm -f "$BRIDGE_RUN_DIR/one-mcp.log"
+  bridge_prune_stale_1mcp_logs
   (
     cd "${BRIDGE_WORKSPACE_ROOT:-$BRIDGE_ROOT}"
     umask 077
