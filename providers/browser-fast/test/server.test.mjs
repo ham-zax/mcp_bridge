@@ -324,7 +324,7 @@ test('Windows Agent Browser runner provisions native runtime and validates tab c
   assert.deepEqual(stale.items, []);
   assert.equal(nativeCalls.length, beforeStale + 1);
 
-  const runtimeDir = path.join(root, 'mcp-dev-bridge', 'agent-browser', '0.34.0');
+  const runtimeDir = path.join(root, 'mcp-dev-bridge', 'agent-browser', '0.35.0');
   assert.equal(await fs.readFile(path.join(runtimeDir, 'agent-browser.exe'), 'utf8'), 'pinned-binary');
   assert.equal(await fs.readFile(path.join(runtimeDir, 'windows-runner.cjs'), 'utf8'), 'helper-source');
 });

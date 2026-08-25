@@ -170,7 +170,7 @@ It launches visible Chrome with that custom `--user-data-dir` and `--remote-debu
 Both Windows browser surfaces share that one profile and endpoint:
 
 ```text
-browser-fast -> Agent Browser 0.34.0 -> direct CDP WebSocket
+browser-fast -> Agent Browser 0.35.0 -> direct CDP WebSocket
 browser      -> Chrome DevTools MCP   -> loopback browser URL
 ```
 

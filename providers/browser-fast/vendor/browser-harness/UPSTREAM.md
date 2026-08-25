@@ -18,4 +18,4 @@ The WebSession adaptation intentionally differs from upstream in three ways:
 2. It resolves exact site hosts plus reusable platform rules instead of upstream's first-host-label directory lookup.
 3. It reads Markdown/JSON only; it does not execute Browser Harness-style `agent_helpers.py` under Local browser authority.
 
-Browser Harness's `upload_file()` CDP technique was also reviewed, but no Python/CDP upload code is copied here because pinned Agent Browser 0.34.0 already provides an `upload` command. `browser-fast` wraps that existing backend with an approved-artifact manifest and target-specific WSL/Windows path translation instead of accepting Browser Harness-style arbitrary absolute paths.
+Browser Harness's `upload_file()` CDP technique was also reviewed, but no Python/CDP upload code is copied here because pinned Agent Browser 0.35.0 already provides an `upload` command. `browser-fast` wraps that existing backend with an approved-artifact manifest and target-specific WSL/Windows path translation instead of accepting Browser Harness-style arbitrary absolute paths.

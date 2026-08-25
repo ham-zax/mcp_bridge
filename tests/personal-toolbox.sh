@@ -147,7 +147,7 @@ test_checker_enforces_node_and_ast_grep_versions() {
   PERSONAL_TOOLBOX_PATH="$tmp/bin" capture "$out" bash "$CHECKER"
   rc=$?
   if [ "$rc" -eq 0 ] ||
-     ! contains "$out" 'INVALID required node | v20.18.0 | need >= 22.19.0' ||
+     ! contains "$out" 'INVALID required node | v20.18.0 | need >= 24.0.0' ||
      ! contains "$out" 'INVALID required ast-grep | ast-grep 0.44.0 | need = 0.45.0'; then
     cat "$out"
     rm -rf "$tmp"

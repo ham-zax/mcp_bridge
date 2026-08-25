@@ -9,7 +9,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { ensureWindowsChrome } from '../browser/windows-chrome-runtime.mjs';
 import { resolveBrowserMemory } from './browser-memory.mjs';
 
-export const AGENT_BROWSER_VERSION = '0.34.0';
+export const AGENT_BROWSER_VERSION = '0.35.0';
 export const DEFAULT_SESSION_PREFIX = 'mcp-browser-fast';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));

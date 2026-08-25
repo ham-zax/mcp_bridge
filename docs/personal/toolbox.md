@@ -22,7 +22,7 @@ The checker qualifies the normal development baseline, including:
 
 ```text
 git rg jq sed awk grep find
-node npm pnpm corepack
+node (>=24.0.0) npm pnpm corepack
 python3 uv
 systemctl journalctl tmux
 ast-grep
