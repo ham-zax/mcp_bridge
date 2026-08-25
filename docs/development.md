@@ -12,7 +12,7 @@ providers/browser/   Chrome DevTools facade + resource-local child routing
 providers/browser-fast/ compact observe/execute facade over Agent Browser on Windows + Linux
 providers/local-tools/ stable Local tool broker over private inner 1MCP
 providers/legacy-shell/ restricted-profile legacy shell
-extensions/          private optional domain workflows layered above generic harness capabilities
+extensions/          private optional domain workflows layered above generic harness capabilities; extension-lifetime browser memory is exclusive to one enabled extension, while identical shared memory may be reused
 config/              tracked templates and trust profiles
 scripts/             setup, rendering, migration, toolbox, installers
 systemd/             user-service templates

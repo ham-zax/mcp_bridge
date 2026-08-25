@@ -18,8 +18,15 @@ function fail(code, message) {
 }
 
 function configRoot(env = process.env) {
-  const configured = typeof env.MCP_EXTENSION_CONFIG_ROOT === 'string' ? env.MCP_EXTENSION_CONFIG_ROOT.trim() : '';
-  return configured ? path.resolve(configured) : path.join(os.homedir(), '.config', 'mcp-dev-bridge');
+  for (const key of ['MCP_EXTENSION_CONFIG_ROOT', 'MCP_BROWSER_ARTIFACTS_FILE']) {
+    if (typeof env[key] === 'string' && env[key].trim()) fail('UNSUPPORTED_EXTENSION_OVERRIDE', `${key} is not a supported extension-manager configuration override`);
+  }
+  const configured = typeof env.MCP_EXTENSION_TEST_CONFIG_ROOT === 'string' ? env.MCP_EXTENSION_TEST_CONFIG_ROOT.trim() : '';
+  if (configured) {
+    if (env.NODE_ENV !== 'test') fail('EXTENSION_TEST_CONFIG_ROOT_FORBIDDEN', 'MCP_EXTENSION_TEST_CONFIG_ROOT is test-only');
+    return path.resolve(configured);
+  }
+  return path.join(os.homedir(), '.config', 'mcp-dev-bridge');
 }
 
 function extensionName(value) {
@@ -94,8 +101,7 @@ function browserMemoryRoot(root) {
 }
 
 function artifactsFile(root) {
-  const configured = typeof process.env.MCP_BROWSER_ARTIFACTS_FILE === 'string' ? process.env.MCP_BROWSER_ARTIFACTS_FILE.trim() : '';
-  return configured ? path.resolve(configured) : path.join(root, 'browser-artifacts.json');
+  return path.join(root, 'browser-artifacts.json');
 }
 
 function localConfigFile(root, name) {
@@ -116,6 +122,7 @@ async function planMemoryFile(extensionRoot, memoryRoot, item) {
   const content = await fs.readFile(source);
   try {
     const existing = await fs.readFile(target);
+    if (item.lifetime === 'extension') fail('EXTENSION_MEMORY_CONFLICT', `extension-lifetime browser-memory target already exists: ${item.target}`);
     if (!existing.equals(content)) fail('EXTENSION_MEMORY_CONFLICT', `browser-memory target already differs: ${item.target}`);
     return { item, target, content, needsCreate: false };
   } catch (error) {
@@ -133,6 +140,7 @@ async function applyMemoryPlan(plan) {
     return { created: true };
   } catch (error) {
     if (error?.code !== 'EEXIST') throw error;
+    if (plan.item.lifetime === 'extension') fail('EXTENSION_MEMORY_CONFLICT', `extension-lifetime browser-memory target appeared during install: ${plan.item.target}`);
     const existing = await fs.readFile(plan.target);
     if (!existing.equals(plan.content)) fail('EXTENSION_MEMORY_CONFLICT', `browser-memory target changed during install: ${plan.item.target}`);
     return { created: false };
@@ -248,10 +256,32 @@ async function remove(name) {
     fail('INVALID_EXTENSION_STATE', `invalid enabled state: ${enabledFile}`);
   }
 
+  const artifactPath = artifactsFile(root);
+  let artifactManifestExisted = true;
+  try {
+    await fs.access(artifactPath);
+  } catch {
+    artifactManifestExisted = false;
+  }
+  const artifactManifest = await readJson(artifactPath, { missing: {} });
+  if (!artifactManifest || typeof artifactManifest !== 'object' || Array.isArray(artifactManifest)) fail('INVALID_ARTIFACT_MANIFEST', `artifact manifest must be an object: ${artifactPath}`);
+  const nextArtifactManifest = { ...artifactManifest };
+  const removedArtifacts = [];
+  const preservedArtifacts = [];
+  for (const [artifact, installedValue] of Object.entries(state.artifacts)) {
+    if (nextArtifactManifest[artifact] === installedValue) {
+      delete nextArtifactManifest[artifact];
+      removedArtifacts.push(artifact);
+    } else if (nextArtifactManifest[artifact] !== undefined) {
+      preservedArtifacts.push(artifact);
+    }
+  }
+
   const memoryRoot = browserMemoryRoot(root);
   const removedMemory = [];
   const retainedSharedMemory = [];
   const retainedExistingMemory = [];
+  const memoryDeletes = [];
   for (const item of state.memory) {
     if (item?.lifetime === 'shared') {
       retainedSharedMemory.push(item.target);
@@ -264,28 +294,47 @@ async function remove(name) {
     const target = path.resolve(memoryRoot, safeRelative(item.target, 'state.memory.target'));
     const prefix = `${path.resolve(memoryRoot)}${path.sep}`;
     if (!target.startsWith(prefix)) fail('INVALID_EXTENSION_STATE', `memory target escapes browser-memory root: ${item.target}`);
+    let content = null;
     try {
-      await fs.unlink(target);
-      removedMemory.push(item.target);
+      content = await fs.readFile(target);
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
     }
+    memoryDeletes.push({ item, target, content });
   }
 
-  const artifactPath = artifactsFile(root);
-  const artifactManifest = await readJson(artifactPath, { missing: {} });
-  const removedArtifacts = [];
-  const preservedArtifacts = [];
-  for (const [artifact, installedValue] of Object.entries(state.artifacts)) {
-    if (artifactManifest[artifact] === installedValue) {
-      delete artifactManifest[artifact];
-      removedArtifacts.push(artifact);
-    } else if (artifactManifest[artifact] !== undefined) {
-      preservedArtifacts.push(artifact);
+  const deletedMemory = [];
+  let artifactsWritten = false;
+  try {
+    for (const entry of memoryDeletes) {
+      try {
+        await fs.unlink(entry.target);
+        removedMemory.push(entry.item.target);
+        deletedMemory.push(entry);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
     }
+    await writePrivateJson(artifactPath, nextArtifactManifest);
+    artifactsWritten = true;
+    await fs.unlink(enabledFile);
+  } catch (error) {
+    if (artifactsWritten) {
+      try {
+        if (artifactManifestExisted) await writePrivateJson(artifactPath, artifactManifest);
+        else await fs.unlink(artifactPath);
+      } catch {}
+    }
+    for (const entry of deletedMemory.reverse()) {
+      if (entry.content === null) continue;
+      try {
+        await ensurePrivateDir(path.dirname(entry.target));
+        await fs.writeFile(entry.target, entry.content, { flag: 'wx', mode: 0o600 });
+        await fs.chmod(entry.target, 0o600);
+      } catch {}
+    }
+    throw error;
   }
-  await writePrivateJson(artifactPath, artifactManifest);
-  await fs.unlink(enabledFile);
   return {
     status: 'disabled',
     name,

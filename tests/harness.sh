@@ -491,7 +491,7 @@ test_legacy_filesystem_dependency_removed() {
 }
 
 test_optional_extension_lifecycle() {
-  local tmp config
+  local tmp config output rc
   tmp="$(mktemp -d)" || return 1
   config="$tmp/config"
   mkdir -p "$config/extensions/config" "$config/job-application" "$tmp/portfolio" || { rm -rf "$tmp"; return 1; }
@@ -504,7 +504,13 @@ test_optional_extension_lifecycle() {
     "$tmp/resume.pdf" "$tmp/candidate.md" "$config/job-application/form-profile.json" "$tmp/research.md" "$tmp/tracker.csv" "$tmp/portfolio" \
     > "$config/extensions/config/job-application.json"
 
-  MCP_EXTENSION_CONFIG_ROOT="$config" "$ROOT/bin/extension" install job-application >/dev/null || { rm -rf "$tmp"; return 1; }
+  output="$(NODE_ENV=test MCP_EXTENSION_TEST_CONFIG_ROOT="$config" MCP_BROWSER_ARTIFACTS_FILE="$tmp/unsupported-artifacts.json" "$ROOT/bin/extension" install job-application 2>&1)"
+  rc=$?
+  [ "$rc" -ne 0 ] || { rm -rf "$tmp"; return 1; }
+  grep -Fq 'UNSUPPORTED_EXTENSION_OVERRIDE' <<<"$output" || { rm -rf "$tmp"; return 1; }
+  [ ! -e "$tmp/unsupported-artifacts.json" ] || { rm -rf "$tmp"; return 1; }
+
+  NODE_ENV=test MCP_EXTENSION_TEST_CONFIG_ROOT="$config" "$ROOT/bin/extension" install job-application >/dev/null || { rm -rf "$tmp"; return 1; }
   [ -f "$config/browser-memory/platforms/greenhouse/match.json" ] || { rm -rf "$tmp"; return 1; }
   [ -f "$config/browser-memory/platforms/greenhouse/job-application.md" ] || { rm -rf "$tmp"; return 1; }
   [ -f "$config/browser-memory/policies/linkedin.com/job-application.md" ] || { rm -rf "$tmp"; return 1; }
@@ -519,7 +525,7 @@ for (const key of ['candidate_profile', 'form_profile', 'research', 'tracker', '
 if (!state.memory.every(item => item.owned === true)) process.exit(1);
 NODE
 
-  MCP_EXTENSION_CONFIG_ROOT="$config" "$ROOT/bin/extension" remove job-application >/dev/null || { rm -rf "$tmp"; return 1; }
+  NODE_ENV=test MCP_EXTENSION_TEST_CONFIG_ROOT="$config" "$ROOT/bin/extension" remove job-application >/dev/null || { rm -rf "$tmp"; return 1; }
   [ -f "$config/browser-memory/platforms/greenhouse/match.json" ] || { rm -rf "$tmp"; return 1; }
   [ ! -e "$config/browser-memory/platforms/greenhouse/job-application.md" ] || { rm -rf "$tmp"; return 1; }
   [ ! -e "$config/browser-memory/policies/linkedin.com/job-application.md" ] || { rm -rf "$tmp"; return 1; }
@@ -530,8 +536,47 @@ const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (value['job-application.resume.current'] !== undefined) process.exit(1);
 NODE
 
-  MCP_EXTENSION_CONFIG_ROOT="$config" "$ROOT/bin/extension" install job-application >/dev/null || { rm -rf "$tmp"; return 1; }
-  MCP_EXTENSION_CONFIG_ROOT="$config" "$ROOT/bin/extension" list | grep -Fq '"enabled": true' || { rm -rf "$tmp"; return 1; }
+  NODE_ENV=test MCP_EXTENSION_TEST_CONFIG_ROOT="$config" "$ROOT/bin/extension" install job-application >/dev/null || { rm -rf "$tmp"; return 1; }
+  NODE_ENV=test MCP_EXTENSION_TEST_CONFIG_ROOT="$config" "$ROOT/bin/extension" list | grep -Fq '"enabled": true' || { rm -rf "$tmp"; return 1; }
+
+  chmod 0500 "$config/extensions/enabled" || { rm -rf "$tmp"; return 1; }
+  output="$(NODE_ENV=test MCP_EXTENSION_TEST_CONFIG_ROOT="$config" "$ROOT/bin/extension" remove job-application 2>&1)"
+  rc=$?
+  chmod 0700 "$config/extensions/enabled"
+  [ "$rc" -ne 0 ] || { rm -rf "$tmp"; return 1; }
+  [ -f "$config/extensions/enabled/job-application.json" ] || { rm -rf "$tmp"; return 1; }
+  [ -f "$config/browser-memory/platforms/greenhouse/job-application.md" ] || { rm -rf "$tmp"; return 1; }
+  [ -f "$config/browser-memory/policies/linkedin.com/job-application.md" ] || { rm -rf "$tmp"; return 1; }
+  node - "$config/browser-artifacts.json" <<'NODE' || { rm -rf "$tmp"; return 1; }
+const fs = require('fs');
+const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (!value['job-application.resume.current']) process.exit(1);
+NODE
+  rm -rf "$tmp"
+}
+
+test_extension_memory_lifetime_ownership() {
+  local tmp config output rc
+  tmp="$(mktemp -d)" || return 1
+  config="$tmp/config"
+  mkdir -p "$tmp/repo/scripts" "$tmp/repo/extensions/ext-a/memory" "$tmp/repo/extensions/ext-b/memory" "$config/extensions/config" || { rm -rf "$tmp"; return 1; }
+  cp "$ROOT/scripts/manage-extension.mjs" "$tmp/repo/scripts/manage-extension.mjs" || { rm -rf "$tmp"; return 1; }
+  printf 'same extension memory\n' > "$tmp/repo/extensions/ext-a/memory/rule.md"
+  cp "$tmp/repo/extensions/ext-a/memory/rule.md" "$tmp/repo/extensions/ext-b/memory/rule.md"
+  cat > "$tmp/repo/extensions/ext-a/extension.json" <<'EOF'
+{"version":1,"name":"ext-a","required_artifacts":[],"required_sources":[],"memory":[{"source":"memory/rule.md","target":"sites/example.test/rule.md","lifetime":"extension"}]}
+EOF
+  cat > "$tmp/repo/extensions/ext-b/extension.json" <<'EOF'
+{"version":1,"name":"ext-b","required_artifacts":[],"required_sources":[],"memory":[{"source":"memory/rule.md","target":"sites/example.test/rule.md","lifetime":"extension"}]}
+EOF
+
+  NODE_ENV=test MCP_EXTENSION_TEST_CONFIG_ROOT="$config" node "$tmp/repo/scripts/manage-extension.mjs" install ext-a >/dev/null || { rm -rf "$tmp"; return 1; }
+  output="$(NODE_ENV=test MCP_EXTENSION_TEST_CONFIG_ROOT="$config" node "$tmp/repo/scripts/manage-extension.mjs" install ext-b 2>&1)"
+  rc=$?
+  [ "$rc" -ne 0 ] || { rm -rf "$tmp"; return 1; }
+  grep -Fq 'EXTENSION_MEMORY_CONFLICT' <<<"$output" || { rm -rf "$tmp"; return 1; }
+  [ ! -e "$config/extensions/enabled/ext-b.json" ] || { rm -rf "$tmp"; return 1; }
+  [ -f "$config/browser-memory/sites/example.test/rule.md" ] || { rm -rf "$tmp"; return 1; }
   rm -rf "$tmp"
 }
 
@@ -545,7 +590,7 @@ test_extension_install_preflights_required_config() {
   printf '{"version":1,"artifacts":{"job-application.resume.current":"%s"},"sources":{"candidate_profile":"%s"}}\n' \
     "$tmp/resume.pdf" "$tmp/candidate.md" > "$config/extensions/config/job-application.json"
 
-  output="$(MCP_EXTENSION_CONFIG_ROOT="$config" "$ROOT/bin/extension" install job-application 2>&1)"
+  output="$(NODE_ENV=test MCP_EXTENSION_TEST_CONFIG_ROOT="$config" "$ROOT/bin/extension" install job-application 2>&1)"
   rc=$?
   [ "$rc" -ne 0 ] || { rm -rf "$tmp"; return 1; }
   grep -Fq 'EXTENSION_CONFIG_REQUIRED' <<<"$output" || { rm -rf "$tmp"; return 1; }
@@ -579,6 +624,7 @@ run_test 'personal toolbox contract passes' bash "$ROOT/tests/personal-toolbox.s
 run_test 'Pi dev provider pins and structure are complete' test_pi_provider_structure
 run_test 'legacy filesystem dependency is removed after Pi cutover' test_legacy_filesystem_dependency_removed
 run_test 'optional extensions install and remove without changing Browser core' test_optional_extension_lifecycle
+run_test 'extension-lifetime browser memory cannot acquire multiple owners' test_extension_memory_lifetime_ownership
 run_test 'extension install preflights required private config before mutation' test_extension_install_preflights_required_config
 run_test 'extension example config matches its declared source and artifact contract' test_extension_example_matches_manifest
 
