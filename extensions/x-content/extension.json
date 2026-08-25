@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "name": "x-content",
+  "description": "Private evolving content-memory workspace for the x-content ChatGPT Skill; contributes no Browser memory or browser artifacts.",
+  "skill": "skills/x-content",
+  "required_artifacts": [],
+  "required_sources": [
+    "workspace"
+  ],
+  "memory": []
+}

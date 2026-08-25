@@ -46,11 +46,15 @@ Domain workflows sit above the generic harness and can be enabled or removed wit
 bin/extension list
 bin/extension install job-application
 bin/extension remove job-application
+bin/extension install x-content
+bin/extension remove x-content
 ```
 
 An extension may contribute namespaced artifact aliases and browser-memory files. Removal deletes only extension-lifetime contributions and matching aliases; shared platform recognition and learned exact-site memory remain reusable Browser knowledge. Private user data is preserved rather than destructively purged. ChatGPT Skill installation/uninstallation is separate client-side state, so removing the WSL extension does not silently remove an installed Skill.
 
 For `job-application`, copy `extensions/job-application/local-config.example.json` to `~/.config/mcp-dev-bridge/extensions/config/job-application.json`. Configure the absolute resume path plus the `candidate_profile`, `form_profile`, `research`, `tracker`, and `portfolio` source paths. Installation fails closed before mutation if a required source or resume is unavailable. On success the manager records the resolved source paths in `~/.config/mcp-dev-bridge/extensions/enabled/job-application.json`, installs the alias `job-application.resume.current`, Greenhouse application strategy, and the logged-in LinkedIn manual-only policy. The Skill reads only the enabled state, so disabling the extension also disables its implicit access to those personal source locations.
+
+For `x-content`, copy `extensions/x-content/local-config.example.json` to `~/.config/mcp-dev-bridge/extensions/config/x-content.json`, copy `extensions/x-content/memory-template/` to a private directory, and configure that directory as the absolute `workspace` source. The extension installs no Browser memory and no approved browser artifact; its enabled state only gives the `x-content` Skill a discoverable private workspace. Removing the extension removes that implicit source discovery while preserving the private workspace. Hooks, voice, topic strategy, examples, and learned heuristics belong in that workspace or the Skill references, not in `~/.config/mcp-dev-bridge/browser-memory/`.
 
 Keep routine ATS contact identity outside both the Skill and browser memory at `~/.config/mcp-dev-bridge/job-application/form-profile.json` with directory mode `0700` and file mode `0600`. This file owns legal name, application email, phone/country code, routine address fields, public profile links, and explicit EEO decline preferences. Use `null` for unknown values such as an unset street/postal code or preferred name; agents must not fill those from inference.
 

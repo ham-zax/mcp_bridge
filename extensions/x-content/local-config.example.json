@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "artifacts": {},
+  "sources": {
+    "workspace": "/absolute/path/to/x-content-memory"
+  }
+}
