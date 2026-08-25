@@ -1,6 +1,6 @@
 ---
 name: agent-browser
-description: Browser automation and interactive web-app work on the connected local PC. Use for navigation, forms, screenshots, authenticated flows, exploratory QA, bug hunts, or Electron automation. For resource-local state, route through Local: use browser-fast for routine interaction on the dedicated persistent Windows MCP Chrome profile or WSLg, and browser for DevTools diagnostics. Use the agent-browser CLI only for isolated browser sessions.
+description: "Browser automation and interactive web-app work on the connected local PC. Use for navigation, forms, screenshots, authenticated flows, exploratory QA, bug hunts, or Electron automation. For resource-local state, route through Local: use browser-fast for routine interaction on the dedicated persistent Windows MCP Chrome profile or WSLg, and browser for DevTools diagnostics. Use the agent-browser CLI only for isolated browser sessions."
 ---
 
 # Agent Browser
@@ -33,6 +33,8 @@ For routine interaction, use the fast surface:
 For DevTools work, use `server="browser"`. If the action is already known, reuse its schema and call it directly. Otherwise use a narrow `tool_list(server="browser", query=...)`, load the exact `tool_schema` once, then reuse it for the session.
 
 On Windows, `browser-fast` and `browser` share the same dedicated persistent MCP Chrome profile and therefore the same Windows tabs/authentication state. Windows and Linux browser state remain separate. The Windows MCP profile is launched or reused by the harness; do not replace that lifecycle with shell-launched everyday Chrome. If sign-in is needed, use the visible dedicated MCP profile.
+
+Multiple agents may share that one running Windows MCP Chrome/profile and its authenticated state. Individual `browser-fast` operations are serialized, but `observe -> execute` is not a cross-agent transaction: another agent may change tab state between calls, so stale/mismatched `execute.tab` must fail closed and the caller must re-observe. Never launch a second independent Chrome process against the same `--user-data-dir`; reuse the harness-owned instance.
 
 `tool_call` preserves successful downstream rich MCP results, so DevTools screenshots remain native image content. Never search for `_1mcp_` qualified names or generated inner config paths.
 
