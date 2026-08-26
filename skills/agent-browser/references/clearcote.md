@@ -1,6 +1,6 @@
 # Managed Clearcote backend
 
-Use this reference when `browser-fast` with `browser_target="linux"` resolves to a managed Clearcote profile.
+Use this reference for the default managed Linux/WSLg browser path: `browser-fast` with `browser_target="linux"` should resolve to a managed Clearcote profile unless the caller or governing workflow explicitly selects managed Chrome.
 
 ## Ownership
 
@@ -15,7 +15,7 @@ Keep those owners separate. Do not launch another browser process against the sa
 
 ## Profile and lifecycle defaults
 
-- The selector lives in `~/.config/mcp-dev-bridge/browser-fast.json` and may choose managed Chrome or a named managed Clearcote profile.
+- The selector lives in `~/.config/mcp-dev-bridge/browser-fast.json`. Managed Clearcote is the default Linux backend; managed Chrome is an explicit override only. An explicit selector/config choice of Chrome wins, but absence of that choice must not silently route Linux work to Chrome.
 - Managed Clearcote profiles live beneath the bridge state directory; profile names are validated and must resolve as direct children of the profiles root.
 - `headless` defaults to `false` for managed Clearcote profiles.
 - `humanize` defaults to `true` when omitted. Only an explicit `humanize: false` disables it.

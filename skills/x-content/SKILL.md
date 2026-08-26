@@ -1,6 +1,6 @@
 ---
 name: x-content
-description: "Create, rewrite, critique, and learn from X/Twitter posts for a technical builder account using reusable evidence-based content memory. Use when ChatGPT needs to turn an idea or source into an X post, Quote, thread, or reply; diagnose a weak draft; generate meaningfully different variants; analyze content patterns; or turn post outcomes into candidate lessons. This Skill owns content intelligence, not Browser mechanics. It composes with agent-browser for read-only X context and keeps actual account mutation on a separate compliant execution path."
+description: "Create, rewrite, critique, select formats for, and learn from X/Twitter content for a technical AI-native developer and builder account. Use when turning an idea, source post, release, benchmark, result, or conversation into an Original, Quote, Thread, or Reply; improving or diagnosing a draft; generating materially different variants; analyzing content patterns or own-account outcomes; or turning measured outcomes into evidence-backed candidate lessons. Own content intelligence and content-memory judgment. Compose with agent-browser for live X context and repository/Growth OS owners for workflow, approval, measurement persistence, and publication."
 ---
 
 # X Content
@@ -9,39 +9,45 @@ Treat X content strategy as domain knowledge. Do not put hooks, voice, audience 
 
 ## Ownership boundary
 
-- **This Skill:** content research, format choice, voice, hooks, wording, structure, critique, variants, replies, and evidence-based learning.
-- **Browser memory:** only X site mechanics, stable UI quirks, and operator/site policy. It must not judge whether an opener or phrase is good copy.
-- **Generic Browser:** observation and interaction mechanics only. Do not add X content logic to Browser core.
-- **Private extension:** optional account-specific/evolving sources. It supplies data paths, not Browser authority.
+- **This Skill:** content research, contribution-seam analysis, format judgment, voice, hooks, wording, structure, critique, variants, replies, and evidence-based learning.
+- **Repository / Growth OS:** candidates, routes, dispositions, approvals, queues, experiments, relationship state, measurement persistence, scheduling, reconciliation, and publication authority when those systems exist.
+- **Browser memory:** X site mechanics, stable UI quirks, and operator/site policy only. Never store hooks, voice, topic strategy, audience language, or performance lessons there.
+- **Generic Browser:** observation and interaction mechanics. Let `agent-browser` own backend selection, tabs, refs, lifecycle, credential boundaries, and execution semantics.
+- **Private extension:** optional account-specific/evolving content sources. It supplies data paths, not Browser or publication authority.
 
-Use `agent-browser` only when live X context must be inspected. Content drafting and analysis must work without browser access.
+When an authoritative workflow has already selected a route, approval state, experiment, or publication path, preserve it and optimize the content inside it. A content recommendation never grants execution authority.
+
+Use `agent-browser` only when live X context materially affects the content decision. Content drafting and critique must work without Browser access, Growth OS, or the private extension.
 
 ## Load evidence progressively
 
-1. Read `references/writing-patterns.md` for the bundled account baseline.
-2. For creation, revision, or replies, read `references/workflows.md` only as needed.
-3. For learning or private-memory work, read `references/evidence-and-memory.md`.
-4. Through Dev, check for:
+1. Read `references/writing-patterns.md` for creation, revision, format choice, or replies.
+2. Read the applicable branch in `references/workflows.md` only as needed.
+3. For learning or private-memory mutation, read `references/evidence-and-memory.md`.
+4. When authenticated own-account X Analytics materially affects the decision, read `references/account-analytics.md`.
+5. Through Dev, check for:
 
    `~/.config/mcp-dev-bridge/extensions/enabled/x-content.json`
 
-   If present, read `sources.workspace`. Never infer a private path or bypass disabled extension state.
-5. Inside the configured workspace, load only files relevant to the current task. Supported files are `voice.md`, `patterns.md`, `results.md`, `topics.md`, `examples.md`, and `candidates.md`. Missing files are normal.
+   If present, read `sources.workspace`. Never infer a private path, bypass disabled extension state, or install/enable the extension merely because this Skill was invoked.
+6. Inside the configured workspace, load only files relevant to the current task. Supported files are `voice.md`, `patterns.md`, `results.md`, `topics.md`, `examples.md`, and `candidates.md`. Missing files are normal.
 
-If the extension is absent, use bundled references plus evidence explicitly supplied in the current conversation. Do not require the extension merely to draft or critique content.
+The private extension is optional. If it is absent or disabled, continue with bundled references, verified source material, repository context, and evidence supplied in the current conversation. Do not block ordinary drafting or critique.
 
 ## Evidence precedence
 
 When guidance conflicts, prefer:
 
-1. verified facts and current task context;
-2. current measured account outcomes;
-3. recently promoted private account patterns with evidence and limitations;
-4. bundled account writing rules;
-5. external viral-style associations with their stated confidence;
-6. general copywriting judgment.
+1. explicit current-task requirements;
+2. verified facts and exact current source/thread context;
+3. current measured own-account outcomes;
+4. explicit human voice and positioning decisions;
+5. recently promoted private patterns whose scope still applies;
+6. bundled account writing rules;
+7. external style/performance associations with their stated confidence and limitations;
+8. general copywriting judgment.
 
-Current examples and measured results outrank stale heuristics. A viral source is evidence about possible structure, not permission to copy its wording or unsupported claims.
+Current examples and measured results outrank stale heuristics. Candidate lessons are not production rules. A viral source is evidence about possible structure, not permission to copy its wording or unsupported claims.
 
 ## Choose the workflow
 
@@ -82,9 +88,13 @@ Learning is deliberate:
 
 Keep content intelligence separate from account mutation.
 
-Before enabling or recommending automated X actions, verify the current official X API and automation rules. Do not use scripted website interaction as a posting automation path. Prefer manual publication or a separately authorized, policy-compliant X API path.
+This Skill may draft, critique, recommend a format, or analyze an automated-content proposal. It does not grant permission to publish, Reply, Repost, Like, Follow, or otherwise mutate X.
 
-Do not automate Likes. Do not build unsolicited keyword-triggered auto-replies. Automated replies require the recipient's prior intent/opt-in, an easy opt-out, and any additional current X approval requirements; AI-powered automated reply bots require prior written X approval under the current policy. Bulk/aggressive Reposts or follows are not growth tactics.
+Treat X automation requirements as time-sensitive. Before recommending or enabling an automated X mutation path, verify the current official X API and automation requirements from authoritative public sources. Prefer ordinary public research for public policy/API documentation rather than using the authenticated resource-local X browser as a policy oracle.
+
+Do not treat authenticated website access as automation authorization. Do not use scripted website interaction as unattended publication merely because Browser tooling can technically perform it.
+
+Defer approval, credentials, recipient consent, transport selection, retry policy, reconciliation, scheduler authority, and actual mutation to the governing repository/operator/transport contract.
 
 The Skill remains fully useful when all publishing is manual.
 

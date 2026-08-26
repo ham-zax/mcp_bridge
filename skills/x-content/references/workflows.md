@@ -50,8 +50,8 @@ Then produce the strongest rewrite plus, when useful, one materially different a
 
 ## Learn from outcomes
 
-1. Gather the post(s), source/context, format, timing if relevant, and actual observed results.
-2. Separate the writing feature from distribution/context variables: source reach, relationship, topic momentum, media, account stage, timing, and conversation crowding.
+1. Gather the post(s), source/context, format, timing if relevant, and actual observed results. When authenticated X Account Analytics is available, follow `account-analytics.md` and prefer observed owned Post/Reply outcomes plus richer detail such as profile visits, new follows, bookmarks, and shares over weaker public counters.
+2. Separate the writing feature from distribution/context variables: source reach, relationship, topic momentum, media, account stage, timing, conversation crowding, and measurement window. Keep reach, engagement, profile discovery, and follow conversion as distinct outcome layers.
 3. State the observed result before the lesson.
 4. Propose the narrowest candidate lesson that the evidence supports.
 5. Include competing explanations and counterexamples.

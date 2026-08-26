@@ -10,7 +10,7 @@ Choose the browser boundary before acting. Browser state is a resource-local cap
 ## Route by browser state
 
 - Routine Windows interaction -> use Local logical `server="browser-fast"`; omit `arguments.browser_target` so it uses the dedicated persistent MCP Chrome profile. That profile is separate from everyday Chrome and keeps its own sign-ins/cookies. The full `browser` diagnostics surface targets this same Windows MCP profile.
-- Routine interaction with managed visible Linux/WSLg browser state -> use the same logical `server="browser-fast"` route with `arguments.browser_target="linux"`. The local selector may choose managed Chrome or managed Clearcote. When it selects Clearcote, read [references/clearcote.md](references/clearcote.md) before changing browser lifecycle, profile settings, or humanized input behavior.
+- Routine interaction with managed visible Linux/WSLg browser state -> use the same logical `server="browser-fast"` route with `arguments.browser_target="linux"`. Managed Clearcote is the default Linux backend. Use managed Chrome only when the caller or governing workflow explicitly selects Chrome; do not choose Chrome merely because it is available or as an implicit fallback. Read [references/clearcote.md](references/clearcote.md) before changing browser lifecycle, profile settings, or humanized input behavior.
 - DevTools diagnostics such as network, console, performance, Lighthouse, heap, screenshots, or detailed debugging -> use Local logical `server="browser"`; omit `arguments.browser_target` for the dedicated Windows MCP profile or pass `"linux"` for WSLg.
 - If the user specifically asks to control everyday Windows Chrome, report that it is outside the MCP browser boundary; do not silently substitute it for the dedicated profile.
 - Isolated/fresh browser automation, CLI-specific workflows, or Electron automation that does not need either resource-local browser -> use the installed `agent-browser` CLI.
@@ -34,7 +34,7 @@ For routine interaction, use the fast surface:
 
 ## Managed Linux Clearcote
 
-When the Linux selector resolves to managed Clearcote:
+For managed Linux/WSLg state, default the selector to managed Clearcote. Treat managed Chrome as an explicit override only. When the selector resolves to managed Clearcote:
 
 - Keep `browser-fast` as the model-facing surface. Agent Browser owns accessibility snapshots, refs, and target identity; Clearcote owns the persistent Chromium process/profile and supported trusted input.
 - Treat `humanize: true` as the default for every managed Clearcote profile. A profile must explicitly set `humanize: false` to disable it. Do not add a second humanization default inside Agent Browser.
