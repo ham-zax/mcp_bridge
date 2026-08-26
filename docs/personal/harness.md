@@ -99,7 +99,7 @@ scripts/bootstrap-personal.sh --enable-startup
 
 `--enable-startup` is explicit consent to install the user-systemd units, enable user linger, enable the services, and start them now. After that, the services start automatically whenever this WSL user's systemd manager starts. The bootstrap does **not** configure Windows to launch WSL.
 
-The same command also qualifies the personal CLI toolbox, installs/verifies the pinned 1MCP runtime through the repository's shared runtime installer, installs all six pinned personal in-repo provider dependency trees, renders the outer personal composition plus the private inner browser composition, and installs:
+The same command also qualifies the personal CLI toolbox, installs/verifies the pinned 1MCP runtime through the repository's shared runtime installer, installs all six pinned personal in-repo provider dependency trees, installs/verifies the pinned CodeDB binary, prepares Clearcote's Ubuntu/WSL runtime dependencies and pinned browser build, renders the outer personal composition plus the private inner browser composition, and installs:
 
 ```text
 ~/.local/bin/wsl-term -> <this checkout>/bin/wsl-term
@@ -112,6 +112,10 @@ scripts/bootstrap-personal.sh
 ```
 
 The direct renderer, toolbox setup, unit installers, and `bin/start`/`bin/stop` remain supported lower-level repair and source-cutover primitives. They are not the normal first-install sequence.
+
+### Move to a new WSL install
+
+Do not copy rendered systemd units or generated provider/runtime files. Use [`wsl-migration.md`](wsl-migration.md): stop the bridge, create a private archive with `scripts/export-personal-wsl-state.sh`, copy that archive to the new Ubuntu WSL instance, import it before first startup, then run `scripts/bootstrap-personal.sh --enable-startup`. The private archive carries browser profiles/cookies, private MCP config, Cloudflare credentials, local agent skills, and server-side OAuth/session state; Git/bootstrap recreates the binaries, dependencies, units, and generated config with the new paths.
 
 ### New ChatGPT client
 

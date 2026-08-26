@@ -1,4 +1,5 @@
 .env
+mcp-dev-bridge-wsl-private-*.tar.gz
 run/
 config/logs/
 config/sessions/

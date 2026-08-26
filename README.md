@@ -230,6 +230,7 @@ See [Security](docs/security.md) for the full trust model.
 - [Operations](docs/operations.md) — run, inspect, restart, recover, and upgrade a deployment
 - [Security](docs/security.md) — authority profiles and trust boundaries
 - [Personal WSL harness](docs/personal/harness.md) — current full-workstation source-checkout workflow
+- [WSL migration](docs/personal/wsl-migration.md) — move private browser/auth state to a fresh Ubuntu WSL install and rebuild services from Git
 - [Development](docs/development.md) — repository layout and verification
 - [Engineering history](docs/history/README.md) — benchmarks, superseded plans, and acceptance evidence
 
