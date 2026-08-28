@@ -84,7 +84,7 @@ Learning is deliberate:
 - When the user explicitly authorizes ongoing learning for an active growth mission, treat that as standing authorization within that mission to keep `results.md`, `candidates.md`, and an existing `voice-experiments.md` current after meaningful measurement checkpoints. Preserve the exact treatment, distribution context, timing/age, raw metrics, evidence points, and competing explanations.
 - When Growth OS has an active voice/hook experiment, preserve its assigned variant. Do not silently substitute a preferred hook. Use the experiment ledger to understand the treatment, then let Growth OS remain authoritative for assignment and measured outcomes.
 - Keep reach, human engagement density, conversation, profile discovery, and follow conversion separate. A high-view post with weak human response is not automatically a winning writing pattern.
-- Promotion requires explicit human approval. Prefer repeated own-account evidence for performance claims.
+- Promotion normally requires explicit human approval. When the current growth mission includes explicit standing authorization to experiment, learn, adapt, and promote/suppress treatments autonomously, that standing authorization is sufficient only after the declared experiment evidence threshold is met. Record the promotion/suppression decision, sample size, matched-age metrics, scope, and confounders in `voice-experiments.md`; prefer repeated own-account evidence for performance claims.
 - Preserve counterexamples, confounders, sample size, and scope. Use `low`, `medium`, or `high` confidence rather than `always`/`never` when evidence is observational.
 - When new evidence contradicts a stored rule, surface the conflict instead of averaging it away.
 
