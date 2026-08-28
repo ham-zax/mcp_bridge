@@ -21,9 +21,10 @@ The workspace may contain:
 - `results.md` — current measured account outcomes and observations;
 - `topics.md` — recurring pillars, active themes, current backlog, and deprioritized topics;
 - `examples.md` — curated examples with short excerpts/URLs/context, not an indiscriminate post dump;
-- `candidates.md` — unpromoted lessons awaiting review.
+- `candidates.md` — unpromoted lessons awaiting review;
+- `voice-experiments.md` — active A/B/C-style treatment definitions, baseline rows, matched-age outcome table, evidence points, and decision log when the user is running a content experiment.
 
-Load only the files needed for the current task.
+Load only the files needed for the current task. When `voice-experiments.md` exists and the task is production drafting or adaptive experimentation, read its active campaign section before choosing or realizing a hook treatment. Update its result table only from measured/verified outcomes; Growth OS remains authoritative for experiment assignment and measurement state.
 
 ## Evidence precedence inside the workspace
 

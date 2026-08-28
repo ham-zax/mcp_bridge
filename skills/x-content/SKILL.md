@@ -30,8 +30,8 @@ Use `agent-browser` only when live X context materially affects the content deci
    `~/.config/mcp-dev-bridge/extensions/enabled/x-content.json`
 
    If present, read `sources.workspace`. Never infer a private path, bypass disabled extension state, or install/enable the extension merely because this Skill was invoked.
-6. Inside the configured workspace, load only files relevant to the current task. Supported files are `voice.md`, `patterns.md`, `results.md`, `topics.md`, `examples.md`, and `candidates.md`. Missing files are normal.
-7. For production drafting, growth-operation continuation, or any fresh session that must adapt from prior outcomes, read `results.md` before choosing a writing treatment. When the task involves learning, adaptation, experimentation, or deciding whether to reuse/suppress a style, also read `candidates.md`. Candidate lessons may shape the next experiment but are not promoted production rules.
+6. Inside the configured workspace, load only files relevant to the current task. Supported files are `voice.md`, `patterns.md`, `results.md`, `topics.md`, `examples.md`, `candidates.md`, and `voice-experiments.md`. Missing files are normal.
+7. For production drafting, growth-operation continuation, or any fresh session that must adapt from prior outcomes, read `results.md` before choosing a writing treatment. When `voice-experiments.md` exists, read it before selecting or realizing an active voice/hook treatment. When the task involves learning, adaptation, experimentation, or deciding whether to reuse/suppress a style, also read `candidates.md`. Candidate lessons may shape the next experiment but are not promoted production rules.
 
 The private extension is optional. If it is absent or disabled, continue with bundled references, verified source material, repository context, and evidence supplied in the current conversation. Do not block ordinary drafting or critique.
 
@@ -81,7 +81,9 @@ Learning is deliberate:
 
 - Do not persist a lesson merely because a webpage said something or one post performed well.
 - When the user asks to learn from outcomes and the private workspace is enabled, record measured observations in `results.md` and narrow hypotheses in `candidates.md`; do not silently edit promoted rules.
-- When the user explicitly authorizes ongoing learning for an active growth mission, treat that as standing authorization within that mission to keep `results.md` and `candidates.md` current after meaningful measurement checkpoints. Preserve the exact treatment, distribution context, timing/age, and competing explanations.
+- When the user explicitly authorizes ongoing learning for an active growth mission, treat that as standing authorization within that mission to keep `results.md`, `candidates.md`, and an existing `voice-experiments.md` current after meaningful measurement checkpoints. Preserve the exact treatment, distribution context, timing/age, raw metrics, evidence points, and competing explanations.
+- When Growth OS has an active voice/hook experiment, preserve its assigned variant. Do not silently substitute a preferred hook. Use the experiment ledger to understand the treatment, then let Growth OS remain authoritative for assignment and measured outcomes.
+- Keep reach, human engagement density, conversation, profile discovery, and follow conversion separate. A high-view post with weak human response is not automatically a winning writing pattern.
 - Promotion requires explicit human approval. Prefer repeated own-account evidence for performance claims.
 - Preserve counterexamples, confounders, sample size, and scope. Use `low`, `medium`, or `high` confidence rather than `always`/`never` when evidence is observational.
 - When new evidence contradicts a stored rule, surface the conflict instead of averaging it away.
