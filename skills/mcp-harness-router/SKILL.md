@@ -24,7 +24,7 @@ When Superpowers Web Adapter also applies, let Superpowers control engineering w
 - Short bounded noninteractive command, build, test, Git, or inspection -> `bash`.
 - Persistent or interactive PTY/process work -> Terminal.
 - Human visibility or input in a durable PTY, including sudo/password/MFA or manual TUI interaction -> Terminal collaborative presentation/handoff. If the human should watch from the start, use `terminal_open(..., present:true)`. When human input is needed later, use `terminal_yield`: it reuses an attached designated frontend or launches the configured personal frontend on the exact tmux PTY, then gives the human control. If frontend launch fails with no attachment attempt still settling, give the installed `wsl-term attach <session>` fallback; never ask the user to send a secret through chat.
-- Readiness, output, process exit, file/HTTP/systemd condition, or elapsed/absolute wakeup -> `wait`; use its native `timer` condition for time-based wakeups and do not implement polling/sleep loops in Bash.
+- Readiness, output, process exit, file/HTTP/systemd condition, or elapsed/absolute timer condition -> `wait`; use its native `timer` condition for time-based conditions and do not implement polling/sleep loops in Bash.
 - Explicitly confirmed Windows-host sleep, optionally with a timezone-qualified scheduled wake -> `pc_sleep`; use it only after a direct user request and do not substitute Bash or ad hoc PowerShell.
 
 ## Authority and observability
@@ -45,8 +45,8 @@ When Superpowers Web Adapter also applies, let Superpowers control engineering w
 
 ## Durable wait and RPC boundary
 
-- `wait` is a durable named **condition/timer wait**, not cron. Arm it with `name + condition`; later resume the same wait with `name` only. Use `cancel=true` only for explicit cancellation.
-- Use `{kind:"timer", after_seconds:N}` for relative wakeups or `{kind:"timer", at:"<timezone-qualified instant>"}` for absolute wakeups. Do not fake elapsed time with an impossible file/process condition. Keep `timeout_seconds` strictly later than the timer target because the durable safety deadline wins ties.
+- `wait` is a durable named **condition/timer wait**, not cron. It never initiates a new ChatGPT/model turn: a `pending` result preserves local wait state only, and an active current or successor model turn must explicitly resume the same wait by name. Arm it with `name + condition`; later resume the same wait with `name` only. Use `cancel=true` only for explicit cancellation.
+- Use `{kind:"timer", after_seconds:N}` for relative timer conditions or `{kind:"timer", at:"<timezone-qualified instant>"}` for absolute timer conditions. Do not fake elapsed time with an impossible file/process condition. Keep `timeout_seconds` strictly later than the timer target because the durable safety deadline wins ties.
 - The durable deadline is independent of any one MCP/RPC call: `timeout_seconds` defaults to 300 seconds and supports 1..86400 seconds. Resuming the same name preserves the original absolute deadline and source baseline; it does not restart the timer.
 - `hold_seconds` bounds only one `wait` invocation. The current Pi Dev policy is default 10 seconds, maximum 15 seconds. A `pending` return leaves the named wait durable; other reasoning/tool work can happen before resuming it. Hold expiry is not cancellation and does not change the durable deadline.
 - The 15-second hold cap is local harness policy, not an MCP or 1MCP protocol limit. Separately, the ChatGPT connector/RPC path has shown an external request-duration ceiling around a minute, so do not rely on one long-lived MCP call for multi-minute work.

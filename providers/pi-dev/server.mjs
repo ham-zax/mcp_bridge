@@ -187,7 +187,7 @@ async function invokeWait(fn) {
 
 function renderWaitResult(result) {
   if (result.status === 'pending') {
-    return `pending ${result.name} deadline=${new Date(result.deadlineAtMs).toISOString()}`;
+    return `pending ${result.name} deadline=${new Date(result.deadlineAtMs).toISOString()} resume_required=true no_model_push=true`;
   }
   if (result.status === 'matched') {
     return `matched ${result.name}${result.evidence === undefined ? '' : ` ${String(result.evidence)}`}`;
@@ -262,7 +262,7 @@ if (pathMode === 'user') {
   }));
 
   server.registerTool('wait', {
-    description: 'Create, resume, or cancel one durable named condition/timer wait; prefer this over Bash polling/sleep loops. Arm with name+condition and resume later with name only. A pending result leaves the same wait durable, so other reasoning/tool work may happen before resuming it. timeout_seconds is the durable safety deadline (default 300s, max 24h); hold_seconds only bounds this invocation (default 10s, max 15s). Use timer.after_seconds or timezone-qualified timer.at for wakeups and keep the safety deadline later than the timer target. Event conditions cover Terminal output/exit, process exit, TCP listen, file exists/change, HTTP readiness, and user-systemd state. Terminal-output waits match only output produced after arming and do not consume the Terminal model cursor.',
+    description: 'Create, resume, or cancel one durable named condition/timer wait; prefer this over Bash polling/sleep loops. A wait persists local condition state only; it does not start, wake, push, or schedule a ChatGPT/model turn. Arm with name+condition and resume later with name only. A pending result leaves the same wait durable and must be explicitly resumed by an active current or successor model turn. timeout_seconds is the durable safety deadline (default 300s, max 24h); hold_seconds only bounds this invocation (default 10s, max 15s). Use timer.after_seconds or timezone-qualified timer.at for elapsed/absolute timer conditions and keep the safety deadline later than the timer target. Event conditions cover Terminal output/exit, process exit, TCP listen, file exists/change, HTTP readiness, and user-systemd state. Terminal-output waits match only output produced after arming and do not consume the Terminal model cursor.',
     inputSchema: waitInputSchema,
   }, async (args, extra) => invokeWait(async () => {
     const result = await waitEngine.run(args, extra.signal);

@@ -1,6 +1,6 @@
 ---
 name: persistent-agent-loop
-description: Use when a task must remain active across extended waiting, repeated tool work, user steering, process observation, multi-hour mission execution, or execution of a planner-generated workflow that may outlive one ordinary turn.
+description: Use when a task must remain active across extended waiting, repeated tool work, user steering, process observation, multi-hour mission execution, planner-generated workflows that may outlive one ordinary turn, or when ChatGPT must reason precisely about durable wait/timer semantics, `pending` results, model-turn continuity, and explicit resumption.
 ---
 
 # Persistent Agent Loop
@@ -8,6 +8,8 @@ description: Use when a task must remain active across extended waiting, repeate
 ## Core invariant
 
 Keep the **mission** alive across short tool/RPC boundaries. A heartbeat, `pending` wait result, timer firing, subtask completion, or temporary lack of work is a scheduling event, not mission completion.
+
+A durable wait preserves local condition state; it does not preserve or restart model execution. No wait or timer initiates a new ChatGPT/model turn. After `pending`, continue or resume the named wait only while a model turn is active; if that turn is lost, a successor recovers from the durable checkpoint and explicitly resumes the wait.
 
 End only when one of these is true:
 
@@ -53,17 +55,17 @@ If `agent-work-planner` is available and the mission still needs explicit decomp
 - Let `agent-work-planner` own **what should happen and in what order**.
 - Let `persistent-agent-loop` own **how the mission stays alive while that plan is executed**: durable waits, timers, steering, checkpoints, persistent-process observation, lease renewal, and completion gating.
 - When producing a ready-to-run plan or agent prompt for work that is expected to be long-lived, tell the executing agent to use `persistent-agent-loop` for the execution phase.
-- Normalize long-lived planned phases around a concrete wake strategy: `timer` when time itself should wake the mission; an event wait when external state should wake it; Terminal + event wait when a persistent process owns the work.
+- Normalize long-lived planned phases around a concrete resume condition: `timer` when elapsed time is the condition; an event wait when external state is the condition; Terminal + event wait when a persistent process owns the work.
 - If major steering invalidates the current plan, consult `agent-work-planner` again when useful, then resume the persistent loop with the revised plan.
 - Do not require the planner for a simple long wait or already well-specified mission, and do not duplicate the persistent-loop protocol inside the planner.
 
-## Use native timers for time-based wakeups
+## Use native timers for time-based conditions
 
-Use Dev `wait` with `{kind:"timer", after_seconds:N}` for relative wakeups, or `{kind:"timer", at:"2026-08-17T09:00:00+05:30"}` for an absolute timezone-qualified wakeup.
+Use Dev `wait` with `{kind:"timer", after_seconds:N}` for a relative timer condition, or `{kind:"timer", at:"2026-08-17T09:00:00+05:30"}` for an absolute timezone-qualified timer condition.
 
 Do not use Bash `sleep`, repeated polling, or an impossible file/process condition as a timer.
 
-Choose the wakeup condition dynamically from mission semantics: use `timer` when time itself is the reason to wake; use an event condition such as Terminal output/exit, process exit, TCP readiness, file state, HTTP readiness, or systemd state when external reality is the reason to wake. Prefer the event condition when it can wake the mission earlier and more precisely than a periodic timer.
+Choose the resume condition dynamically from mission semantics: use `timer` when elapsed time itself is the reason to reassess; use an event condition such as Terminal output/exit, process exit, TCP readiness, file state, HTTP readiness, or systemd state when external reality is the reason to reassess. Prefer the event condition when it can match earlier and more precisely than a periodic timer.
 
 `timeout_seconds` is the durable safety deadline, not the timer itself. Keep it **strictly later** than the timer target because the safety deadline wins ties. It supports at most 86400 seconds; `timer.after_seconds` supports at most 86399 seconds. `hold_seconds` only controls one MCP invocation and remains at most 15 seconds.
 
