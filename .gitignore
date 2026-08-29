@@ -8,5 +8,4 @@ __pycache__/
 *.pyc
 
 .worktrees/
-providers/websession-adapter/node_modules/
-providers/browser-fast/node_modules/
+node_modules/
