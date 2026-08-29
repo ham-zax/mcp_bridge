@@ -11,7 +11,9 @@ const listed = execFileSync(
   ['ls-files', '-co', '--exclude-standard', '--', '*.md'],
   { cwd: root, encoding: 'utf8' },
 ).trim();
-const files = listed ? listed.split('\n').filter(Boolean) : [];
+const files = listed
+  ? listed.split('\n').filter(file => file && !file.split('/').includes('node_modules'))
+  : [];
 
 function externalOrAnchor(target) {
   return target.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(target);
