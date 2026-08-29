@@ -3,59 +3,19 @@
 ## Core commands
 
 ```bash
-bin/start
-bin/status
-bin/stop
+webharness start
+webharness status
+webharness stop
 ```
 
 Healthy status should report one config-scoped 1MCP process, local health ready, cloudflared running, watchdog running, public health OK, bounded retained-diagnostic storage, and `issues: 0`. It prints both the rendered live source root and, when different, the checkout from which diagnostics are being run; live watchdog ownership is matched against the rendered root so inspecting from a candidate worktree does not create a false "watchdog stopped" result. In personal mode it also reports the Terminal broker socket and, when the user-systemd bus is directly reachable, `ActiveState` plus `NRestarts` for the broker unit. A missing user bus is reported separately from the broker socket so user-systemd observability ambiguity is not mistaken for broker failure.
 
-## Optional WebSession adapter
+## Personal Workstation installed lifecycle
 
-The constrained-client adapter is deliberately outside the normal bridge lifecycle. It does not start with `bin/start`, `mcp-dev-bridge.service`, personal bootstrap, or the watchdog.
-
-Install its local Node dependencies once, authorize its dedicated 1MCP OAuth client, then start it explicitly:
+The maintained full reference installation is:
 
 ```bash
-(cd providers/websession-adapter && npm ci)
-bin/adapter auth
-bin/adapter auth-status
-bin/adapter start
-bin/adapter status
-bin/adapter stop
-```
-
-`bin/adapter auth` uses dynamic registration, PKCE, and the live 1MCP authorization-code flow with a temporary loopback callback at `http://127.0.0.1:3052/callback`. The callback listener exists only during authorization. If a Windows-host browser cannot return to the WSL loopback listener after consent, use a browser running in the WSL/Linux context for the approval flow; do not copy OAuth codes into chat or persistent notes. The current live deployment issued an access token without a refresh token, so rerun `bin/adapter auth` when reauthorization is required.
-
-Issue one short-lived adapter capability explicitly when a constrained client needs access:
-
-```bash
-bin/adapter issue-cap 3600
-bin/adapter revoke-cap <capability-id>
-```
-
-Issuance prints a non-secret capability ID, the raw capability once for operator delivery, `scope: main`, and its expiry. The adapter stores only the capability hash. This bearer does not define a second per-tool permission scope: OAuth scope is resolved by the MCP SDK from live 1MCP metadata (currently `tag:code tag:dev tag:terminal`, matching main), and tool discovery mirrors the live 1MCP surface. Legacy `read`/`write` capability rows from the earlier prototype are intentionally not accepted as `main` capabilities. Revocation by ID immediately blocks tool discovery and new submissions. It does not revoke an already-issued operation-scoped read continuation URL; that continuation can only read its existing operation.
-
-For ready-to-paste Qwen/Python, ChatGPT/native-MCP, and GLM bootstrap prompts, including the connection test and capability-handling rules, see [WebSession client bootstrap prompts](websession-clients.md). For the reusable bootstrap-secret contract, see [WebSession master bearer](websession-master-bearer.md).
-
-Transport discovery is available at `GET /v1/about`. Capability-scoped tool discovery uses `GET /v1/s/{capability}/tools` and `GET /v1/s/{capability}/tool/{tool-name-b64}` and mirrors live 1MCP tool names/descriptors. Universal submission is `GET /v1/s/{capability}/call/{client-nonce}/{request-b64}` using strict unpadded base64url JSON with an initial 256-character encoded-request budget. Qwen/Python-class clients may instead use `POST /v1/calls` with `Authorization: Bearer <capability>`, `Idempotency-Key: <client-nonce>`, `Content-Type: application/json`, and the same request envelope containing the exact 1MCP tool name and arguments. The current enhanced JSON body limit is 16 KiB. Both forms create or read the same durable SQLite operation and return an operation-scoped universal status URL. Operators may configure a reusable password-equivalent bootstrap secret with `bin/adapter set-master-bearer [bearer]`; `POST /v1/access` with that value as `Authorization: Bearer` returns a fresh ordinary `main` capability with a fixed 21,600-second (six-hour) lifetime. Omitting `[bearer]` generates a high-entropy master value and prints it once; supplying a value rotates the master immediately. For a ChatGPT session already connected to the same WSL through native MCP, `bin/websession-call <tool> '<arguments-json>'` is the preferred local bridge into enhanced WebSession HTTP: it mints a temporary capability directly in private adapter state, submits through the public `/v1/calls` endpoint, follows status/chunks, and revokes after a known terminal outcome without printing bearer material.
-
-Small completed text is returned inline. Larger text is stored as immutable UTF-8-safe chunks of at most 8192 bytes, with a current total normalized result bound of 1 MiB. A completed multi-chunk status response returns `chunk_count` and an operation-scoped `chunk_base_url`; fetch numbered chunks starting at 1.
-
-Every universal GET submission prepares an operation and returns `state: confirmation_required`, an operation status URL, a `confirmation_base`, a separate challenge, expiry, and the exact tool name. The adapter never emits `confirmation_base + challenge` as one executable URL. Construct those two returned components and GET the resulting URL; fetching the incomplete base alone is inert. Enhanced authenticated `POST /v1/calls` dispatches without this GET-specific confirmation step. The existing `POST /v1/confirm/{operation-id}` endpoint may confirm a prepared universal operation using the operation-scoped confirmation capability and challenge.
-
-The universal confirmation window is currently 10 minutes. Capability validity is checked again immediately before dispatch. Dispatch intent is recorded for every upstream tool call; if the worker loses the result after dispatch may have begun, the operation becomes `unknown_outcome` and must not be resubmitted automatically because WebSession does not infer which upstream tools are safe to repeat.
-
-The adapter binds to `127.0.0.1:3051`. Current deployment ingress sends only `/probe/*` and `/v1/*` to the adapter; `/mcp`, OAuth, discovery, and all other paths remain on 1MCP `:3050`. Probe evidence, adapter OAuth state, SQLite operations, and continuation-key state live privately beneath `${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/websession-adapter`; PID/runtime state stays beneath `${XDG_RUNTIME_DIR:-/run/user/$UID}/mcp-dev-bridge`.
-
-`bin/adapter` commands never modify Cloudflare configuration. Public adapter ingress remains a separate explicit operator action. Stopping the adapter affects only adapter paths; the normal `/mcp`, OAuth, 1MCP, provider, cloudflared, and watchdog lifecycle remains independent.
-
-## Personal installed lifecycle
-
-The normal private WSL installation is:
-
-```bash
-scripts/bootstrap-personal.sh --enable-startup
+webharness setup --profile personal --enable-startup
 ```
 
 The flag is the explicit startup-consent boundary. The bootstrap renders the personal MCP state, installs `wsl-term` under `~/.local/bin`, renders all user units, enables user linger, and runs `systemctl --user enable --now` for:
@@ -70,7 +30,7 @@ It also installs a personal `mcp-dev-bridge.service.d/personal.conf` drop-in wit
 
 Omitting `--enable-startup` prepares dependencies/configuration and the user-local `wsl-term` command but deliberately leaves user-systemd and linger untouched.
 
-## Public/general user-systemd bridge service
+## Smaller-profile user-systemd bridge service
 
 Install the generic bridge unit with:
 
@@ -81,9 +41,9 @@ systemctl --user start mcp-dev-bridge.service
 
 The generated unit uses external `bridge.env` state and the repository's public lifecycle entrypoints.
 
-## Personal Terminal services: lower-level repair path
+## Personal Workstation Terminal services: lower-level repair path
 
-The private personal harness has two separate user services:
+The Personal Workstation has two separate user services:
 
 ```text
 wsl-agent-tmux.service
@@ -104,7 +64,7 @@ systemctl --user start wsl-agent-tmux.service wsl-agent-terminal-broker.service
 
 Do not restart tmux merely to deploy broker/provider or frontend-launch code. tmux owns the PTY lifetime. Retained-dead panes remain available for reads and exit status, but their transcript `pipe-pane` is finalized at pane death so the per-pane writer receives EOF and exits; broker reconciliation applies the same finalization to historical dead panes that still have a pipe attached.
 
-## Personal Terminal frontend
+## Personal Workstation Terminal frontend
 
 The personal provider keeps Terminal sessions headless by default. `MCP_TERMINAL_FRONTEND=kitty|windows-terminal` selects which presentation launcher is used only when a visible collaborative client must be created; `kitty` remains the compatibility default. An already attached designated frontend is reused regardless of this preference. Both launchers attach to the exact existing tmux PTY through `wsl-term present <session>`; neither owns PTY/process lifetime or broker authority.
 
@@ -165,8 +125,7 @@ Use `bin/status`, `systemctl --user status ...`, and `journalctl --user -u <unit
 For ordinary bridge reconciliation after the rendered state is current:
 
 ```bash
-bin/stop
-bin/start
+webharness restart
 ```
 
 If the source update changed generated provider/application policy (including the bounded 1MCP `config.toml`), rerun `scripts/render-config.mjs` or the appropriate bootstrap first. A fresh hardened 1MCP launch removes the legacy runtime append log and begins native rotated logging.
@@ -199,8 +158,6 @@ A tmux-owned Terminal shell is suitable as an external control process because t
 
 1MCP's `--config-dir` is also its writable OAuth/session home. When changing the state root, preserve inbound OAuth continuity with `scripts/migrate-legacy-oauth-state.sh` before replacing the live service. Do not treat Streamable HTTP transport sessions as credential state.
 
-The superseded migration procedure is preserved under [engineering history](history/acceptance/migration-from-local-bridge.md).
-
 ## 1MCP 0.36.0 compatibility
 
 This project intentionally:
@@ -212,9 +169,9 @@ This project intentionally:
 
 These are pinned-version compatibility behaviors. Requalify them when upgrading 1MCP.
 
-For the personal Local domain, the outer 1MCP exposes only Local `tool_list`, `tool_schema`, and `tool_call` under `tag:local`; the Local provider starts a private inner 1MCP over stdio in normal direct mode. That inner config contains the DevTools `browser` surface and experimental `browser-fast` interaction surface. The renderer writes the inner config before the outer config so a hot reload cannot start Local against a missing file. Stock lazy `tool_invoke` remains outside this path because direct mode preserves downstream MCP results.
+For the Personal Workstation Local domain, the outer 1MCP exposes only Local `tool_list`, `tool_schema`, and `tool_call` under `tag:local`; the Local provider starts an inner 1MCP over stdio in normal direct mode. That inner config contains the `browser-devtools` and `browser-fast` surfaces. The renderer writes the inner config before the outer config so a hot reload cannot start Local against a missing file. Stock lazy `tool_invoke` remains outside this path because direct mode preserves downstream MCP results.
 
-Windows browser calls do not attach to the everyday Chrome profile and require no `chrome://inspect` setup. The shared Windows runtime owns `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`; on first use or after that browser exits, it launches visible Chrome with `--user-data-dir=<that directory>` and `--remote-debugging-port=0`, waits for the profile's `DevToolsActivePort`, and health-checks the loopback endpoint. Chrome chooses the port, so the bridge does not reserve a global `9222`. `browser` passes the resulting HTTP endpoint to Chrome DevTools MCP with `--browserUrl`; `browser-fast` passes the WebSocket endpoint to native Agent Browser with `--cdp` and `--pin-tab`. The profile is persistent: sign into sites in that MCP Chrome window once when needed, and cookies/local storage remain in that directory across restarts. Do not copy the everyday Chrome data directory into it. Agent Browser 0.35.0 plus its one-shot Windows Node helper remain materialized under `%LOCALAPPDATA%\\mcp-dev-bridge\\agent-browser\\0.35.0`; the helper owns bounded stdout/stderr files so cold daemon startup cannot keep the WSL interop lifetime open. Do not publish the debugging endpoint beyond the trusted local machine. Both logical servers default to this Windows profile; `browser_target=linux` selects the separate WSLg paths.
+Windows browser calls do not attach to the everyday Chrome profile and require no `chrome://inspect` setup. The shared Windows runtime owns `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`; on first use or after that browser exits, it launches visible Chrome with `--user-data-dir=<that directory>` and `--remote-debugging-port=0`, waits for the profile's `DevToolsActivePort`, and health-checks the loopback endpoint. Chrome chooses the port, so the bridge does not reserve a global `9222`. `browser-devtools` passes the resulting HTTP endpoint to Chrome DevTools MCP with `--browserUrl`; `browser-fast` passes the WebSocket endpoint to native Agent Browser with `--cdp` and `--pin-tab`. The profile is persistent: sign into sites in that MCP Chrome window once when needed, and cookies/local storage remain in that directory across restarts. Do not copy the everyday Chrome data directory into it. Agent Browser 0.35.0 plus its one-shot Windows Node helper remain materialized under `%LOCALAPPDATA%\\mcp-dev-bridge\\agent-browser\\0.35.0`; the helper owns bounded stdout/stderr files so cold daemon startup cannot keep the WSL interop lifetime open. Do not publish the debugging endpoint beyond the trusted local machine. Both logical servers default to this Windows profile; `browser_target=linux` selects the separate WSLg paths.
 
 ### Switching the Linux browser-fast backend
 

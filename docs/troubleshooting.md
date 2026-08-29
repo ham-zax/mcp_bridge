@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Start with `bin/status`. Change one layer at a time.
+Start with `webharness doctor` for configuration/reference-environment issues and `webharness status` for live lifecycle issues. Change one layer at a time.
 
 ## A tool call times out around a minute
 
@@ -14,16 +14,17 @@ For long tests, builds, servers, or watches:
 
 Do not put several long suites into one giant MCP Bash request and interpret a transport timeout as a test failure.
 
-## `bin/status` reports local health failure
+## `webharness status` reports local health failure
 
 Check the generated source/config paths first:
 
 ```bash
-bin/status
+webharness status
+webharness doctor
 cat "${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/bridge.env"
 ```
 
-If the config points at a removed worktree, rerender from the current repository root and follow [safe source cutover](operations.md#safe-source-cutover).
+If the config points at a removed checkout, rerender from the canonical repository root and follow [safe source cutover](operations.md#safe-source-cutover).
 
 ## Public health fails but local health is ready
 

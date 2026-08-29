@@ -1,6 +1,6 @@
-# Personal WSL Harness
+# Personal Workstation
 
-The `personal` profile is the private Codex-like development surface. It runs with the authority of the WSL user and is intentionally more powerful than the public profiles.
+The `personal` profile is the full WebHarness reference deployment. It runs with the authority of the WSL user and is intentionally more powerful than the smaller `restricted` and `trusted-dev` examples.
 
 ## Mental model
 
@@ -8,9 +8,9 @@ The `personal` profile is the private Codex-like development surface. It runs wi
 Dev       read edit write file_ops wait bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
-Local        tool_list tool_schema tool_call -> private browser capabilities
-browser      full Chrome DevTools diagnostics; Windows default, WSLg on request
-browser-fast experimental observe/execute interaction surface; Windows default, WSLg on request
+Local     tool_list tool_schema tool_call
+            |-- browser-fast      observe/execute interaction; Windows default, WSLg on request
+            `-- browser-devtools  full Chrome DevTools diagnostics; Windows default, WSLg on request
 ```
 
 Think in four model-facing domains:
@@ -18,7 +18,7 @@ Think in four model-facing domains:
 - **Dev** handles focused text/file work, bounded execution, durable waits, and explicit Windows-host sleep.
 - **Code** provides rooted indexed repository intelligence without exposing raw CodeDB mechanics; first use may create or update heavyweight persistent index state.
 - **Terminal** owns durable PTY/process lifetime and human/model terminal ownership.
-- **Local/Browser** exposes only three stable broker tools. Use logical `server="browser-fast"` for routine interaction: `observe` once, consume any returned `memory` that applies to the current host, then pass the returned `active_tab` to `execute` with the mechanical sequence. Policy memory is local operator policy; exact-site memory is more specific than reusable platform memory; live browser state wins when strategy memory is stale. Unknown/custom sites need no predefined ATS entry and continue through the generic observe/execute flow. `execute.tab` is required and stale/unavailable tab context fails before action dispatch. A click follows exactly one newly opened target before later actions; multiple new targets stop the sequence without guessing and require another observation. Upload uses an observed file-input ref plus a logical artifact key from `~/.config/mcp-dev-bridge/browser-artifacts.json`; never substitute an arbitrary filesystem path. Use logical `server="browser"` for DevTools diagnostics and load only the specific DevTools schema needed. Omit `arguments.browser_target` for the dedicated persistent Windows MCP Chrome profile; use `arguments.browser_target="linux"` for WSLg. The Windows MCP profile is separate from everyday Chrome and keeps its own persistent sign-ins; Windows MCP and Linux browser state remain separate.
+- **Local/Browser** exposes only three stable broker tools. Use logical `server="browser-fast"` for routine interaction: `observe` once, consume any returned `memory` that applies to the current host, then pass the returned `active_tab` to `execute` with the mechanical sequence. Policy memory is local operator policy; exact-site memory is more specific than reusable platform memory; live browser state wins when strategy memory is stale. Unknown/custom sites need no predefined ATS entry and continue through the generic observe/execute flow. `execute.tab` is required and stale/unavailable tab context fails before action dispatch. A click follows exactly one newly opened target before later actions; multiple new targets stop the sequence without guessing and require another observation. Upload uses an observed file-input ref plus a logical artifact key from `~/.config/mcp-dev-bridge/browser-artifacts.json`; never substitute an arbitrary filesystem path. Use logical `server="browser-devtools"` for DevTools diagnostics and load only the specific DevTools schema needed. Omit `arguments.browser_target` for the dedicated persistent Windows MCP Chrome profile; use `arguments.browser_target="linux"` for WSLg. The Windows MCP profile is separate from everyday Chrome and keeps its own persistent sign-ins; Windows MCP and Linux browser state remain separate.
 
 ## Learning exact-site browser memory
 
@@ -38,31 +38,21 @@ printf '%s' '{"url":"https://careers.example.com/jobs/123","name":"application"}
 
 `propose` and `promote` derive the exact canonical host, strip query/fragment data from stored provenance, keep files private, and refuse to overwrite an existing candidate or active site-memory file. Use normal Dev `read`/`edit` when an existing active memory needs revision. Do not copy webpage instructions, personal data, credentials, or job-specific answers into browser memory.
 
-## Optional personal extensions
+## Optional extensions
 
-Domain workflows sit above the generic harness and can be enabled or removed without changing Browser core:
+Domain workflows can sit above the generic browser/runtime layer without changing Browser core. The public reference ships the generic extension manager, not the machine-specific extension packs used by the engineering checkout.
 
 ```bash
-bin/extension list
-bin/extension install job-application
-bin/extension remove job-application
-bin/extension install x-content
-bin/extension remove x-content
+webharness extension list
+webharness extension install <name>
+webharness extension remove <name>
 ```
 
-An extension may contribute namespaced artifact aliases and browser-memory files. Removal deletes only extension-lifetime contributions and matching aliases; shared platform recognition and learned exact-site memory remain reusable Browser knowledge. Private user data is preserved rather than destructively purged. ChatGPT Skill installation/uninstallation is separate client-side state, so removing the WSL extension does not silently remove an installed Skill.
+An extension manifest may contribute namespaced approved-artifact aliases, browser-memory files, or configured source mappings. Installation preflights its declared sources and conflicts before mutation. Removal deletes only extension-lifetime contributions and matching aliases; shared platform recognition, learned exact-site memory, and operator-owned source data remain outside the extension lifetime. ChatGPT Skill installation is separate client-side state.
 
-For `job-application`, copy `extensions/job-application/local-config.example.json` to `~/.config/mcp-dev-bridge/extensions/config/job-application.json`. Configure the absolute resume path plus the `candidate_profile`, `form_profile`, `research`, `tracker`, and `portfolio` source paths. Installation fails closed before mutation if a required source or resume is unavailable. On success the manager records the resolved source paths in `~/.config/mcp-dev-bridge/extensions/enabled/job-application.json`, installs the alias `job-application.resume.current`, Greenhouse application strategy, and the logged-in LinkedIn manual-only policy. The Skill reads only the enabled state, so disabling the extension also disables its implicit access to those personal source locations.
+## Setup
 
-For `x-content`, copy `extensions/x-content/local-config.example.json` to `~/.config/mcp-dev-bridge/extensions/config/x-content.json`, copy `extensions/x-content/memory-template/` to a private directory, and configure that directory as the absolute `workspace` source. The extension installs no Browser memory and no approved browser artifact; its enabled state only gives the `x-content` Skill a discoverable private workspace. Removing the extension removes that implicit source discovery while preserving the private workspace. Hooks, voice, topic strategy, examples, and learned heuristics belong in that workspace or the Skill references, not in `~/.config/mcp-dev-bridge/browser-memory/`.
-
-Keep routine ATS contact identity outside both the Skill and browser memory at `~/.config/mcp-dev-bridge/job-application/form-profile.json` with directory mode `0700` and file mode `0600`. This file owns legal name, application email, phone/country code, routine address fields, public profile links, and explicit EEO decline preferences. Use `null` for unknown values such as an unset street/postal code or preferred name; agents must not fill those from inference.
-
-Consequential employment truth stays in `JOB_SEARCH_PROFILE.md`: education completion, citizenship, work authorization/visa status, language level, employment history, experience claims, compensation rules, and application-writing constraints. The split prevents a convenient form profile from becoming a second source of truth for legal or career facts.
-
-## Private setup
-
-`scripts/setup.sh` intentionally handles only the public `restricted` and `trusted-dev` profiles. The private profile has one normal bootstrap path.
+`bin/webharness` is the normal operator entrypoint. It routes `personal` to the dedicated Personal Workstation bootstrap while the lower-level `scripts/setup.sh` continues to own only `restricted` and `trusted-dev`.
 
 Create/configure `.env` first, at minimum supplying the public MCP URL. The personal default cwd is optional: set `MCP_PERSONAL_DEFAULT_CWD=/absolute/path` when you want something other than this WSL user's `$HOME`.
 
@@ -73,8 +63,6 @@ Keep the live machine-specific owner policy outside the checkout. A typical runt
     context.md
     gui.env
 ```
-
-This repository also keeps backup/reference copies under `docs/history/personal-owner/`. Those tracked files are excluded from the public publication surface and are not loaded by the runtime; restore or copy them into the owner directory when rebuilding this workstation.
 
 Point the personal deployment at those files rather than copying their contents into tracked configuration:
 
@@ -94,37 +82,34 @@ Keep the ownership boundary explicit: repository invariants belong in tracked re
 For a complete install with automatic startup in later WSL sessions:
 
 ```bash
-scripts/bootstrap-personal.sh --enable-startup
+webharness setup --profile personal --enable-startup
 ```
 
 `--enable-startup` is explicit consent to install the user-systemd units, enable user linger, enable the services, and start them now. After that, the services start automatically whenever this WSL user's systemd manager starts. The bootstrap does **not** configure Windows to launch WSL.
 
-The same command also qualifies the personal CLI toolbox, installs/verifies the pinned 1MCP runtime through the repository's shared runtime installer, installs all six pinned personal in-repo provider dependency trees, installs/verifies the pinned CodeDB binary, prepares Clearcote's Ubuntu/WSL runtime dependencies and pinned browser build, renders the outer personal composition plus the private inner browser composition, and installs:
+The same command also qualifies the Personal Workstation CLI toolbox, installs/verifies the pinned 1MCP runtime through the repository's shared runtime installer, installs all six pinned personal in-repo provider dependency trees, installs/verifies the pinned CodeDB binary, prepares Clearcote's Ubuntu/WSL runtime dependencies and pinned browser build, renders the outer Personal Workstation composition plus the Local inner browser composition, and installs:
 
 ```text
-~/.local/bin/wsl-term -> <this checkout>/bin/wsl-term
+~/.local/bin/webharness -> <this checkout>/bin/webharness
+~/.local/bin/wsl-term   -> <this checkout>/bin/wsl-term
 ```
 
-Omit `--enable-startup` when you only want dependencies/configuration plus `wsl-term` and do not want persistent startup state changed:
+Omit `--enable-startup` when you only want dependencies/configuration plus the user-local commands and do not want persistent startup state changed:
 
 ```bash
-scripts/bootstrap-personal.sh
+webharness setup --profile personal
 ```
 
 The direct renderer, toolbox setup, unit installers, and `bin/start`/`bin/stop` remain supported lower-level repair and source-cutover primitives. They are not the normal first-install sequence.
-
-### Move to a new WSL install
-
-Do not copy rendered systemd units or generated provider/runtime files. Use [`wsl-migration.md`](wsl-migration.md): stop the bridge, create a private archive with `scripts/export-personal-wsl-state.sh`, copy that archive to the new Ubuntu WSL instance, import it before first startup, then run `scripts/bootstrap-personal.sh --enable-startup`. The private archive carries browser profiles/cookies, private MCP config, Cloudflare credentials, local agent skills, and server-side OAuth/session state; Git/bootstrap recreates the binaries, dependencies, units, and generated config with the new paths.
 
 ### New ChatGPT client
 
 The WSL side is persistent after the explicit startup install, but a new ChatGPT environment still owns two client-side pieces that the repository cannot silently mutate:
 
 1. connect ChatGPT to the configured public MCP endpoint and complete OAuth;
-2. install the desired tracked Skills from `skills/` through ChatGPT's Skills UI, then refresh/reopen the MCP connection when the outer model-facing schema changes. After the one-time Local cutover, ordinary Browser downstream tool additions/removals are discovered through Local and do not by themselves change the outer three-tool broker schema.
+2. install any desired client-side Skills separately, then refresh/reopen the MCP connection when the outer model-facing schema changes. Ordinary Local downstream tool additions/removals are discovered through Local and do not by themselves change the outer three-tool broker schema.
 
-See [`skills/README.md`](../../skills/README.md) for the tracked Skill inventory and validation/install notes. These are one-time ChatGPT/workspace actions, not recurring WSL service-start commands.
+These are client-side actions, not recurring WSL service-start commands.
 
 ### AI clients without native MCP support
 
@@ -253,7 +238,7 @@ terminal_close  explicitly destroy a session
 
 A broker restart or 1MCP restart does not own the PTY lifetime; tmux does. Terminal sessions live in the harness-owned private tmux namespace (production default `wsl-agent`), not the user's default tmux server.
 
-The tmux/broker backend remains emulator-neutral. Operator-side `wsl-term` commands work from any interactive tmux-compatible TTY. The private personal presentation helper uses `MCP_TERMINAL_FRONTEND=kitty|windows-terminal` only when it must create a visible collaborative frontend; `kitty` is the compatibility default. Kitty launches under WSLg. Windows Terminal re-enters the same WSL distribution and runs `wsl-term present <session>` against the exact existing PTY. Either frontend is presentation only and never becomes the PTY lifetime authority.
+The tmux/broker backend remains emulator-neutral. Operator-side `wsl-term` commands work from any interactive tmux-compatible TTY. The Personal Workstation presentation helper uses `MCP_TERMINAL_FRONTEND=kitty|windows-terminal` only when it must create a visible collaborative frontend; `kitty` is the compatibility default. Kitty launches under WSLg. Windows Terminal re-enters the same WSL distribution and runs `wsl-term present <session>` against the exact existing PTY. Either frontend is presentation only and never becomes the PTY lifetime authority.
 
 Normal `terminal_open` stays headless. Set `present:true` only when the human should watch the exact PTY from the start; background servers and other model-only durable work should not open a GUI merely because they use Terminal.
 

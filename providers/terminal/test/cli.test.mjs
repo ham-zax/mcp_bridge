@@ -18,7 +18,7 @@ function request(id, op, params = {}) {
   return { id, op, params };
 }
 
-test('wsl-term wrapper is executable and delegates to the private Terminal CLI', async () => {
+test('wsl-term wrapper is executable and delegates to the Terminal CLI', async () => {
   const info = await stat(WSL_TERM);
   assert.notEqual(info.mode & 0o111, 0);
   const source = await readFile(WSL_TERM, 'utf8');

@@ -99,7 +99,7 @@ test_cloudflare_oauth_is_canonical() {
 }
 
 test_start_is_canonical_entrypoint() {
-  contains "$ROOT/bin/start" 'WebSession MCP Bridge' && \
+  contains "$ROOT/bin/start" 'WebHarness' && \
   ! contains "$ROOT/bin/start" 'mcp\.hamza\.my\.id' && \
   contains "$ROOT/bin/start" 'bridge_reconcile_1mcp' && \
   contains "$ROOT/bin/start" 'bridge_start_cloudflared' && \
@@ -139,7 +139,7 @@ test_compatibility_wrappers_are_thin() {
 }
 
 test_status_has_core_diagnostics() {
-  contains "$ROOT/bin/status" 'WebSession MCP Bridge' && \
+  contains "$ROOT/bin/status" 'WebHarness' && \
   contains "$ROOT/bin/status" 'duplicate 1MCP' && \
   contains "$ROOT/bin/status" 'PID/listener mismatch' && \
   contains "$ROOT/bin/status" 'retained diagnostics' && \

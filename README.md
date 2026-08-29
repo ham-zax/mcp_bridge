@@ -1,10 +1,10 @@
-# WebSession MCP Bridge
+# WebHarness
 
-Turn a Linux or WSL development machine into an authenticated MCP workstation for agents such as ChatGPT.
+WebHarness is a public reference implementation for turning a WSL development machine into a high-capability MCP workstation for ChatGPT and other MCP clients.
 
-The bridge keeps files, processes, terminals, repositories, and browser state on the machine where they already live. It exposes a small set of intent-oriented MCP capabilities instead of publishing every backend tool directly into the model context.
+It keeps files, processes, repositories, durable terminals, and browser state on the machine that already owns them, while presenting a compact model-facing capability surface. The maintained full deployment is the **Personal Workstation** (`personal`) profile. Smaller `restricted` and `trusted-dev` profiles demonstrate narrower authority choices.
 
-The current repository has two release levels: the base bridge (`restricted` and `trusted-dev`) is the public/general surface; the full WSL workstation stack is implemented and qualified as the `personal` profile, but the publication policy still classifies its Code, Terminal, Local/Browser, bootstrap, and Skill files as private-only. That is a packaging boundary inherited from the original single-machine deployment, not a requirement of the architecture.
+This repository is a capability showcase and reproducible reference, not a promise of universal host support. The qualified environment is WSL2 + Ubuntu + x86_64 + Node.js 24+ + systemd user services, with WSLg for headed Linux browser capability. See [Reference Environment](docs/reference-environment.md).
 
 ## What the workstation exposes
 
@@ -24,11 +24,11 @@ Dev       read edit write file_ops wait bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
 Local     tool_list tool_schema tool_call
-            |-- browser-fast  observe / execute
-            `-- browser       Chrome DevTools diagnostics
+            |-- browser-fast      observe / execute
+            `-- browser-devtools  Chrome DevTools diagnostics
 ```
 
-`browser-fast` is for routine interaction. `browser` keeps the full Chrome DevTools MCP surface for network, console, performance, Lighthouse, heap, screenshots, and detailed debugging.
+`browser-fast` is for routine interaction. `browser-devtools` keeps the full Chrome DevTools MCP surface for network, console, performance, Lighthouse, heap, screenshots, and detailed debugging.
 
 ## Architecture
 
@@ -47,9 +47,9 @@ Cloudflare Tunnel
   +-- Terminal --------> broker --------> tmux PTYs
   `-- Local
         |
-        `-- private inner 1MCP
+        `-- inner 1MCP
               |-- browser-fast ---------> Agent Browser
-              `-- browser --------------> Chrome DevTools MCP
+              `-- browser-devtools -----> Chrome DevTools MCP
                          |
                          +-- Windows: dedicated persistent MCP Chrome
                          `-- Linux: managed visible Chrome through WSLg
@@ -61,50 +61,33 @@ Cloudflare is the current public HTTPS transport and 1MCP is the OAuth/MCP gatew
 
 There is no silent default. Pick the authority you intend to give the agent.
 
-| Profile | Authority | Current distribution |
+| Profile | Authority | Reference role |
 |---|---|---|
-| `restricted` | workspace-bounded files plus an allowlisted legacy shell | public/general |
-| `trusted-dev` | workspace-bounded files plus unrestricted Bash as the Linux service user | public/general; use only on a dedicated trusted development host |
-| `personal` | WSL-user paths, native Bash, Code, persistent Terminal, waits, Local/Browser, optional Windows host sleep | full workstation implementation in this source tree; still publication-gated |
+| `personal` | WSL-user paths, native Bash, Code, persistent Terminal, waits, Local/Browser, optional Windows host sleep | maintained full Personal Workstation reference |
+| `restricted` | workspace-bounded files plus an allowlisted legacy shell | conservative smaller example |
+| `trusted-dev` | workspace-bounded files plus unrestricted Bash as the Linux service user | smaller trusted-development example; use only on a dedicated host |
 
 `trusted-dev` and `personal` can act with the Linux account's authority. The `personal` Local domain can additionally control its dedicated Windows MCP Chrome profile after explicit `tag:local` authorization. Read [Security](docs/security.md) before enabling either powerful profile.
 
 ## Quick start
 
-### Base bridge
-
-Prerequisites are a Linux or WSL user environment with Node.js/npm, `uv`/`uvx`, `cloudflared`, `curl`, and `flock`, plus a Cloudflare Tunnel hostname that reaches the local 1MCP origin.
+The reference operator flow is:
 
 ```bash
 cp .env.example .env
-# Set MCP_WORKSPACE_ROOT and MCP_PUBLIC_URL.
+# Set MCP_PUBLIC_URL and any profile-specific local paths.
 
-scripts/setup.sh --profile restricted
-# or, deliberately:
-scripts/setup.sh --profile trusted-dev
+./bin/webharness doctor --profile personal
+./bin/webharness setup --profile personal
+# Add --enable-startup only when persistent user-systemd startup is intended.
 
-bin/start
-bin/status
+webharness start
+webharness status
 ```
 
-Healthy status should report the local bridge ready, Cloudflare running, the watchdog running, the public health check passing, and `issues: 0`.
+`doctor` is non-mutating. `setup` qualifies dependencies and renders configuration. `--enable-startup` is an explicit consent boundary: without it, setup does not enable user linger or persistent services.
 
-### Full WSL workstation
-
-The full workstation path additionally expects a working systemd user manager. WSLg is required only for visible Linux GUI integration such as the Linux browser target or the Kitty presentation frontend. Native Windows browser control also requires Windows interoperability, Google Chrome, and a Windows `node.exe` discoverable by `where node`.
-
-```bash
-cp .env.example .env
-# Set MCP_PUBLIC_URL. MCP_PERSONAL_DEFAULT_CWD is optional.
-
-scripts/bootstrap-personal.sh --enable-startup
-```
-
-Machine-specific owner policy can stay outside the checkout under `~/.config/mcp-dev-bridge/owner/`. Set `MCP_OWNER_CONTEXT_FILE` and `MCP_OWNER_ENV_FILE` in `.env` to reference those files. The owner context becomes `pi-dev` MCP initialization instructions; the owner env is reduced to its supported GUI variables before it reaches Dev, Browser, tmux, or Terminal.
-
-`--enable-startup` is an explicit consent boundary. It installs/renders the user-systemd units, enables user linger when needed, and starts the bridge, tmux lifetime service, and Terminal broker. Omit the flag to prepare dependencies, configuration, and `wsl-term` without changing persistent startup state. The bootstrap does not configure Windows itself to launch WSL.
-
-The repository cannot silently install or replace ChatGPT Skills or client authorization. See [Personal WSL harness](docs/personal/harness.md) for the current source-checkout workflow.
+Machine-specific owner policy stays outside the checkout under operator-controlled paths referenced by `MCP_OWNER_CONTEXT_FILE` and `MCP_OWNER_ENV_FILE`. The repository also cannot silently install or replace ChatGPT Skills or client authorization.
 
 Generated configuration and OAuth/session state live outside Git by default:
 
@@ -128,7 +111,7 @@ Use the narrowest domain that owns the task:
 | understand symbols/callers/dependencies after initial repository orientation | Code |
 | command must persist, needs a PTY, or may need human input | Terminal |
 | routine navigation/forms/clicks in a resource-local browser | Local -> `browser-fast` |
-| network/console/performance/screenshot/DevTools investigation | Local -> `browser` |
+| network/console/performance/screenshot/DevTools investigation | Local -> `browser-devtools` |
 
 For large or unfamiliar repositories, begin with bounded Bash/`rg` and focused reads before paying the cost of a new CodeDB index unless indexed intelligence is specifically useful.
 
@@ -170,8 +153,8 @@ It launches visible Chrome with that custom `--user-data-dir` and `--remote-debu
 Both Windows browser surfaces share that one profile and endpoint:
 
 ```text
-browser-fast -> Agent Browser 0.35.0 -> direct CDP WebSocket
-browser      -> Chrome DevTools MCP   -> loopback browser URL
+browser-fast     -> Agent Browser 0.35.0 -> direct CDP WebSocket
+browser-devtools -> Chrome DevTools MCP   -> loopback browser URL
 ```
 
 This gives the agent persistent cookies/sign-ins in an automation-specific browser without granting MCP control over everyday Chrome. The debugging listener remains loopback-only.
@@ -181,36 +164,51 @@ Native Agent Browser on Windows also has a client/daemon lifetime wrinkle when i
 ## Day-to-day operation
 
 ```bash
-bin/start
-bin/status
-bin/stop
+webharness start
+webharness status
+webharness stop
 ```
 
-For the base bridge, optional user-session autostart is:
+`webharness setup --profile personal --enable-startup` is the demonstrated persistent-service path. For Terminal lifetime, broker recovery, logs, safe restarts, source cutovers, and Browser runtime details, see [Operations](docs/operations.md).
 
-```bash
-scripts/install-systemd-user.sh
-systemctl --user start mcp-dev-bridge.service
-```
+## What this adds beyond a direct coding bridge
 
-For Terminal lifetime, broker recovery, logs, safe restarts, source cutovers, Browser runtime details, and the optional constrained-client WebSession adapter, see [Operations](docs/operations.md).
+| Capability | WebHarness reference | Current gap |
+|---|---|---|
+| Semantic repository intelligence | Code routes to repository-rooted CodeDB search/context/symbol tools | indexing has a real disk/RAM cost and is not forced for every task |
+| Durable interactive processes | Terminal separates tmux process lifetime from broker/model control | no built-in cross-chat recording/journal product |
+| Event-driven waiting | Dev `wait` persists named process/port/file/HTTP/systemd/timer conditions | a wait does not itself create a new model turn |
+| Browser interaction | `browser-fast` provides compact observe/execute with persistent browser state | Chromium/CDP is the qualified browser family |
+| Browser diagnostics | `browser-devtools` provides the full Chrome DevTools MCP surface | shares the Local authorization domain with routine Browser |
+| High-cardinality local MCPs | Local keeps only three outer metatools and discovers downstream schemas on demand | all MCPs admitted to one Local broker share its authorization domain |
+| First-class delegated workers | not implemented in the stabilized runtime | Chat WSL-style Agents and cross-chat recordings are the primary current capability gap |
 
-## Current packaging boundary
+The next planned additive capability is a small Agents surface—`spawn`, `message`, `status`, `finish`—backed by an Agent Broker. It is intentionally not part of this stabilization and does not require a Workspace/worktree/project-authority subsystem. See the [Agents implementation plan](docs/superpowers/plans/2026-08-29-webharness-agents-implementation.md) for that follow-on.
 
-The full workstation is not yet packaged as a general public product. `tests/publication.sh` still excludes the following implementation families from the public export:
+## End-to-end orchestration example
+
+A single ChatGPT session can use the capability boundaries together without making one provider own the entire workflow:
 
 ```text
-personal profile/config
-Code router
-Terminal provider + tmux/broker units
-Local broker
-Browser + Browser Fast providers
-personal bootstrap
-tracked ChatGPT Skills
-wsl-term
+Dev/Code      inspect the repository and identify the real owner
+Terminal      start a long-running service in a durable tmux PTY
+Dev wait      wait on HTTP/TCP/process readiness instead of polling
+browser-fast  exercise the visible application with compact refs/actions
+browser-devtools
+              inspect network, console, performance, or screenshots
+Dev           edit the responsible source and run bounded checks
+WebHarness    rerender/restart the MCP bridge while the tmux PTY survives
+Terminal      yield the exact PTY to a human for MFA/sudo/manual inspection
+Terminal      resume model control on the same process afterward
 ```
 
-Those exclusions were useful while the workstation was being developed against one private deployment. They are now the clearest productization boundary: before calling the full workstation generally installable, these components need portable preflight/install behavior, public documentation, a supported platform matrix, and publication tests that prove the exported package contains them without carrying machine identity or private runtime state.
+That separation is deliberate: Dev owns files/commands/readiness, Code owns semantic repository intelligence, Terminal owns durable PTY interaction, and Local owns downstream MCP routing.
+
+## Reference implementation and forking
+
+The full generic workstation source is public, but the maintained qualification is intentionally narrow. The reference currently assumes a pinned globally installed 1MCP 0.36.0 runtime with qualified compatibility patches, a Personal Workstation toolbox, WSL user-systemd, and the documented browser ownership model. Those are reproducibility constraints, not claims that every Linux/macOS/Windows environment is supported.
+
+Forks should preserve the model-facing contracts they rely on, then deliberately replace transport, package ownership, browser lifecycle, or host integration as needed. See [MCP Compatibility](docs/compatibility.md) and [Reference Environment](docs/reference-environment.md).
 
 ## Compatibility and security notes
 
@@ -225,14 +223,15 @@ See [Security](docs/security.md) for the full trust model.
 ## Documentation
 
 - [Documentation index](docs/README.md) — choose the right guide
-- [Getting started](docs/getting-started.md) — prerequisites, configuration, install, and connection
-- [Architecture](docs/architecture.md) — provider, lifecycle, Terminal, Local, and Browser ownership
-- [Operations](docs/operations.md) — run, inspect, restart, recover, and upgrade a deployment
+- [Getting started](docs/getting-started.md) — reproduce the reference deployment
+- [Reference environment](docs/reference-environment.md) — qualified host/runtime assumptions and forking caveats
+- [Architecture](docs/architecture.md) — Dev, Code, Terminal, Local, and Browser ownership
+- [MCP compatibility](docs/compatibility.md) — model-facing contract and breaking-change rules
+- [Operations](docs/operations.md) — run, inspect, restart, recover, and cut over source
 - [Security](docs/security.md) — authority profiles and trust boundaries
-- [Personal WSL harness](docs/personal/harness.md) — current full-workstation source-checkout workflow
-- [WSL migration](docs/personal/wsl-migration.md) — move private browser/auth state to a fresh Ubuntu WSL install and rebuild services from Git
-- [Development](docs/development.md) — repository layout and verification
-- [Engineering history](docs/history/README.md) — benchmarks, superseded plans, and acceptance evidence
+- [Personal Workstation](docs/personal/harness.md) — full reference deployment details
+- [Acceptance](docs/acceptance.md) — portable gate plus real-WSL qualification
+- [Development](docs/development.md) — repository/publication workflow
 
 ## License
 

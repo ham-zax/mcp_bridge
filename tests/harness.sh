@@ -9,12 +9,14 @@ fail() { printf 'not ok - %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 run_test() { local name="$1"; shift; TESTS=$((TESTS + 1)); if "$@"; then pass "$name"; else fail "$name"; fi; }
 
 test_raw_codedb_surface_removed() {
-  [ ! -e "$ROOT/scripts/install-codedb.sh" ] &&
+  [ -f "$ROOT/scripts/install-codedb.sh" ] &&
   [ ! -e "$ROOT/scripts/codedb-mcp.sh" ] &&
-  node - "$ROOT/config/templates/mcp.json" <<'NODE'
+  node - "$ROOT/config/templates/mcp.json" "$ROOT/config/templates/mcp-personal.json" <<'NODE'
 const fs = require('fs');
-const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-if (cfg.mcpServers?.codedb) process.exit(1);
+for (const file of process.argv.slice(2)) {
+  const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (cfg.mcpServers?.codedb) process.exit(1);
+}
 NODE
 }
 
@@ -52,7 +54,7 @@ const keys = cfg => Object.keys(cfg.mcpServers ?? {}).sort();
 if (JSON.stringify(keys(restricted)) !== JSON.stringify(['dev', 'shell'])) process.exit(1);
 if (JSON.stringify(keys(trusted)) !== JSON.stringify(['dev'])) process.exit(1);
 if (JSON.stringify(keys(personal)) !== JSON.stringify(['code', 'dev', 'local', 'terminal'])) process.exit(1);
-if (JSON.stringify(keys(personalLocal)) !== JSON.stringify(['browser', 'browser-fast'])) process.exit(1);
+if (JSON.stringify(keys(personalLocal)) !== JSON.stringify(['browser-devtools', 'browser-fast'])) process.exit(1);
 if (restricted.mcpServers?.code || trusted.mcpServers?.code) process.exit(1);
 if (restricted.mcpServers?.terminal || trusted.mcpServers?.terminal) process.exit(1);
 if (restricted.mcpServers?.local || trusted.mcpServers?.local) process.exit(1);
@@ -92,13 +94,13 @@ if (!personal.mcpServers.local.args.includes(root + '/providers/local-tools/serv
 if (personal.mcpServers.local.env.MCP_LOCAL_INNER_CONFIG !== personalLocalFile) process.exit(1);
 if (!personal.mcpServers.local.env.MCP_LOCAL_ONE_MCP_ENTRY.endsWith('/@1mcp/agent/build/index.js')) process.exit(1);
 if (JSON.stringify(personal.mcpServers.local.tags) !== JSON.stringify(['local'])) process.exit(1);
-if (personalLocal.mcpServers.browser.command !== 'node') process.exit(1);
-if (!personalLocal.mcpServers.browser.args.includes(root + '/providers/browser/server.mjs')) process.exit(1);
-if (personalLocal.mcpServers.browser.env.XDG_RUNTIME_DIR !== runtimeDir) process.exit(1);
-if (personalLocal.mcpServers.browser.env.WAYLAND_DISPLAY !== 'wayland-0') process.exit(1);
-if (personalLocal.mcpServers.browser.env.DISPLAY !== ':0') process.exit(1);
-if (personalLocal.mcpServers.browser.env.PULSE_SERVER !== 'unix:/mnt/wslg/PulseServer') process.exit(1);
-if (personalLocal.mcpServers.browser.tags !== undefined) process.exit(1);
+if (personalLocal.mcpServers['browser-devtools'].command !== 'node') process.exit(1);
+if (!personalLocal.mcpServers['browser-devtools'].args.includes(root + '/providers/browser/server.mjs')) process.exit(1);
+if (personalLocal.mcpServers['browser-devtools'].env.XDG_RUNTIME_DIR !== runtimeDir) process.exit(1);
+if (personalLocal.mcpServers['browser-devtools'].env.WAYLAND_DISPLAY !== 'wayland-0') process.exit(1);
+if (personalLocal.mcpServers['browser-devtools'].env.DISPLAY !== ':0') process.exit(1);
+if (personalLocal.mcpServers['browser-devtools'].env.PULSE_SERVER !== 'unix:/mnt/wslg/PulseServer') process.exit(1);
+if (personalLocal.mcpServers['browser-devtools'].tags !== undefined) process.exit(1);
 if (personalLocal.mcpServers['browser-fast'].command !== 'node') process.exit(1);
 if (!personalLocal.mcpServers['browser-fast'].args.includes(root + '/providers/browser-fast/server.mjs')) process.exit(1);
 if (personalLocal.mcpServers['browser-fast'].env.XDG_RUNTIME_DIR !== runtimeDir) process.exit(1);
@@ -347,7 +349,7 @@ const outer = JSON.parse(fs.readFileSync(outerFile, 'utf8'));
 const inner = JSON.parse(fs.readFileSync(innerFile, 'utf8'));
 const dev = outer.mcpServers.dev.env;
 const terminal = outer.mcpServers.terminal.env;
-const browser = inner.mcpServers.browser.env;
+const browser = inner.mcpServers['browser-devtools'].env;
 const fast = inner.mcpServers['browser-fast'].env;
 if (dev.MCP_OWNER_CONTEXT_FILE !== contextFile) process.exit(1);
 for (const env of [dev, terminal]) {
@@ -611,7 +613,7 @@ if (JSON.stringify(sorted(manifest.required_sources)) !== JSON.stringify(sorted(
 NODE
 }
 
-run_test 'raw CodeDB surface stays removed from public composition' test_raw_codedb_surface_removed
+run_test 'raw CodeDB catalog stays behind the Code facade' test_raw_codedb_surface_removed
 run_test 'final rendered composition places Browser behind Local only in personal mode' test_final_rendered_composition
 run_test 'Dev spool deployment override rejects invalid values' test_dev_spool_limit_validation
 run_test '1MCP rotating log deployment policy rejects invalid values' test_one_mcp_log_policy_validation
@@ -619,7 +621,7 @@ run_test 'personal Terminal frontend selector defaults, overrides, and validates
 run_test 'personal owner overlay sanitizes and propagates GUI policy' test_owner_overlay_rendering
 run_test 'personal default cwd supports an absolute deployment override' test_personal_default_cwd_override
 run_test 'personal runtime files carry no machine-specific home path' test_personal_runtime_files_have_no_machine_home
-run_test 'personal smoke validation accepts the private provider contract' test_personal_smoke_validation
+run_test 'personal smoke validation accepts the Personal Workstation provider contract' test_personal_smoke_validation
 run_test 'personal toolbox contract passes' bash "$ROOT/tests/personal-toolbox.sh"
 run_test 'Pi dev provider pins and structure are complete' test_pi_provider_structure
 run_test 'legacy filesystem dependency is removed after Pi cutover' test_legacy_filesystem_dependency_removed

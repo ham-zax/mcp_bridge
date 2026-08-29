@@ -1,5 +1,5 @@
 [Unit]
-Description=WebSession MCP Bridge
+Description=WebHarness MCP runtime
 Documentation=file://@REPO_ROOT@/README.md
 ConditionPathExists=@REPO_ROOT@/bin/start
 

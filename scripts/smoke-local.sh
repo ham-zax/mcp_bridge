@@ -17,7 +17,7 @@ const terminal = cfg.mcpServers?.terminal;
 const local = cfg.mcpServers?.local;
 if (cfg.mcpServers?.filesystem) throw new Error('filesystem provider must be absent after Pi cutover');
 if (cfg.mcpServers?.codedb) throw new Error('raw codedb provider must remain hidden behind the Code facade');
-if (cfg.mcpServers?.browser || cfg.mcpServers?.['browser-fast']) throw new Error('Browser providers must remain private behind the Local broker');
+if (cfg.mcpServers?.['browser-devtools'] || cfg.mcpServers?.['browser-fast']) throw new Error('Browser providers must remain behind the Local broker');
 if (profile) {
   const actual = Object.keys(cfg.mcpServers ?? {}).sort();
   const expected = profile === 'trusted-dev' ? ['dev'] : profile === 'restricted' ? ['dev', 'shell'] : profile === 'personal' ? ['code', 'dev', 'local', 'terminal'] : null;
@@ -42,8 +42,8 @@ if (local) {
 
   const inner = JSON.parse(fs.readFileSync(env.MCP_LOCAL_INNER_CONFIG, 'utf8'));
   const innerNames = Object.keys(inner.mcpServers ?? {}).sort();
-  if (JSON.stringify(innerNames) !== JSON.stringify(['browser', 'browser-fast'])) throw new Error(`unexpected Local inner provider set: ${innerNames.join(',')}`);
-  const browser = inner.mcpServers.browser;
+  if (JSON.stringify(innerNames) !== JSON.stringify(['browser-devtools', 'browser-fast'])) throw new Error(`unexpected Local inner provider set: ${innerNames.join(',')}`);
+  const browser = inner.mcpServers['browser-devtools'];
   if (browser.command !== 'node') throw new Error('inner Browser facade must run with node');
   const expectedBrowserServer = path.join(repoRoot, 'providers', 'browser', 'server.mjs');
   if (JSON.stringify(browser.args ?? []) !== JSON.stringify([expectedBrowserServer])) throw new Error('unexpected inner Browser facade server path');
@@ -69,7 +69,7 @@ if (local) {
   if (fastPkg.dependencies?.zod !== '4.4.3') throw new Error('unexpected Browser Fast zod pin');
 }
 if (terminal) {
-  if (profile !== 'personal') throw new Error('Terminal provider is private to the personal profile');
+  if (profile !== 'personal') throw new Error('Terminal provider is available only in the personal profile');
   if (terminal.command !== 'node') throw new Error('Terminal provider must run with node');
   const expectedServer = path.join(repoRoot, 'providers', 'terminal', 'mcp-server.mjs');
   if (JSON.stringify(terminal.args ?? []) !== JSON.stringify([expectedServer])) throw new Error('unexpected Terminal provider server path');

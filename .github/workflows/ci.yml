@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  portable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install pinned provider dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix providers/pi-dev ci --omit=dev
+          npm --prefix providers/terminal ci --omit=dev
+          npm --prefix providers/code-router ci --omit=dev
+          npm --prefix providers/browser ci --omit=dev
+          npm --prefix providers/browser-fast ci --omit=dev
+          npm --prefix providers/local-tools ci --omit=dev
+
+      - name: Run portable repository gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/harness.sh
+          bash tests/publication.sh
+          bash tests/lifecycle.sh
+          (cd providers/pi-dev && npm test)
+          (cd providers/terminal && npm test)
+          (cd providers/code-router && npm test)
+          (cd providers/browser && npm test)
+          (cd providers/browser-fast && npm test)
+          (cd providers/local-tools && npm test)
+          node scripts/check-doc-links.mjs
+          bash -n bin/* lib/bridge/*.sh scripts/*.sh tests/*.sh
+          node --check scripts/*.mjs providers/pi-dev/*.mjs providers/terminal/*.mjs providers/code-router/*.mjs providers/browser/*.mjs providers/browser-fast/*.mjs providers/local-tools/*.mjs
+          git diff --check

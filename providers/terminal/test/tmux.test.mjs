@@ -23,7 +23,7 @@ test('dedicated tmux backend covers create, send, resize, capture, list, dead st
   const tmux = new TmuxBackend({
     socketPath: sandbox.socketPath,
     stateRoot: sandbox.stateRoot,
-    defaultCwd: '/home/hamza',
+    defaultCwd: '/tmp',
     transcriptBudgetBytes: 4 * 1024 * 1024,
   });
 
@@ -143,7 +143,7 @@ test('session metadata carries a stable generation across reconciliation and a n
   const tmux = new TmuxBackend({
     socketPath: sandbox.socketPath,
     stateRoot: sandbox.stateRoot,
-    defaultCwd: '/home/hamza',
+    defaultCwd: '/tmp',
     transcriptBudgetBytes: 1024 * 1024,
   });
 

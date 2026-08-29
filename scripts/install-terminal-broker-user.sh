@@ -62,7 +62,7 @@ if [ "${TERMINAL_SYSTEMD_DRY_RUN:-0}" = "1" ]; then
 fi
 
 NPM_BIN="${TERMINAL_NPM_BIN:-$(command -v npm || true)}"
-[ -x "$NPM_BIN" ] || { echo "npm is required to install the private Terminal provider dependencies" >&2; exit 1; }
+[ -x "$NPM_BIN" ] || { echo "npm is required to install the Terminal provider dependencies" >&2; exit 1; }
 "$NPM_BIN" --prefix "$ROOT/providers/terminal" ci --omit=dev
 
 command -v systemctl >/dev/null 2>&1 || { echo "systemctl is required" >&2; exit 1; }

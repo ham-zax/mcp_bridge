@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 function usage() {
-  return `Usage: scripts/render-config.mjs --profile <restricted|trusted-dev|personal> [options]\n\nOptions:\n  --env-file PATH   Deployment env file (default: <repo>/.env)\n  --state-dir PATH  Persistent state root\n  --repo-root PATH  Repository root override\n  --help            Show this help\n`;
+  return `Usage: scripts/render-config.mjs --profile <restricted|trusted-dev|personal> [options]\n\nOptions:\n  --check           Validate without writing generated state\n  --env-file PATH   Deployment env file (default: <repo>/.env)\n  --state-dir PATH  Persistent state root\n  --repo-root PATH  Repository root override\n  --help            Show this help\n`;
 }
 
 function parseArgs(argv) {
@@ -15,6 +15,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--help') out.help = true;
+    else if (arg === '--check') out.check = true;
     else if (arg === '--profile' || arg === '--env-file' || arg === '--state-dir' || arg === '--repo-root') {
       const value = argv[++i];
       if (!value) throw new Error(`missing value for ${arg}`);
@@ -140,6 +141,7 @@ export async function renderConfig(options) {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const repoRoot = path.resolve(options.repoRoot ?? path.join(scriptDir, '..'));
   const profile = options.profile;
+  const checkOnly = options.check === true;
   if (!['restricted', 'trusted-dev', 'personal'].includes(profile)) {
     throw new Error('profile must be one of: restricted, trusted-dev, personal');
   }
@@ -297,7 +299,7 @@ export async function renderConfig(options) {
     }
     for (const key of OWNER_BROWSER_ENV_KEYS) {
       if (ownerEnv[key] === undefined) continue;
-      localRendered.mcpServers.browser.env[key] = ownerEnv[key];
+      localRendered.mcpServers['browser-devtools'].env[key] = ownerEnv[key];
     }
     for (const key of OWNER_BROWSER_FAST_ENV_KEYS) {
       if (ownerEnv[key] === undefined) continue;
@@ -312,22 +314,9 @@ export async function renderConfig(options) {
   const localOneMcpDir = isPersonal ? path.dirname(localInnerConfigPath) : null;
   const logDir = path.join(stateDir, 'logs');
   const oneMcpLogFile = path.join(logDir, 'one-mcp.log');
-  await fs.mkdir(stateDir, { recursive: true, mode: 0o700 });
-  await fs.chmod(stateDir, 0o700);
-  await fs.mkdir(oneMcpDir, { recursive: true, mode: 0o700 });
-  await fs.chmod(oneMcpDir, 0o700);
-  if (localOneMcpDir) {
-    await fs.mkdir(localOneMcpDir, { recursive: true, mode: 0o700 });
-    await fs.chmod(localOneMcpDir, 0o700);
-  }
-  await fs.mkdir(logDir, { recursive: true, mode: 0o700 });
-  await fs.chmod(logDir, 0o700);
-
   const configPath = path.join(oneMcpDir, 'mcp.json');
-  if (isPersonal) await atomicWrite(path.join(stateDir, 'owner.env'), renderOwnerRuntimeEnv(ownerEnv));
-  if (localRendered) await atomicWrite(localInnerConfigPath, `${JSON.stringify(localRendered, null, 2)}\n`);
-  await atomicWrite(configPath, `${JSON.stringify(rendered, null, 2)}\n`);
   const appConfigPath = path.join(oneMcpDir, 'config.toml');
+  const bridgeEnvPath = path.join(stateDir, 'bridge.env');
   const appConfig = [
     ...(isPersonal ? ['[admin]', 'enabled = false', ''] : []),
     '[auth]',
@@ -340,8 +329,6 @@ export async function renderConfig(options) {
     `maxFiles = ${oneMcpLogMaxFiles}`,
     '',
   ].join('\n');
-  await atomicWrite(appConfigPath, appConfig);
-
   const bridgeEnv = [
     `MCP_BRIDGE_PROFILE=${shellSingleQuote(profile)}`,
     `MCP_WORKSPACE_ROOT=${shellSingleQuote(workspaceRoot)}`,
@@ -351,10 +338,27 @@ export async function renderConfig(options) {
     `BRIDGE_STATE_DIR=${shellSingleQuote(stateDir)}`,
     '',
   ].join('\n');
-  const bridgeEnvPath = path.join(stateDir, 'bridge.env');
-  await atomicWrite(bridgeEnvPath, bridgeEnv);
 
-  return { profile, repoRoot, stateDir, oneMcpDir, configPath, localInnerConfigPath: localInnerConfigPath || null, appConfigPath, oneMcpLogFile, bridgeEnvPath };
+  if (!checkOnly) {
+    await fs.mkdir(stateDir, { recursive: true, mode: 0o700 });
+    await fs.chmod(stateDir, 0o700);
+    await fs.mkdir(oneMcpDir, { recursive: true, mode: 0o700 });
+    await fs.chmod(oneMcpDir, 0o700);
+    if (localOneMcpDir) {
+      await fs.mkdir(localOneMcpDir, { recursive: true, mode: 0o700 });
+      await fs.chmod(localOneMcpDir, 0o700);
+    }
+    await fs.mkdir(logDir, { recursive: true, mode: 0o700 });
+    await fs.chmod(logDir, 0o700);
+
+    if (isPersonal) await atomicWrite(path.join(stateDir, 'owner.env'), renderOwnerRuntimeEnv(ownerEnv));
+    if (localRendered) await atomicWrite(localInnerConfigPath, `${JSON.stringify(localRendered, null, 2)}\n`);
+    await atomicWrite(configPath, `${JSON.stringify(rendered, null, 2)}\n`);
+    await atomicWrite(appConfigPath, appConfig);
+    await atomicWrite(bridgeEnvPath, bridgeEnv);
+  }
+
+  return { profile, repoRoot, stateDir, oneMcpDir, configPath, localInnerConfigPath: localInnerConfigPath || null, appConfigPath, oneMcpLogFile, bridgeEnvPath, checkOnly };
 }
 
 async function main() {
@@ -383,10 +387,11 @@ async function main() {
       envFile: args['env-file'],
       stateDir: args['state-dir'],
       repoRoot: args['repo-root'],
+      check: args.check,
     });
     console.log(`profile:     ${result.profile}`);
     console.log(`state dir:   ${result.stateDir}`);
-    console.log(`1MCP config: ${result.configPath}`);
+    console.log(`${result.checkOnly ? 'validated' : '1MCP config'}: ${result.checkOnly ? 'configuration only (no files written)' : result.configPath}`);
   } catch (error) {
     console.error(`render-config: ${error.message}`);
     process.exitCode = 1;

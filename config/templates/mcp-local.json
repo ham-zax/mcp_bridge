@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "mcpServers": {
-    "browser": {
+    "browser-devtools": {
       "command": "node",
       "args": [
         "__REPO_ROOT__/providers/browser/server.mjs"

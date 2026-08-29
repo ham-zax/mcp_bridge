@@ -105,7 +105,7 @@ test('broker restart preserves tmux server, PTY process, transcript capture, and
 
   const opened = await brokerRequest(sandbox.brokerSocket, request('open', 'session.open', {
     name: 'durable',
-    cwd: '/home/hamza',
+    cwd: '/tmp',
     command: "i=0; while :; do printf 'tick:%s\\n' \"$i\"; i=$((i+1)); sleep 0.05; done",
   }));
   assert.equal(opened.ok, true, JSON.stringify(opened));
@@ -532,7 +532,7 @@ test('broker restart reconciles mixed live and dead retained panes idempotently'
   ]) {
     const opened = await brokerRequest(sandbox.brokerSocket, request(`open-${name}`, 'session.open', {
       name,
-      cwd: '/home/hamza',
+      cwd: '/tmp',
       command,
     }));
     assert.equal(opened.ok, true, JSON.stringify(opened));

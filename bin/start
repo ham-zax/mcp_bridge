@@ -50,7 +50,7 @@ trap cleanup_failed_start EXIT INT TERM
 bridge_disable
 bridge_stop_watchdog
 
-echo "== starting WebSession MCP Bridge =="
+echo "== starting WebHarness =="
 echo "1MCP OAuth origin: http://127.0.0.1:3050/mcp"
 echo "public MCP URL:    $TUNNEL_URL/mcp"
 
@@ -71,7 +71,7 @@ START_COMMITTED=true
 bridge_lock_release
 trap - EXIT INT TERM
 
-echo "WebSession MCP Bridge is ready"
+echo "WebHarness is ready"
 echo "  MCP endpoint: $TUNNEL_URL/mcp"
 echo "  status:       bin/status"
 echo "  stop:         bin/stop"

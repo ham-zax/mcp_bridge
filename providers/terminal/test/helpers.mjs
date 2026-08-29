@@ -28,7 +28,7 @@ export async function makeSandbox(t, { budgetBytes = 1024 * 1024 } = {}) {
     ...process.env,
     MCP_TERMINAL_SOCKET: brokerSocket,
     MCP_TERMINAL_STATE_ROOT: stateRoot,
-    MCP_TERMINAL_DEFAULT_CWD: '/home/hamza',
+    MCP_TERMINAL_DEFAULT_CWD: '/tmp',
     MCP_TERMINAL_TMUX_SOCKET_PATH: socketPath,
     MCP_TERMINAL_TRANSCRIPT_BUDGET_BYTES: String(budgetBytes),
   };

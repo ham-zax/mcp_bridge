@@ -69,7 +69,7 @@ if (!loggerSource.includes('maxsize: options.maxSize') ||
 NODE
 echo "  verified native log rotation (structured maxSize/maxFiles)"
 
-echo "== verifying WebSession MCP Bridge prerequisites =="
+echo "== verifying WebHarness prerequisites =="
 for cmd in node npm npx uv uvx cloudflared curl flock; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "$cmd missing" >&2; exit 1; }
 done

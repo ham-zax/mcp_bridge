@@ -77,7 +77,7 @@ test('winning model-facing facade exposes only code_search, code_context, and co
       return { repoRoot: '/repo', result: { content: [{ type: 'text', text: 'unused' }] } };
     }
   };
-  const server = serverModule.createCodeFacadeServer({ router, defaultCwd: '/home/hamza' });
+  const server = serverModule.createCodeFacadeServer({ router, defaultCwd: '/tmp' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'code-facade-catalog-test', version: '1.0.0' });
   t.after(async () => {
@@ -121,7 +121,7 @@ test('code_search maps one native request to rooted codedb_search and returns le
       };
     }
   };
-  const server = serverModule.createCodeFacadeServer({ router, defaultCwd: '/home/hamza' });
+  const server = serverModule.createCodeFacadeServer({ router, defaultCwd: '/tmp' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'code-facade-search-test', version: '1.0.0' });
   t.after(async () => {
@@ -191,7 +191,7 @@ test('code_symbol maps a known definition lookup without exposing project switch
       };
     }
   };
-  const server = serverModule.createCodeFacadeServer({ router, defaultCwd: '/home/hamza' });
+  const server = serverModule.createCodeFacadeServer({ router, defaultCwd: '/tmp' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'code-facade-symbol-test', version: '1.0.0' });
   t.after(async () => {
@@ -249,7 +249,7 @@ test('server.mjs stdio entrypoint exposes only the winning Code facade catalog',
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [serverPath],
-    env: { ...process.env, MCP_CODE_DEFAULT_CWD: '/home/hamza' },
+    env: { ...process.env, MCP_CODE_DEFAULT_CWD: '/tmp' },
     stderr: 'pipe'
   });
   const client = new Client({ name: 'code-facade-stdio-test', version: '1.0.0' });

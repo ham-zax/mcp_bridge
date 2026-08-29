@@ -18,7 +18,7 @@ fi
 PUBLIC_URL="$(cat "$BRIDGE_TUNNEL_URL_FILE" 2>/dev/null || printf '%s' "${TUNNEL_URL:-}")"
 RENDERED_SOURCE_ROOT="${MCP_BRIDGE_ROOT:-$BRIDGE_ROOT}"
 
-echo "== WebSession MCP Bridge =="
+echo "== WebHarness =="
 echo "desired state: $DESIRED"
 echo "public URL:    ${PUBLIC_URL:-unconfigured}"
 echo "rendered source root: $RENDERED_SOURCE_ROOT"

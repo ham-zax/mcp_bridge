@@ -84,7 +84,7 @@ export function createTerminalMcpServer({ client, frontend } = {}) {
   const dimension = z.number().int().positive().max(1000);
 
   server.registerTool('terminal_open', {
-    description: 'Open one model-owned durable tmux PTY/process in the private harness namespace (production default wsl-agent), not the user\'s default tmux server. Use this for interactive or persistent work that should survive MCP or broker restart; prefer Dev Bash for bounded noninteractive commands. Omitting command starts the normal interactive shell. Headless is the default; set present=true only when the human should see a visible collaborative frontend from the start.',
+    description: 'Open one model-owned durable tmux PTY/process in the WebHarness tmux namespace (production default wsl-agent), not the user\'s default tmux server. Use this for interactive or persistent work that should survive MCP or broker restart; prefer Dev Bash for bounded noninteractive commands. Omitting command starts the normal interactive shell. Headless is the default; set present=true only when the human should see a visible collaborative frontend from the start.',
     inputSchema: {
       name,
       command: z.string().optional(),
@@ -112,7 +112,7 @@ export function createTerminalMcpServer({ client, frontend } = {}) {
   }));
 
   server.registerTool('terminal_read', {
-    description: 'Read a private harness Terminal session. Normally omit cursor to consume from the broker-owned persisted model unread position; successful reads advance that position. An explicit cursor intentionally replays/repositions from that offset and advances the persisted position to the returned point. snapshot=true captures the current tmux screen/TUI without advancing transcript position; use explicit cursors only for replay or recovery.',
+    description: 'Read a WebHarness Terminal session. Normally omit cursor to consume from the broker-owned persisted model unread position; successful reads advance that position. An explicit cursor intentionally replays/repositions from that offset and advances the persisted position to the returned point. snapshot=true captures the current tmux screen/TUI without advancing transcript position; use explicit cursors only for replay or recovery.',
     inputSchema: {
       name,
       cursor: z.number().int().nonnegative().optional(),
@@ -139,7 +139,7 @@ export function createTerminalMcpServer({ client, frontend } = {}) {
   });
 
   server.registerTool('terminal_send', {
-    description: 'Send exactly one of literal text or one recognized control/navigation key to a private harness session. text is literal and does not append Enter, so executing a shell command normally requires a text send followed by key=ENTER. Writable human ownership blocks model mutation with HUMAN_HAS_CONTROL; do not bypass ownership through Dev Bash, raw tmux, or operator wsl-term commands.',
+    description: 'Send exactly one of literal text or one recognized control/navigation key to a WebHarness Terminal session. text is literal and does not append Enter, so executing a shell command normally requires a text send followed by key=ENTER. Writable human ownership blocks model mutation with HUMAN_HAS_CONTROL; do not bypass ownership through Dev Bash, raw tmux, or operator wsl-term commands.',
     inputSchema: sendSchema,
   }, async (args) => invoke(async () => {
     const params = args.key === undefined
@@ -150,7 +150,7 @@ export function createTerminalMcpServer({ client, frontend } = {}) {
   }));
 
   server.registerTool('terminal_resize', {
-    description: 'Resize an existing private harness PTY while the model owns it; changing dimensions may cause terminal applications to observe resize/SIGWINCH behavior. Writable human control blocks model resize.',
+    description: 'Resize an existing WebHarness PTY while the model owns it; changing dimensions may cause terminal applications to observe resize/SIGWINCH behavior. Writable human control blocks model resize.',
     inputSchema: { name, cols: dimension, rows: dimension },
   }, async (args) => invoke(async () => {
     const result = await client.request('session.resize', args);
@@ -158,7 +158,7 @@ export function createTerminalMcpServer({ client, frontend } = {}) {
   }));
 
   server.registerTool('terminal_list', {
-    description: 'List durable sessions in the private harness tmux namespace, including dead exit status, dimensions, and whether writable human control currently blocks model mutation; use this to resolve session identity and state before mutation.',
+    description: 'List durable sessions in the WebHarness tmux namespace, including dead exit status, dimensions, and whether writable human control currently blocks model mutation; use this to resolve session identity and state before mutation.',
     inputSchema: {},
   }, async () => invoke(async () => {
     const result = await client.request('session.list', {});
@@ -181,7 +181,7 @@ export function createTerminalMcpServer({ client, frontend } = {}) {
   }));
 
   server.registerTool('terminal_close', {
-    description: 'Destructively close a private harness Terminal session by killing its tmux session, which destroys that session\'s PTY/process lifetime. Ordinary close is blocked while a human owns the session; force=true explicitly overrides human ownership and destroys the session anyway.',
+    description: 'Destructively close a WebHarness Terminal session by killing its tmux session, which destroys that session\'s PTY/process lifetime. Ordinary close is blocked while a human owns the session; force=true explicitly overrides human ownership and destroys the session anyway.',
     inputSchema: { name, force: z.boolean().optional() },
   }, async (args) => invoke(async () => {
     const result = await client.request('session.close', compactParams(args));

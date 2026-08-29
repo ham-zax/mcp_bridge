@@ -13,8 +13,8 @@ usage() {
   cat <<'EOF'
 Usage: scripts/bootstrap-personal.sh [options]
 
-Prepare the private personal WSL harness. Persistent user-systemd startup is
-installed only when --enable-startup is passed explicitly.
+Prepare the WebHarness Personal Workstation reference deployment. Persistent
+user-systemd startup is installed only when --enable-startup is passed explicitly.
 
 Options:
   --enable-startup   Explicitly install, enable, and start persistent user services
@@ -65,12 +65,12 @@ fi
 SYSTEMD_TARGET_DIR="${PERSONAL_SYSTEMD_TARGET_DIR:-${BRIDGE_SYSTEMD_TARGET_DIR:-${TERMINAL_SYSTEMD_TARGET_DIR:-$USER_HOME/.config/systemd/user}}}"
 
 if [ "${PERSONAL_BOOTSTRAP_SKIP_INSTALL:-0}" != "1" ]; then
-  echo "== qualifying personal CLI toolbox =="
+  echo "== qualifying Personal Workstation CLI toolbox =="
   "$ROOT/scripts/setup-personal-toolbox.sh"
 
   "$ROOT/scripts/install-bridge-runtime.sh"
 
-  echo "== installing pinned personal provider dependencies =="
+  echo "== installing pinned Personal Workstation provider dependencies =="
   npm --prefix "$ROOT/providers/pi-dev" ci --omit=dev
   npm --prefix "$ROOT/providers/code-router" ci --omit=dev
   npm --prefix "$ROOT/providers/terminal" ci --omit=dev
@@ -78,7 +78,7 @@ if [ "${PERSONAL_BOOTSTRAP_SKIP_INSTALL:-0}" != "1" ]; then
   npm --prefix "$ROOT/providers/browser-fast" ci --omit=dev
   npm --prefix "$ROOT/providers/local-tools" ci --omit=dev
 
-  echo "== installing pinned personal native runtimes =="
+  echo "== installing pinned Personal Workstation native runtimes =="
   "$ROOT/scripts/install-codedb.sh"
   "$ROOT/scripts/setup-clearcote-wsl.sh"
 else
@@ -86,7 +86,7 @@ else
 fi
 
 RENDER_ARGS=(--profile personal --env-file "$ENV_FILE" --state-dir "$STATE_DIR" --repo-root "$ROOT")
-echo "== rendering personal MCP composition =="
+echo "== rendering Personal Workstation MCP composition =="
 HOME="$USER_HOME" XDG_RUNTIME_DIR="$RUNTIME_DIR" node "$ROOT/scripts/render-config.mjs" "${RENDER_ARGS[@]}"
 
 mkdir -p "$USER_BIN_DIR"
@@ -177,7 +177,7 @@ fi
 
 cat <<EOF
 
-Personal WSL startup is installed and active.
+WebHarness Personal Workstation startup is installed and active.
 - WSL does not get launched by Windows through this script.
 - Once this WSL user manager starts, the enabled harness services start automatically.
 - wsl-term: $WSL_TERM_LINK

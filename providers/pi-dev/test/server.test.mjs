@@ -264,7 +264,7 @@ test('personal user mode exposes file_ops alongside edit with user-path descript
     assert.match(wait.description, /durable named.*wait/i);
     assert.match(wait.description, /timer/i);
     assert.match(wait.description, /pending.*durable|durable.*pending/i);
-    assert.match(wait.description, /other.*work.*resum|resum.*other.*work/i);
+    assert.match(wait.description, /must.*resum.*active.*model turn|model turn.*must.*resum/i);
     assert.match(wait.description, /timeout_seconds.*durable.*deadline/i);
     assert.match(wait.description, /hold_seconds.*invocation/i);
     assert.match(wait.description, /timeout_seconds.*default 300/i);
@@ -741,7 +741,7 @@ test('explicit Terminal close persists stable WAIT_SOURCE_ENDED instead of raw t
   });
 });
 
-test('workspace-mode pi-dev loads from a public-style fixture with the private Terminal tree absent', async () => {
+test('workspace-mode pi-dev loads from a smaller-profile fixture with the Terminal tree absent', async () => {
   const root = await tempDir('pi-dev-public-export-');
   const publicProviders = path.join(root, 'providers');
   const copiedPi = path.join(publicProviders, 'pi-dev');

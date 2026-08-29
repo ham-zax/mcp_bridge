@@ -1,27 +1,18 @@
 # Getting Started
 
-This guide covers the public/general bridge path. For the private Codex-like WSL harness, continue with [Personal harness](personal/harness.md).
+WebHarness is a reference implementation for a high-capability ChatGPT workstation. The maintained full deployment is the `personal` profile, documented as the **Personal Workstation**. `restricted` and `trusted-dev` are smaller authority examples built from the same source.
 
-## 1. Prerequisites
+Before installing anything, read [Reference Environment](reference-environment.md). The maintained qualification target is WSL2 + Ubuntu + x86_64 + Node.js 24+ + systemd user services, with WSLg for headed Linux browser capability.
 
-You need a Linux or WSL user environment with:
-
-- Node.js and npm;
-- `uv` / `uvx`;
-- `cloudflared`;
-- `curl` and `flock`;
-- a Cloudflare Tunnel hostname that reaches the local 1MCP origin;
-- a working systemd user manager when you want persistent personal `--enable-startup` behavior.
-
-The repository installs/verifies its pinned 1MCP runtime and provider dependencies during setup. Current Ubuntu installations created by `wsl --install` use systemd by default; other WSL distributions must expose a working systemd user manager before the persistent personal startup path can be enabled.
-
-## 2. Configure deployment identity
+## 1. Configure deployment identity
 
 ```bash
 cp .env.example .env
 ```
 
-Edit at least:
+Set the public MCP URL and any local paths that apply to the profile you intend to use. `.env` is machine-local deployment input and is ignored by Git.
+
+For workspace-bounded profiles, set:
 
 ```text
 MCP_WORKSPACE_ROOT=/absolute/path/to/code
@@ -29,79 +20,82 @@ MCP_PUBLIC_URL=https://mcp.example.com
 MCP_TUNNEL_NAME=
 ```
 
-`.env` is local deployment input and is ignored by Git.
+For `personal`, `MCP_PERSONAL_DEFAULT_CWD` is optional; when omitted, WebHarness uses the WSL user's home directory.
 
-## 3. Choose a trust profile explicitly
+## 2. Diagnose before setup
 
-Conservative install:
-
-```bash
-scripts/setup.sh --profile restricted
-```
-
-Trusted dedicated development host:
+Run the non-mutating doctor first:
 
 ```bash
-scripts/setup.sh --profile trusted-dev
+./bin/webharness doctor --profile personal
 ```
 
-There is no silent default. Read [Security](security.md) before choosing `trusted-dev`.
+Doctor validates the selected profile, deployment env, templates, and reference-environment assumptions without writing generated state or starting providers. Missing optional capabilities are warnings; failures identify requirements that prevent the selected deployment from being rendered or qualified.
 
-The private `personal` profile uses its dedicated bootstrap rather than `scripts/setup.sh`:
+## 3. Set up a profile
+
+Full Personal Workstation reference deployment:
 
 ```bash
-scripts/bootstrap-personal.sh --enable-startup
+./bin/webharness setup --profile personal
 ```
 
-That flag is explicit permission to install, enable, and start the personal user-systemd services and user linger. After that one-time install, the services start with the WSL user manager on later WSL sessions. Omit the flag when you only want dependencies/configuration plus the user-local `wsl-term` command and do not want persistent startup changed. The bootstrap never configures Windows to launch WSL. See [Personal harness](personal/harness.md).
-
-## 4. Start and verify
+This installs/qualifies the reference toolbox and provider dependencies, renders the Personal Workstation configuration, and installs `webharness` and `wsl-term` in `~/.local/bin`. It does **not** enable linger or persistent user services unless you explicitly add:
 
 ```bash
-bin/start
-bin/status
+./bin/webharness setup --profile personal --enable-startup
 ```
 
-Healthy status should report:
+`--enable-startup` is the only setup path that enables persistent user-systemd startup. The bootstrap does not configure Windows to launch WSL.
 
-```text
-local health: ready
-cloudflared: running
-watchdog: running
-public health: ok
-issues: 0
-```
-
-Then refresh the connector/Actions catalog in ChatGPT when provider composition changed.
-
-## 5. Optional user-systemd autostart
+Smaller authority examples use the same operator command:
 
 ```bash
-scripts/install-systemd-user.sh
-systemctl --user start mcp-dev-bridge.service
+./bin/webharness setup --profile restricted
+./bin/webharness setup --profile trusted-dev
 ```
 
-The installer renders a generic user unit; it does not silently remove an older unrelated installation.
+Read [Security](security.md) before granting `trusted-dev` or `personal` authority.
 
-## 6. Generated state
+## 4. Operate the runtime
 
-Persistent bridge/1MCP state defaults to:
+After setup, use the operator shell:
+
+```bash
+webharness start
+webharness status
+webharness stop
+```
+
+A healthy running deployment reports local 1MCP health, Cloudflare transport, watchdog health, public health, and `issues: 0`.
+
+When the model-facing provider composition changes, refresh the ChatGPT MCP connection/catalog so the client sees the current schemas.
+
+## 5. Generated state
+
+Persistent configuration, logs, and OAuth/session state stay outside Git by default:
 
 ```text
 ${XDG_STATE_HOME:-$HOME/.local/state}/mcp-dev-bridge/
 ```
 
-Transient runtime state defaults to:
+Transient bridge state stays under:
 
 ```text
 ${XDG_RUNTIME_DIR:-/run/user/$UID}/mcp-dev-bridge/
 ```
 
-Do not place generated OAuth/session state inside the Git checkout.
+The retained `mcp-dev-bridge` path is an implementation compatibility identifier beneath WebHarness branding. Do not move generated OAuth/session state into the checkout.
+
+## Forking the reference
+
+The lower-level scripts remain available for repair and development, but `bin/webharness` is the demonstrated operator surface. The reference bootstrap currently owns a pinned, globally installed 1MCP runtime and applies qualified compatibility patches to it. Forks that need different package ownership, host platforms, transports, or browser lifecycles should change those assumptions deliberately and re-qualify the affected boundaries.
 
 ## Next
 
+- [Reference Environment](reference-environment.md)
 - [Configuration](configuration.md)
+- [Architecture](architecture.md)
 - [Operations](operations.md)
 - [Security](security.md)
 - [Troubleshooting](troubleshooting.md)

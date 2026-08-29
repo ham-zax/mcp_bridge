@@ -8,7 +8,7 @@
 
 ## Global Constraints
 
-- This plan starts only after `2026-08-29-webharness-product-stabilization.md` is complete, `/home/hamza/repo/webharness` is the canonical development source, and the maintained workstation is running from that public checkout.
+- This plan starts only after `2026-08-29-webharness-product-stabilization.md` is complete, the canonical `webharness` public checkout is the development source, and the maintained workstation is running from that checkout.
 - Do not add a Workspace object, `workspaceId`, worktree management, project authority, project lifecycle, or automatic repository isolation.
 - Agents are a new first-class outer domain. Do not put worker orchestration behind Local, Browser, Browser DevTools, Dev, Code, or Terminal.
 - The authoritative ChatGPT browser adapter is the vendored snapshot at `third_party/chat-on-steroids-extension/`. Do not fetch or depend on upstream source during implementation. Modify this vendored copy only; refresh it later only as an explicit vendor update with a new pinned commit recorded in `UPSTREAM.md`.
@@ -309,7 +309,7 @@ It does **not** persist a general ChatGPT transcript or project/workspace model.
 
 **Files:**
 - No new implementation files. This task qualifies and activates the candidate produced by Tasks 1-6.
-- Runtime source: canonical `/home/hamza/repo/webharness`
+- Runtime source: canonical public `webharness` checkout
 
 **Interfaces:**
 - Consumes: Tasks 1-6 candidate final state.

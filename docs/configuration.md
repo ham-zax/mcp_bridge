@@ -27,11 +27,11 @@ MCP_OWNER_CONTEXT_FILE=
 MCP_OWNER_ENV_FILE=
 ```
 
-`MCP_PERSONAL_DEFAULT_CWD` is optional and applies only to the private personal profile. Leave it empty/unset to use the actual WSL user's `$HOME`. `MCP_TERMINAL_FRONTEND` is also personal-only: unset/empty defaults to `kitty`, and the accepted values are `kitty` and `windows-terminal`. The renderer validates this selector only for `personal`, so a stray value does not break `restricted` or `trusted-dev`.
+`MCP_PERSONAL_DEFAULT_CWD` is optional and applies only to the Personal Workstation (`personal`) profile. Leave it empty/unset to use the actual WSL user's `$HOME`. `MCP_TERMINAL_FRONTEND` is also personal-only: unset/empty defaults to `kitty`, and the accepted values are `kitty` and `windows-terminal`. The renderer validates this selector only for `personal`, so a stray value does not break `restricted` or `trusted-dev`.
 
 `MCP_OWNER_CONTEXT_FILE` and `MCP_OWNER_ENV_FILE` are optional personal-profile references to owner-controlled files outside the repository. Both paths must be absolute when set. `pi-dev` requires the context file to be a readable, current-user-owned regular file no larger than 32 KiB and publishes non-empty content as MCP initialization instructions. The renderer requires the env file to be a readable, current-user-owned regular file no larger than 64 KiB and permits only `GALLIUM_DRIVER`, `MOZ_ENABLE_WAYLAND`, `AGENT_BROWSER_PROFILE`, and `AGENT_BROWSER_EXECUTABLE_PATH`. The Agent Browser settings are Linux `browser-fast`-only; the executable path must be absolute and executable. Generated `owner.env` still contains only the validated Dev/Terminal GUI variables, so Agent Browser settings are not imported into systemd service environments. Do not put trust policy or secrets in `.env` or the owner GUI env.
 
-Linux `browser-fast` also reads the current-user-owned `~/.config/mcp-dev-bridge/browser-fast.json` before each backend call. Missing configuration preserves the managed Chrome behavior. Copy `config/browser-fast.example.json` to that path for an explicit selector. Set `linux.browser` to `clearcote` and add an integer `linux.cdpPort` to attach Agent Browser to a separately started loopback Clearcote CDP server; set it back to `chrome` to restore the managed WSLg browser. Save changes only between complete `observe`/`execute` operations and observe again after switching because refs and tab IDs belong to the previous browser. Firefox is not supported by Agent Browser 0.35.0 because it does not expose Chromium CDP; selecting it returns `UNSUPPORTED_BROWSER_BACKEND` instead of falling through to Chrome.
+Linux `browser-fast` also reads the current-user-owned `~/.config/mcp-dev-bridge/browser-fast.json` before each backend call. Missing configuration preserves managed Chrome. The current V2 configuration can select a named managed Clearcote profile; WebHarness owns that profile and its ephemeral loopback CDP endpoint while Agent Browser remains the observation/ref layer. The older V1 `cdpPort` form is retained only as a migration compatibility path. Save backend changes only between complete `observe`/`execute` operations and observe again after switching because refs and tab IDs belong to the previous browser. Firefox is not supported by the current Chromium-CDP driver and fails explicitly rather than falling through to Chrome.
 
 ## Profiles
 
@@ -49,30 +49,30 @@ Linux `browser-fast` also reads the current-user-owned `~/.config/mcp-dev-bridge
 - No Code provider.
 - No Terminal provider.
 
-### `personal`
+### `personal` — Personal Workstation
 
-Private-only profile:
+The maintained full reference composition is:
 
 ```text
 Dev       read edit write file_ops wait bash pc_sleep
 Code      code_search code_context code_symbol
 Terminal  terminal_open terminal_read terminal_send terminal_resize terminal_list terminal_yield terminal_close
-Local        tool_list tool_schema tool_call -> private logical browser servers
-browser      Chrome DevTools MCP 1.7.0 diagnostics/debugging facade
-browser-fast experimental observe/execute surface: Agent Browser 0.35.0 on Windows and Linux
+Local     tool_list tool_schema tool_call
+            |-- browser-fast      routine observe/execute interaction
+            `-- browser-devtools  Chrome DevTools diagnostics
 ```
 
-The renderer resolves one absolute personal default cwd from `MCP_PERSONAL_DEFAULT_CWD` when supplied, otherwise from the actual WSL user's `$HOME`, and uses it for both Dev and Code. No tracked personal profile/template carries a machine-specific home path. Terminal communicates through the private broker socket and receives one normalized `MCP_TERMINAL_FRONTEND` presentation preference; tracked source keeps `kitty` as the compatibility default while a local deployment may select `windows-terminal`.
+The renderer resolves one absolute personal default cwd from `MCP_PERSONAL_DEFAULT_CWD` when supplied, otherwise from the actual WSL user's `$HOME`, and uses it for both Dev and Code. No tracked personal profile/template carries a machine-specific home path. Terminal communicates through the WebHarness broker socket and receives one normalized `MCP_TERMINAL_FRONTEND` presentation preference; tracked source keeps `kitty` as the compatibility default while a local deployment may select `windows-terminal`.
 
-For personal rendering, the outer config contains `local`, `code`, `dev`, and `terminal`. The outer `local` provider is tagged only `local` and points at the repository Local broker. The renderer also atomically materializes a private inner config at the bridge state root containing `browser` and experimental `browser-fast`, and writes that inner config before publishing the outer config so config reload cannot start Local against a missing file. The Local broker starts pinned 1MCP over stdio in direct mode and exposes only bounded discovery/schema/call metatools.
+For personal rendering, the outer config contains `local`, `code`, `dev`, and `terminal`. The outer `local` provider is tagged only `local` and points at the repository Local broker. The renderer also atomically materializes a Local inner config at the bridge state root containing `browser-devtools` and `browser-fast`, and writes that inner config before publishing the outer config so config reload cannot start Local against a missing file. The Local broker starts pinned 1MCP over stdio in direct mode and exposes only bounded discovery/schema/call metatools.
 
-`browser` remains the full Chrome DevTools MCP facade for diagnostics and rich results; its tools default to the dedicated persistent Windows MCP Chrome profile and use `browser_target=linux` for WSLg. `browser-fast` exposes only `observe` and `execute` for routine interaction and uses pinned Agent Browser 0.35.0 on both targets. The Windows target remains the dedicated shared MCP Chrome runtime. The Linux target normally uses managed Chrome but can hot-select a separately started Clearcote CDP endpoint through `~/.config/mcp-dev-bridge/browser-fast.json`; each backend has a distinct Agent Browser session. Each observation also checks the WSL-user browser-memory root at `~/.config/mcp-dev-bridge/browser-memory/`. `policies/<host>/` and `sites/<host>/` are exact canonical-host lookups; `platforms/<name>/match.json` can declare `hosts`, `host_suffixes`, or `url_prefixes` for reusable platform memory. Missing memory is valid and unknown/custom company sites continue through the generic browser flow. Upload actions use logical names from `~/.config/mcp-dev-bridge/browser-artifacts.json`, whose values are absolute WSL paths to intentionally browser-shareable files. The action schema never accepts a raw file path. Windows uploads translate the approved WSL path to its `\\wsl.localhost` form before calling Agent Browser; Linux uses the path directly. Windows keeps the MCP Chrome data directory at `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`; a shared runtime launches that visible profile with an ephemeral debugging port and supplies its `DevToolsActivePort` endpoint to both logical servers. The everyday Chrome user-data directory is not attached or copied. The tracked templates carry only generic WSLg plumbing. Personal runtime/browser policy comes from the optional owner env: Dev, the Terminal MCP provider, and the Terminal/tmux services receive the validated GUI values; both Linux browser surfaces may receive `GALLIUM_DRIVER`; and Linux `browser-fast` alone may receive `AGENT_BROWSER_PROFILE` plus `AGENT_BROWSER_EXECUTABLE_PATH`. A named profile lets Agent Browser snapshot the source Chrome profile into its controlled session instead of making the harness own or mutate that Chrome user-data directory. This keeps workstation-specific browser and GUI choices out of active tracked configuration. Both browser surfaces stay behind the same `tag:local` authorization boundary.
+`browser-devtools` is the full Chrome DevTools MCP facade for diagnostics and rich results; its tools default to the dedicated persistent Windows MCP Chrome profile and use `browser_target=linux` for WSLg. `browser-fast` exposes only `observe` and `execute` for routine interaction and uses pinned Agent Browser 0.35.0 on both targets. The Windows target remains the dedicated shared MCP Chrome runtime. The Linux target normally uses a managed browser selected through `~/.config/mcp-dev-bridge/browser-fast.json`; the maintained V2 Clearcote path owns a named persistent profile and ephemeral loopback CDP endpoint, while the legacy V1 external `cdpPort` form remains readable during migration. Each observation also checks the WSL-user browser-memory root at `~/.config/mcp-dev-bridge/browser-memory/`. `policies/<host>/` and `sites/<host>/` are exact canonical-host lookups; `platforms/<name>/match.json` can declare `hosts`, `host_suffixes`, or `url_prefixes` for reusable platform memory. Missing memory is valid and unknown/custom company sites continue through the generic browser flow. Upload actions use logical names from `~/.config/mcp-dev-bridge/browser-artifacts.json`, whose values are absolute WSL paths to intentionally browser-shareable files. The action schema never accepts a raw file path. Windows uploads translate the approved WSL path to its `\\wsl.localhost` form before calling Agent Browser; Linux uses the path directly. Windows keeps the MCP Chrome data directory at `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`; a shared runtime launches that visible profile with an ephemeral debugging port and supplies its `DevToolsActivePort` endpoint to both logical servers. The everyday Chrome user-data directory is not attached or copied. The tracked templates carry only generic WSLg plumbing. Personal runtime/browser policy comes from the optional owner env: Dev, the Terminal MCP provider, and the Terminal/tmux services receive the validated GUI values; both Linux browser surfaces may receive `GALLIUM_DRIVER`; and Linux `browser-fast` alone may receive `AGENT_BROWSER_PROFILE` plus `AGENT_BROWSER_EXECUTABLE_PATH`. A named profile lets Agent Browser snapshot the source Chrome profile into its controlled session instead of making the harness own or mutate that Chrome user-data directory. This keeps workstation-specific browser and GUI choices out of active tracked configuration. Both browser surfaces stay behind the same `tag:local` authorization boundary.
 
 `pc_sleep` is registered only in this personal user-path mode and uses Windows Task Scheduler for an optional wake time. Code has no repository-size preflight or threshold: first use may start a persistent CodeDB child and create or update substantial on-disk index state, potentially consuming significant disk and RAM. Tool descriptions steer large or unfamiliar repository discovery toward Dev Bash/`rg` and focused `read` first; that guidance is not runtime enforcement.
 
 ## Rendering
 
-Public/general setup calls the renderer for you. Direct rendering is also supported:
+`webharness setup` calls the renderer for you. Direct rendering is also supported:
 
 ```bash
 node scripts/render-config.mjs \
@@ -82,9 +82,10 @@ node scripts/render-config.mjs \
 
 The renderer accepts `restricted`, `trusted-dev`, and `personal`.
 
-Useful overrides:
+Useful options:
 
 ```text
+--check           validate without writing generated state
 --env-file PATH
 --state-dir PATH
 --repo-root PATH
@@ -107,7 +108,7 @@ owner.env         sanitized personal GUI environment when the personal profile i
 1mcp/config.toml  rendered 1MCP application policy, including bounded native logging
 1mcp/             1MCP writable application/OAuth/session state
 logs/one-mcp.log  current native 1MCP application log; rotated siblings stay in logs/
-dev/              private Dev durable state when enabled
+dev/              Dev durable retained-output state when enabled
 ```
 
 Transient process state is kept under `${XDG_RUNTIME_DIR:-/run/user/$UID}/mcp-dev-bridge`.

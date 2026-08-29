@@ -12,6 +12,7 @@ Required:
   --profile trusted-dev  Unrestricted agentic shell as the Linux service user
 
 Options:
+  --enable-startup       Explicitly install, enable, and start the user service
   --env-file PATH        Deployment env file (default: .env)
   --state-dir PATH       Persistent state root override
   --help                 Show this help
@@ -21,8 +22,13 @@ EOF
 PROFILE=""
 ENV_FILE="$DIR/.env"
 STATE_DIR=""
+ENABLE_STARTUP=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --enable-startup)
+      ENABLE_STARTUP=1
+      shift
+      ;;
     --profile)
       [ "$#" -ge 2 ] || { echo "missing value for --profile" >&2; usage >&2; exit 2; }
       PROFILE="$2"
@@ -86,8 +92,37 @@ fi
 echo "== rendering deployment state =="
 node "$DIR/scripts/render-config.mjs" "${RENDER_ARGS[@]}"
 
+if [ "$ENABLE_STARTUP" -eq 1 ]; then
+  USER_NAME="$(id -un)"
+  RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  EFFECTIVE_STATE_DIR="${STATE_DIR:-${MCP_BRIDGE_STATE_DIR:-${XDG_STATE_HOME:-${HOME:?HOME is required}/.local/state}/mcp-dev-bridge}}"
+
+  echo "== installing WebHarness user service =="
+  HOME="$HOME" BRIDGE_STATE_DIR="$EFFECTIVE_STATE_DIR" "$DIR/scripts/install-systemd-user.sh"
+  command -v systemctl >/dev/null 2>&1 || { echo "systemctl is required for --enable-startup" >&2; exit 1; }
+  command -v loginctl >/dev/null 2>&1 || { echo "loginctl is required for --enable-startup" >&2; exit 1; }
+  export XDG_RUNTIME_DIR="$RUNTIME_DIR"
+  export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+  [ -S "$XDG_RUNTIME_DIR/bus" ] || { echo "systemd user bus is unavailable at $XDG_RUNTIME_DIR/bus" >&2; exit 1; }
+
+  if [ "$(loginctl show-user "$USER_NAME" -p Linger --value 2>/dev/null || true)" != yes ]; then
+    if ! loginctl enable-linger "$USER_NAME"; then
+      command -v sudo >/dev/null 2>&1 || { echo "failed to enable linger for $USER_NAME and sudo is unavailable" >&2; exit 1; }
+      sudo loginctl enable-linger "$USER_NAME"
+    fi
+  fi
+  [ "$(loginctl show-user "$USER_NAME" -p Linger --value 2>/dev/null || true)" = yes ] || { echo "user linger is still disabled for $USER_NAME" >&2; exit 1; }
+
+  systemctl --user daemon-reload
+  systemctl --user enable --now mcp-dev-bridge.service
+  systemctl --user is-active mcp-dev-bridge.service >/dev/null
+  echo "WebHarness startup service is installed and active"
+else
+  echo "startup service was not installed; rerun with --enable-startup to explicitly consent"
+fi
+
 echo "== next steps =="
-echo "  autostart: scripts/install-systemd-user.sh"
-echo "  start:     bin/start"
-echo "  inspect:   bin/status"
-echo "  stop:      bin/stop"
+echo "  doctor: webharness doctor --profile $PROFILE"
+echo "  start:  webharness start"
+echo "  status: webharness status"
+echo "  stop:   webharness stop"

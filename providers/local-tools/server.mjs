@@ -151,7 +151,7 @@ export class InnerDirect1Mcp {
     } catch (error) {
       inner.closed = true;
       try { await transport.close(); } catch { /* failed startup may already be closed */ }
-      throw brokerError('INNER_START_FAILED', 'failed to start private inner 1MCP', error);
+      throw brokerError('INNER_START_FAILED', 'failed to start inner 1MCP', error);
     }
   }
 
@@ -160,12 +160,12 @@ export class InnerDirect1Mcp {
   }
 
   async listTools(cursor) {
-    if (!this.alive) throw brokerError('INNER_UNAVAILABLE', 'private inner 1MCP is not running');
+    if (!this.alive) throw brokerError('INNER_UNAVAILABLE', 'inner 1MCP is not running');
     return this.client.listTools(cursor === undefined ? undefined : { cursor });
   }
 
   async callTool(name, args = {}) {
-    if (!this.alive) throw brokerError('INNER_UNAVAILABLE', 'private inner 1MCP is not running');
+    if (!this.alive) throw brokerError('INNER_UNAVAILABLE', 'inner 1MCP is not running');
     return this.client.callTool({ name, arguments: args });
   }
 
@@ -209,7 +209,7 @@ export class LocalToolBroker {
       return await this.inner.listTools(cursor);
     } catch (error) {
       if (error?.code === 'INNER_UNAVAILABLE') throw error;
-      throw brokerError('INNER_LIST_FAILED', 'failed to list private inner tools', error);
+      throw brokerError('INNER_LIST_FAILED', 'failed to list inner tools', error);
     }
   }
 

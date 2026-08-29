@@ -9,18 +9,16 @@ Cloudflare Tunnel
   -> loopback origin
 1MCP :3050
   -> Dev
-  -> Code       (personal only)
-  -> Terminal   (personal only)
-  -> Local      (personal only, tag:local)
-       -> private inner 1MCP -> Browser
+  -> Code       (Personal Workstation)
+  -> Terminal   (Personal Workstation)
+  -> Local      (Personal Workstation, tag:local)
+       -> inner 1MCP
+            |-- browser-fast
+            `-- browser-devtools
 Linux / WSL host
 ```
 
-1MCP is the single public MCP gateway. Cloudflare supplies the public HTTPS transport; providers remain local stdio processes.
-
-An optional WebSession adapter runs separately on loopback `:3051` for constrained non-MCP clients. Cloudflare may route only `/probe/*` and `/v1/*` to it while `/mcp`, OAuth, and discovery remain on 1MCP `:3050`. The adapter exposes a universal readable-GET facade plus a preferred bearer-authenticated JSON POST facade; both normalize into the same SQLite-backed durable operation core with nonce idempotency, explicit capability revocation, operation-scoped read continuations, immutable bounded text chunks, and universal-GET proof-of-read confirmation. The adapter authenticates back to the existing public 1MCP gateway with its own persisted authorization-code/PKCE credential and never bypasses 1MCP to reach providers directly. WebSession does not define a second tool-permission model: OAuth scope is resolved from live 1MCP metadata (currently `tag:code tag:dev tag:terminal`, matching main), discovery mirrors the live 1MCP tool descriptors, and calls use the exact upstream tool names and arguments.
-
-WebSession is not part of the normal bridge lifecycle: `bin/start`, `bin/stop`, `bin/status`, the watchdog, and `mcp-dev-bridge.service` continue to own only the existing 1MCP path. The adapter is authorized with `bin/adapter auth` and started explicitly with `bin/adapter start`; public adapter ingress is configured separately and never replaces `/mcp`.
+1MCP is the single public MCP gateway in the maintained reference deployment. Cloudflare supplies HTTPS transport; providers remain local stdio processes. The model-facing compatibility contract is documented in [MCP Compatibility](compatibility.md).
 
 ## Capability boundaries
 
@@ -94,9 +92,7 @@ Terminal broker socket   ${XDG_RUNTIME_DIR:-/run/user/$UID}/wsl-agent-terminal.s
 
 The bridge supervises one config-scoped 1MCP process, one cloudflared process, and one watchdog. Lifecycle operations use an exclusive lock and validated process ownership.
 
-The optional WebSession adapter has independent manual lifetime. `bin/adapter start|stop|status` owns only that process; `bin/adapter auth|auth-status` owns its separate 1MCP OAuth credential and `bin/adapter issue-cap` is an explicit operator capability-issuance action. Normal bridge startup and user-systemd startup do not enable the adapter.
-
-Personal Terminal lifetime is split into two user services:
+Personal Workstation Terminal lifetime is split into two user services:
 
 ```text
 wsl-agent-tmux.service             PTY/process lifetime
@@ -107,21 +103,21 @@ Restart the broker without restarting tmux when only broker/provider code change
 
 ### Local tool broker
 
-Personal local capabilities are model-facing through one `local` provider under `tag:local`. Browser capabilities are private logical servers behind it. The provider exposes exactly:
+Personal Workstation local capabilities are model-facing through one `local` provider under `tag:local`. Browser capabilities are logical servers behind it. The provider exposes exactly:
 
 ```text
 tool_list tool_schema tool_call
 ```
 
-The Local broker owns stable logical `{server, tool}` routing and connects over stdio to a private inner 1MCP running in normal direct mode. V1 keeps no broker catalog/schema cache: discovery and schema lookup consult current inner `tools/list`, while `tool_call` dispatches the qualified inner tool directly and returns the downstream `CallToolResult` unchanged. Discovery is bounded with an opaque self-contained cursor; downstream catalog churn does not change the outer three-tool surface.
+The Local broker owns stable logical `{server, tool}` routing and connects over stdio to an inner 1MCP running in normal direct mode. V1 keeps no broker catalog/schema cache: discovery and schema lookup consult current inner `tools/list`, while `tool_call` dispatches the qualified inner tool directly and returns the downstream `CallToolResult` unchanged. Discovery is bounded with an opaque self-contained cursor; downstream catalog churn does not change the outer three-tool surface.
 
 ### Browser
 
-The private inner 1MCP currently publishes two browser surfaces in the same `tag:local` trust domain:
+The Local inner 1MCP publishes two browser surfaces in the same `tag:local` trust domain:
 
 ```text
 Local
-  +-- server="browser"      -> Chrome DevTools MCP facade
+  +-- server="browser-devtools" -> Chrome DevTools MCP facade
   |    +-- windows (default) -> dedicated persistent MCP Chrome profile
   |    `-- linux             -> managed visible Chrome through WSLg
   `-- server="browser-fast" -> compact observe/execute facade
@@ -129,11 +125,11 @@ Local
        `-- linux             -> selected backend: managed Chrome or managed Clearcote
 ```
 
-`browser` keeps the complete Chrome DevTools MCP catalog for network, console, performance, Lighthouse, heap, screenshots, and detailed debugging. It adds `browser_target`, strips that field before forwarding, and returns downstream `CallToolResult` objects unchanged.
+`browser-devtools` keeps the complete Chrome DevTools MCP catalog for network, console, performance, Lighthouse, heap, screenshots, and detailed debugging. It adds `browser_target`, strips that field before forwarding, and returns downstream `CallToolResult` objects unchanged.
 
 `browser-fast` is an experimental routine-interaction surface with only `observe` and `execute`. `observe` returns compact interactive refs plus stable Agent Browser/CDP target IDs. It also resolves bounded read-only browser memory from `~/.config/mcp-dev-bridge/browser-memory/`: exact-host policy, exact-host site knowledge, then reusable platform knowledge whose `match.json` matches the current host/URL. Exact site lookup scales without scanning every learned company; platform scans stay limited to the reusable platform catalog. The resolver strips only leading `www.` and does not collapse arbitrary subdomains into one key. Up to six Markdown files are returned, capped at 16 KiB per file and 48 KiB total; malformed/missing local memory becomes a warning rather than a browser failure. `execute` requires the tab ID returned by `observe`, serializes the complete operation per browser target, validates that the pinned Agent Browser session is still on that exact target without switching tabs, runs mechanical actions locally, stops on the first error by default, never retries, and reports completed/failed/unknown/not-run steps plus a final observation. After each click, it compares the target set: exactly one new target is bound before later actions and final observation, zero continues on the current target, and multiple new targets stop the sequence without guessing. Other tab switching remains an Agent Browser operation through `observe(tab=...)` or an explicit `tab_switch` action.
 
-The Linux browser-process seam is a small owner-controlled selector at `~/.config/mcp-dev-bridge/browser-fast.json`. V2 may select a named managed Clearcote profile. Clearcote owns a persistent profile beneath bridge state and launches a headed or headless Chromium context with an ephemeral loopback CDP endpoint; Agent Browser attaches to that same process for snapshots, refs, and target IDs. Supported input actions are then executed through the Clearcote-owned humanized Playwright context, while navigation, tab bookkeeping, waits, and approved uploads keep the existing Agent Browser path. V1 `cdpPort` Clearcote configuration remains a compatibility path during migration. The file is reread for backend calls; operators switch only between complete operations and discard prior refs. Windows remains on the shared dedicated Chrome runtime because the full DevTools `browser` facade and `browser-fast` intentionally share that process. Firefox is outside this seam because Agent Browser 0.35.0 is Chromium-CDP-only.
+The Linux browser-process seam is a small owner-controlled selector at `~/.config/mcp-dev-bridge/browser-fast.json`. V2 may select a named managed Clearcote profile. Clearcote owns a persistent profile beneath bridge state and launches a headed or headless Chromium context with an ephemeral loopback CDP endpoint; Agent Browser attaches to that same process for snapshots, refs, and target IDs. Supported input actions are then executed through the Clearcote-owned humanized Playwright context, while navigation, tab bookkeeping, waits, and approved uploads keep the existing Agent Browser path. V1 `cdpPort` Clearcote configuration remains a compatibility path during migration. The file is reread for backend calls; operators switch only between complete operations and discard prior refs. Windows remains on the shared dedicated Chrome runtime because the full DevTools `browser-devtools` facade and `browser-fast` intentionally share that process. Firefox is outside this seam because Agent Browser 0.35.0 is Chromium-CDP-only.
 
 File upload reuses Agent Browser 0.35.0's native `upload` command rather than adding Browser Harness's Python/CDP runtime. The model supplies an observed input ref plus a logical `artifact` name. `browser-fast` resolves that name through `~/.config/mcp-dev-bridge/browser-artifacts.json`, requires the configured target to resolve to a regular file, and passes only the resolved approved path to Agent Browser. Windows uploads translate the WSL path with `wslpath -w`; Linux uploads keep the WSL path. Arbitrary model-supplied filesystem paths are not part of the action schema.
 
@@ -141,10 +137,10 @@ The memory design ports Browser Harness's MIT-licensed disk-backed domain-skill 
 
 Learning stays outside Local browser authority. The Dev-only `providers/browser-fast/browser-memory-author.mjs` stages one exact-host observation with `propose` under `candidates/<host>/`, which `observe` never loads. A separate `promote` call creates `sites/<host>/<name>.md` with create-only semantics and removes the candidate after success. Both operations derive the exact host from the URL; provenance drops query strings and fragments. No page, successful form submission, or Browser call promotes memory automatically.
 
-Private domain workflows are optional extensions above this generic browser layer. `bin/extension` installs/removes extension-owned browser-memory contributions and namespaced approved-artifact aliases from manifests under `extensions/<name>/`; Browser core imports no extension. Required private source paths and artifacts are preflighted before browser-memory mutation, then the resolved source map is written to the enabled extension state for the domain Skill to consume. An extension may also be source-only: `x-content` declares no Browser memory or browser artifacts and exposes only a configured private content workspace to its Skill. This keeps writing voice, hooks, audience language, topic strategy, and learned content heuristics outside Browser memory. Shared recognition knowledge such as a platform `match.json` may remain after removal, while extension-lifetime policy/strategy files and artifact aliases are removed. Exact-site memory learned later is shared Browser knowledge and is not owned by the originating extension. ChatGPT Skill installation remains a separate client-side action. Deleting or disabling an extension therefore does not require modifying `browser-fast`, `browser`, Local, or Chrome lifecycle.
+Optional domain workflows are extensions above this generic browser layer. `bin/extension` installs or removes manifest-declared browser-memory contributions, namespaced approved-artifact aliases, and configured source mappings; Browser core imports no extension. Required sources, artifacts, memory targets, and alias conflicts are preflighted before mutation. Removal deletes only extension-lifetime contributions while shared platform recognition, learned exact-site memory, and operator-owned source data remain outside the extension lifetime. ChatGPT Skill installation is separate client-side state. Enabling or disabling an extension therefore does not require modifying `browser-fast`, `browser-devtools`, Local, or Chrome lifecycle.
 
-Windows browser ownership is shared below both logical surfaces by one runtime. It keeps persistent browser state under `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`, launches visible Google Chrome with `--user-data-dir` plus `--remote-debugging-port=0` when that profile is not already healthy, waits for that profile's `DevToolsActivePort`, and returns the resulting loopback HTTP/WebSocket endpoints. `browser` connects Chrome DevTools MCP to the HTTP endpoint with `--browserUrl`; `browser-fast` connects pinned native Agent Browser 0.35.0 to the WebSocket with `--cdp` and `--pin-tab`. The everyday Chrome data directory is never an MCP execution target. The MCP profile persists cookies, local storage, extensions, and sign-ins across Chrome restarts, so the user can sign into this visible profile once and reuse it. Agent Browser's separate one-shot Windows Node helper still owns bounded stdout/stderr capture so cold daemon startup cannot keep the WSL interop lifetime open. On Linux, Agent Browser remains the pinned observation/ref layer for both backends; managed Chrome also uses it for execution, while managed Clearcote uses its own Playwright context for humanized input. Complete operations are serialized per target, normalized tab IDs prefer the CDP `targetId`, and each `observe` explicitly rebinds the chosen/current target before snapshotting so a strict pin can recover after its prior target is closed.
+Windows browser ownership is shared below both logical surfaces by one runtime. It keeps persistent browser state under `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`, launches visible Google Chrome with `--user-data-dir` plus `--remote-debugging-port=0` when that profile is not already healthy, waits for that profile's `DevToolsActivePort`, and returns the resulting loopback HTTP/WebSocket endpoints. `browser-devtools` connects Chrome DevTools MCP to the HTTP endpoint with `--browserUrl`; `browser-fast` connects pinned native Agent Browser 0.35.0 to the WebSocket with `--cdp` and `--pin-tab`. The everyday Chrome data directory is never an MCP execution target. The MCP profile persists cookies, local storage, extensions, and sign-ins across Chrome restarts, so the user can sign into this visible profile once and reuse it. Agent Browser's separate one-shot Windows Node helper still owns bounded stdout/stderr capture so cold daemon startup cannot keep the WSL interop lifetime open. On Linux, Agent Browser remains the pinned observation/ref layer for both backends; managed Chrome also uses it for execution, while managed Clearcote uses its own Playwright context for humanized input. Complete operations are serialized per target, normalized tab IDs prefer the CDP `targetId`, and each `observe` explicitly rebinds the chosen/current target before snapshotting so a strict pin can recover after its prior target is closed.
 
 ## Trust/profile separation
 
-Public `restricted` and `trusted-dev` configurations do not gain private Code, Terminal, Local/Browser, `wait`, or personal Terminal-socket dependencies. The private `personal` profile is an explicit separate composition.
+`restricted` and `trusted-dev` remain smaller explicit compositions; they do not inherit Code, Terminal, Local/Browser, `wait`, or the Personal Workstation Terminal socket. `personal` is the full reference composition and remains an explicit authority choice.

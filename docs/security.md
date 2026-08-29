@@ -4,12 +4,12 @@ The effective security boundary is the selected profile plus the Linux account r
 
 ## `restricted`
 
-Use for conservative/public installations.
+Use when conservative workspace-bounded authority is required.
 
 - Files are confined to the configured workspace.
 - Dev does not expose unrestricted Bash.
 - A separate legacy shell provider enforces an allowlist policy.
-- No private Code or Terminal provider is present.
+- Code and Terminal are not present in this profile.
 
 ## `trusted-dev`
 
@@ -18,36 +18,36 @@ Use only on a dedicated development host where unrestricted shell authority is i
 - Files remain workspace-bounded.
 - Dev exposes native Bash with the permissions of the Linux service user.
 - Bash may reach files, processes, network resources, developer tools, and credentials accessible to that account even when the Files tools are workspace-bounded.
-- No private Code or Terminal provider is present.
+- Code and Terminal are not present in this profile.
 
-## `personal`
+## `personal` — Personal Workstation
 
-Private Codex-like WSL authority.
+Full reference-workstation authority.
 
 - Files use user-mode paths and may accept absolute paths.
 - Bash has the authority of the WSL user.
 - Code can inspect Git repositories reachable by that user.
 - Terminal can create and control persistent tmux-backed PTYs.
-- Durable waits can observe local process/port/file/HTTP/systemd state and private Terminal state.
+- Durable waits can observe local process/port/file/HTTP/systemd and WebHarness Terminal state.
 - Local Browser access can control the dedicated persistent Windows MCP Chrome profile or the separate managed WSLg Chrome profile after explicit `tag:local` authorization; everyday Windows Chrome remains outside MCP control.
 
 This profile is intentionally powerful. Treat it like giving a coding agent an interactive shell as your WSL user plus, when `tag:local` is granted, access to the local capability domain, which currently includes authenticated browser control.
 
-The outer `local` provider is the `tag:local` authorization boundary. Its generic `tool_call(server, tool, arguments)` means every downstream MCP admitted to that broker instance shares that authority. The private `browser` and experimental `browser-fast` logical servers intentionally share this local browser trust domain. A genuinely different trust domain needs a separate broker/scope or direct exposure.
+The outer `local` provider is the `tag:local` authorization boundary. Its generic `tool_call(server, tool, arguments)` means every downstream MCP admitted to that broker instance shares that authority. The `browser-devtools` and `browser-fast` logical servers intentionally share this local browser trust domain. A genuinely different trust domain needs a separate broker/scope or direct exposure.
 
-The DevTools `browser` facade intentionally does not advertise MCP filesystem roots to its internal Chrome DevTools MCP clients. Upstream path-bearing browser tools therefore remain restricted to the relevant OS temp directory. `browser-fast` has two narrow filesystem reads owned by the facade. Observation may read Markdown plus platform `match.json` beneath `~/.config/mcp-dev-bridge/browser-memory/` and return bounded content as strategy/policy metadata. Upload may read `~/.config/mcp-dev-bridge/browser-artifacts.json`, resolve one explicitly named approved file, and hand that file path to Agent Browser. The model never supplies a raw path, and an unlisted artifact is rejected before browser action dispatch. The artifact manifest is an upload allowlist, so it should contain only files the operator is willing to send to websites; it is not a destination allowlist and does not remove the need to verify the current form/site before uploading.
+The DevTools `browser-devtools` facade intentionally does not advertise MCP filesystem roots to its internal Chrome DevTools MCP clients. Upstream path-bearing browser tools therefore remain restricted to the relevant OS temp directory. `browser-fast` has two narrow filesystem reads owned by the facade. Observation may read Markdown plus platform `match.json` beneath `~/.config/mcp-dev-bridge/browser-memory/` and return bounded content as strategy/policy metadata. Upload may read `~/.config/mcp-dev-bridge/browser-artifacts.json`, resolve one explicitly named approved file, and hand that file path to Agent Browser. The model never supplies a raw path, and an unlisted artifact is rejected before browser action dispatch. The artifact manifest is an upload allowlist, so it should contain only files the operator is willing to send to websites; it is not a destination allowlist and does not remove the need to verify the current form/site before uploading.
 
 Browser memory is not executable. `browser-fast` never writes learned content or automatically persists webpage text, and it does not execute Browser Harness-style `agent_helpers.py`. Treat active memory as trusted local agent/operator configuration because its contents can influence browser strategy. The Dev-only `browser-memory-author.mjs` stages proposed exact-site knowledge under `candidates/`, which the resolver ignores, and requires a separate explicit `promote` operation before that content becomes active under `sites/`. Promotion never overwrites an existing site-memory file. Summarize reusable mechanics in candidates; do not persist webpage instructions, secrets, personal/candidate data, or one-off form answers as browser memory. Editing memory or the artifact manifest through Dev remains a separate WSL-user-authority action; Local browser access alone does not gain arbitrary filesystem write or Python execution.
 
-Private extensions do not receive additional Browser authority. `bin/extension` is an operator/Dev-side file installer: it preflights required private sources, approved artifacts, memory targets, and alias conflicts before activation; copies declared read-only memory contributions beneath the existing browser-memory root; and merges only explicitly configured namespaced aliases into the existing artifact allowlist. The resolved private source map is stored only in the enabled extension state for the corresponding domain Skill. Source-only extensions are valid: `x-content` uses enabled state only to reveal its configured private workspace and contributes no Browser memory or artifact aliases. Content patterns, audience language, post examples, and performance observations therefore never become implicit Browser strategy. Conflicting memory files or artifact aliases fail instead of overwriting another extension. Removal deletes extension-owned lifetime contributions and matching artifact aliases, keeps shared platform recognition, pre-existing identical memory, and private user data, and does not alter Browser provider code. The extension manager cannot install or remove ChatGPT Skills; that remains client-side state.
+Extensions do not receive additional Browser authority. `bin/extension` is an operator/Dev-side installer that preflights declared sources, approved artifacts, memory targets, and alias conflicts before activation. It may copy declared read-only memory contributions, merge explicitly namespaced artifact aliases, and record configured source mappings for an extension. Conflicts fail instead of overwriting another extension. Removal deletes only extension-lifetime contributions and matching aliases; shared platform recognition, learned exact-site memory, and operator-owned source data remain outside the extension lifetime. The extension manager cannot install or remove ChatGPT Skills; that remains client-side state.
 
 `execute` requires an observed tab ID and serializes the complete operation per browser target. Agent Browser 0.35.0 remains the strict `--pin-tab` observation/ref layer; normalized tab IDs prefer the CDP `targetId`, which Agent Browser accepts as a tab reference and keeps stable across daemon restarts. Immediately before mutation, `browser-fast` reads Agent Browser's tab list and requires the current target to equal `execute.tab`; it deliberately does not switch tabs in this precondition because switching invalidates snapshot refs. `observe` may explicitly bind a chosen/current target before taking its fresh snapshot, which is the recovery boundary after a strict pinned target is externally closed. Managed Clearcote input is bound back to the same target ID before dispatch through its Playwright context; ref-targeted input does not invent CSS/XPath selectors. A click may bind exactly one newly created target before later actions; multiple new targets stop the sequence without selecting one, preserving truthful completed/not-run states. On Windows, both logical browser surfaces share only `%LOCALAPPDATA%\\mcp-dev-bridge\\chrome-profile`, launched with an ephemeral loopback debugging port; the default everyday Chrome user-data directory is not attached, copied, or exposed to `tag:local`. Managed Linux Clearcote profiles live under bridge state and expose only an ephemeral loopback debugging endpoint. The fast executor never automatically retries a failed, partial, or unknown action batch, and no debugging endpoint is intentionally published beyond loopback.
 
 ## CodeDB resource guidance
 
-The personal Code tools are description-guided, not resource-enforced. A first Code call for a repository may start a persistent rooted CodeDB child and create or update substantial on-disk index state. On large repositories this can consume significant disk and RAM. The model-facing descriptions therefore direct large or unfamiliar repository discovery toward bounded Dev Bash/`rg` and focused `read` before CodeDB-backed intelligence when CodeDB state/cost is unknown.
+The Personal Workstation Code tools are description-guided, not resource-enforced. A first Code call for a repository may start a persistent rooted CodeDB child and create or update substantial on-disk index state. On large repositories this can consume significant disk and RAM. The model-facing descriptions therefore direct large or unfamiliar repository discovery toward bounded Dev Bash/`rg` and focused `read` before CodeDB-backed intelligence when CodeDB state/cost is unknown.
 
-There is no repository-size preflight, threshold, cgroup, or approval database in this design. Because personal Bash intentionally has the WSL user's authority, description text cannot form a privilege boundary against deliberate raw CLI use; it is routing guidance intended to prevent accidental expensive work.
+There is no repository-size preflight, threshold, cgroup, or approval database in this design. Because Personal Workstation Bash intentionally has the WSL user's authority, description text cannot form a privilege boundary against deliberate raw CLI use; it is routing guidance intended to prevent accidental expensive work.
 
 
 ## Edit mutation guarantees
@@ -86,19 +86,11 @@ Human keystrokes are never copied into a separate broker-side input log. Sudo/pa
 
 ## Public exposure
 
-1MCP listens on loopback `:3050`. Cloudflare exposes HTTPS and OAuth remains required for the public MCP origin. The optional WebSession adapter listens separately on loopback `:3051`; only explicitly configured `/probe/*` and `/v1/*` paths may be routed to it, while `/mcp`, OAuth, discovery, and all other paths remain on 1MCP.
+1MCP listens on loopback `:3050`. Cloudflare exposes HTTPS and OAuth remains required for the public MCP origin. Providers and browser debugging endpoints remain local implementation details; the reference deployment does not intentionally expose raw provider stdio, the Local inner 1MCP, Chrome DevTools endpoints, or Terminal broker sockets beyond the host boundaries that own them.
 
-WebSession does not bypass 1MCP. It uses a dedicated dynamically registered authorization-code/PKCE client and stores that credential only in private adapter state. The adapter does not request a narrower scope; the MCP SDK resolves scope from live 1MCP protected-resource/authorization metadata, the same authority that governs the main bridge. Its existing grant remains `tag:code tag:dev tag:terminal` unless separately reauthorized; adding `tag:local` to ChatGPT must not silently widen WebSession. 1MCP remains the authorization and tool-surface owner; WebSession adds no narrower or broader tool permission layer. Pinned 1MCP 0.36.0 supports rotating refresh tokens for clients that register that grant type, but no client may fall back to unauthenticated provider access when OAuth restoration fails.
+Pinned 1MCP 0.36.0 permits only loopback OAuth callback origins in its consent-page CSP. The reference installer applies a fail-closed compatibility patch that also permits the exact registered HTTPS callback origin; it does not permit arbitrary HTTPS form destinations. Requalify this patch when changing the pinned 1MCP version.
 
-Universal WebSession capabilities are high-entropy bearer values carried in URL paths because the compatibility profile cannot require headers; richer clients send the same capability in the `Authorization` header instead. The adapter stores only capability hashes, applies expiry and explicit operator revocation, returns `Cache-Control: no-store` and `Referrer-Policy: no-referrer`, and uses a different operation-scoped continuation token for later status/result reads. Revoking submission authority blocks discovery/new operations but intentionally does not invalidate already-issued read-only operation continuations. Raw submission capabilities and OAuth credentials must not enter ordinary logs, SQLite operation records, docs, or Git. Both universal GET and enhanced POST require durable nonce idempotency because duplicate origin delivery was observed during client probing. Large text results are bounded, split on UTF-8-safe boundaries, and persisted as immutable numbered chunks with per-chunk hashes.
-
-An optional operator-set master bearer is a password-equivalent bootstrap secret for richer HTTP clients. It is accepted only by `POST /v1/access`, stored only as a private hash outside Git, and exchanges into an ordinary `main` capability with a fixed six-hour lifetime. The master bearer is never accepted as a submission capability itself and is deliberately unavailable in URL-based universal GET routes. Rotating it replaces the stored hash immediately without extending or invalidating already-issued finite capabilities.
-
-The adapter capability is only a transport bearer for the adapter's existing 1MCP authority; it does not encode per-tool read/write scopes. Universal GET submissions require an operation-bound proof-of-read confirmation before any upstream tool dispatch because a GET-capable client or intermediary may replay or prefetch URLs. The returned confirmation base deliberately omits the challenge. Enhanced authenticated POST submissions do not add this GET-specific confirmation step. In both profiles, 1MCP remains responsible for whether the exact upstream tool call is authorized and available.
-
-Dispatch intent is durably recorded immediately before every MCP tool call. If the call produces a normal MCP result, that result determines `completed` or `tool_failed`. If the worker loses the result after dispatch may have begun, the operation becomes terminal `unknown_outcome` and is never automatically retried. This avoids inferring which upstream tools are safe to repeat.
-
-Pinned 1MCP 0.36.0 permits only loopback OAuth callback origins in its consent-page CSP. The installer applies a fail-closed compatibility patch that also permits the exact registered HTTPS callback origin; it does not permit arbitrary HTTPS form destinations. Local capability authority is separate from Dev/Code/Terminal: `tag:local` exposes the three-tool Local broker, whose private inner 1MCP contains the DevTools `browser` surface and experimental `browser-fast` interaction surface. Both can reach resource-local browser state only after explicit client authorization at that outer domain.
+Local capability authority is separate from Dev/Code/Terminal: `tag:local` exposes the three-tool Local broker, whose inner 1MCP contains `browser-devtools` and `browser-fast`. Both can reach resource-local browser state only after explicit client authorization at that outer domain.
 
 ## Sensitive state
 
@@ -106,11 +98,9 @@ Keep these outside Git:
 
 - `.env` deployment identity;
 - generated 1MCP configuration;
-- OAuth/session state, including WebSession `oauth.json`;
-- WebSession SQLite operation state and continuation/confirmation signing key;
-- WebSession master-bearer hash;
+- OAuth/session state;
 - logs and PID/runtime files;
-- private Terminal state;
+- Terminal state;
 - credentials and tunnel secrets.
 
-Historical engineering evidence under `docs/history/` is excluded from the public publication surface because it can contain old private-machine context.
+Historical engineering evidence under `docs/history/` is excluded from the public reference distribution because it can contain superseded or machine-specific context.

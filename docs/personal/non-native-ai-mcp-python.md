@@ -8,7 +8,7 @@ Use this when an AI environment can execute Python and make outbound HTTPS reque
 Act as an advanced Python agent. I need you to connect to a remote, OAuth-protected MCP server from your Python/code-execution environment.
 
 Target MCP URL:
-https://mcp.hamza.my.id/mcp
+https://mcp.example.com/mcp
 
 STRICT REQUIREMENTS
 
@@ -71,7 +71,7 @@ Use this version when `pip`, PyPI, wheel installation, or third-party imports ar
 Act as an advanced Python agent. I need you to connect to a remote, OAuth-protected MCP server from a constrained Python sandbox with NO third-party package installation.
 
 Target MCP URL:
-https://mcp.hamza.my.id/mcp
+https://mcp.example.com/mcp
 
 STRICT REQUIREMENTS
 
@@ -214,7 +214,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-MCP_URL = "https://mcp.hamza.my.id/mcp"
+MCP_URL = "https://mcp.example.com/mcp"
 USER_AGENT = "portable-mcp-stdlib/1.0"
 HTTP_TIMEOUT_SECONDS = 15
 

@@ -21,4 +21,4 @@ rm -f "$BRIDGE_TUNNEL_URL_FILE"
 bridge_lock_release
 trap - EXIT INT TERM
 
-echo "WebSession MCP Bridge stopped"
+echo "WebHarness stopped"
